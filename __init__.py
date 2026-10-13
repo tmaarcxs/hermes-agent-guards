@@ -29,13 +29,15 @@ Modules:
 - ``review_gate`` (same condition) blocks ``kanban_request_review`` until the five pre-review
   checks are closed in ``todo_list``;
 - ``stale_wake`` wakes a card's subscribed chat once when the card has not moved for 1 h
-  (needs ``plugins.entries.agent-guards.allow_gateway_injection: true``).
+  (needs ``plugins.entries.agent-guards.allow_gateway_injection: true``);
+- ``review_loop`` wakes the same chats when an open card reaches 3, 6, 9... review rounds
+  with changes requested (same injection setting).
 """
 
 import re
 from typing import Any, Optional
 
-from . import kanban_policy, repeat_guard, review_gate, skill_size, stale_wake
+from . import kanban_policy, repeat_guard, review_gate, review_loop, skill_size, stale_wake
 
 _START = r"(?:^|[;&|\n(`{]|\$\(|\bthen\b|\bdo\b|\belse\b)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:sudo\s+|command\s+)?"
 _SEGMENT_END = re.compile(r"[;\n]|&&|\|\|")
@@ -61,6 +63,7 @@ def register(ctx) -> None:
     ctx.register_hook("pre_tool_call", _pre_tool_call)
     ctx.register_hook("post_tool_call", _post_tool_call)
     stale_wake.register(ctx)
+    ctx.register_hook("on_kanban_dispatch_tick", review_loop.on_tick)
 
 
 def _segments(command: str, pattern: re.Pattern) -> list[str]:

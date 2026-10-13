@@ -28,6 +28,8 @@ Worker setups (only when `kanban.default_assignee` is set in the profile config)
 
 Stale card wake (`stale_wake`): on the Kanban dispatcher tick (at most hourly) it wakes each chat subscribed to a triage/todo/ready/review/blocked card whose last state change is at least 1 h old, once per card state. It needs gateway injection to be allowed:
 
+Review loop wake (`review_loop`): on the dispatcher tick (at most every 5 min) it wakes each chat subscribed to an open card that has reached 3, 6, 9... review rounds with changes requested, once per threshold, with the latest requested change, so the lead narrows, splits, corrects or takes over the card. It uses the same gateway injection setting.
+
 ```yaml
 plugins:
   entries:
