@@ -43,3 +43,5 @@ hermes plugins install tmaarcxs/hermes-agent-guards --enable
 ```bash
 python3 -m pytest -q tests
 ```
+
+Updates: installs without `--ref` follow `main`; with `plugins.auto_apply: true` Hermes pulls new commits on its update-check cadence (`plugins.auto_update_check_hours`). A private fork needs read access for the Hermes host, for example a read-only deploy key.
