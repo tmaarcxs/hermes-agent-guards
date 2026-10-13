@@ -1,4 +1,4 @@
-"""Block ``kanban_request_review`` until the five pre-review checks are closed in the task list.
+"""Block ``kanban_request_review`` until the six pre-review checks are closed in the task list.
 
 Active only in worker setups (``kanban.default_assignee`` set; see ``kanban_policy``).
 
@@ -14,7 +14,9 @@ from typing import Any, Optional
 
 from . import kanban_policy
 
-CHECKS = ("Failure lifecycle", "Model evidence", "Claims within evidence", "Real boundary", "Stale siblings")
+CHECKS = (
+    "Contract coverage", "Failure lifecycle", "Model evidence", "Claims within evidence", "Real boundary", "Stale siblings",
+)
 _MAX_SESSIONS = 200
 
 _todos: "OrderedDict[str, list[dict[str, Any]]]" = OrderedDict()

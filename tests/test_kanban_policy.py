@@ -10,7 +10,8 @@ policy = guard.kanban_policy
 def worker_setup(monkeypatch):
     monkeypatch.setattr(policy, "configured_worker", lambda: "worker")
 
-VALID = {"title": "Review X", "assignee": "worker", "body": "spec", "parents": ["t_1"]}
+VALID = {"title": "Review X", "assignee": "worker", "body": "Goal: spec\n\n## Acceptance\n1. `pytest -q` exits 0\n2. PR open",
+         "parents": ["t_1"]}
 
 
 def blocked(tool, args):
@@ -88,3 +89,22 @@ def test_configured_worker_reads_kanban_default_assignee(monkeypatch):
     assert policy.configured_worker() == "worker"
     fake.load_config_readonly = lambda: {}
     assert policy.configured_worker() == ""
+
+
+@pytest.mark.parametrize("body", [
+    "spec without acceptance",
+    "Acceptance: everything works",
+    "## Acceptance\n- tests pass\n- docs updated",
+    "## Acceptance criteria\nTests pass and docs updated.",
+])
+def test_create_requires_numbered_acceptance_list(body):
+    assert "Acceptance" in blocked("kanban_create", {**VALID, "body": body})["message"]
+
+
+@pytest.mark.parametrize("body", [
+    "Goal\n\nAcceptance:\n1. a\n2. b",
+    "**Acceptance criteria**\n\n1) a",
+    "## Acceptance\n  1. indented",
+])
+def test_create_accepts_numbered_acceptance_variants(body):
+    assert blocked("kanban_create", {**VALID, "body": body}) is None

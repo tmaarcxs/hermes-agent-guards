@@ -40,10 +40,10 @@ def test_allows_review_when_all_checks_completed():
 
 def test_cancelled_check_needs_na_reason():
     items = [dict(item) for item in ALL_DONE]
-    items[1] = {"id": "1", "content": "Model evidence", "status": "cancelled"}
+    items[2] = {"id": "2", "content": "Model evidence", "status": "cancelled"}
     todo(items)
     assert "Model evidence" in review()["message"]
-    items[1]["content"] = "Model evidence N/A: no model behavior changed"
+    items[2]["content"] = "Model evidence N/A: no model behavior changed"
     todo(items)
     assert review() is None
 
@@ -51,7 +51,7 @@ def test_cancelled_check_needs_na_reason():
 @pytest.mark.parametrize("status", ["pending", "in_progress"])
 def test_open_check_blocks(status):
     items = [dict(item) for item in ALL_DONE]
-    items[4]["status"] = status
+    items[-1]["status"] = status
     todo(items)
     message = review()["message"]
     assert "Stale siblings" in message and "Real boundary" not in message
@@ -65,7 +65,7 @@ def test_matching_is_case_insensitive_and_session_scoped():
 
 def test_latest_list_wins():
     todo(ALL_DONE)
-    todo(ALL_DONE[:4])
+    todo(ALL_DONE[:-1])
     assert "Stale siblings" in review()["message"]
 
 

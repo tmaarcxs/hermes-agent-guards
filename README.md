@@ -23,8 +23,9 @@ Other guards:
 - `skill_size`: blocks any write that grows a skill markdown file past its limit (`SKILL.md` 6000 characters, other `.md` files 12000). Shrinking is always allowed, so oversized skills can be split into an index plus a reference tree.
 
 Worker setups (only when `kanban.default_assignee` is set in the profile config):
-- `kanban_policy`: `kanban_create` must use that assignee, must not use triage and must not override execution settings; `kanban_request_review` may only name that worker as reviewer.
-- `review_gate`: `kanban_request_review` is blocked until the session's latest `todo_list` holds one closed item per pre-review check (Failure lifecycle, Model evidence, Claims within evidence, Real boundary, Stale siblings): completed, or cancelled with `N/A: <reason>`.
+- `kanban_policy`: `kanban_create` must use that assignee, must not use triage, must not override execution settings and must carry an `Acceptance` heading followed by a numbered list of checkable criteria; `kanban_request_review` may only name that worker as reviewer.
+- `review_gate`: `kanban_request_review` is blocked until the session's latest `todo_list` holds one closed item per pre-review check (Contract coverage, Failure lifecycle, Model evidence, Claims within evidence, Real boundary, Stale siblings): completed, or cancelled with `N/A: <reason>`.
+- `handoff_gate`: the first `kanban_block` of a session whose reason says the worker's part is finished and only lead-owned steps remain (merge, deployment, DES, publication, approval) is bounced with advice to hand off through `kanban_complete` or `kanban_request_review`; repeating the call lets a genuine decision block through.
 
 Stale card wake (`stale_wake`): on the Kanban dispatcher tick (at most hourly) it wakes each chat subscribed to a triage/todo/ready/review/blocked card whose last state change is at least 1 h old, once per card state. It needs gateway injection to be allowed:
 
