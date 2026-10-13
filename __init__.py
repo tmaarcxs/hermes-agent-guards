@@ -1,0 +1,128 @@
+"""Block recurring agent mistakes before a tool runs, normalize known-bad arguments and keep work moving.
+
+Blocks (terminal, foreground or background as noted):
+- foreground ``sleep`` of 60 s or more: use background=true with notify instead;
+- ``gh pr merge`` without ``--match-head-commit``: merges must pin the verified head;
+- ``osascript``: desktop automation goes through ego-browser;
+- ``git push --force``/``-f`` without ``--force-with-lease``.
+
+Normalizes (modify directive, never blocks):
+- optional Kanban arguments sent as empty strings (``assignee`` in kanban_list,
+  ``completion_contract`` in kanban_create) become absent;
+- ``skill_view`` names of the form ``x:x`` become ``x``;
+- a Kanban ``task_id`` sent as the literal ``$HERMES_KANBAN_TASK`` becomes absent, so
+  the tool falls back to the worker's own task from the environment.
+
+Matches commands at command-word position outside quoted strings, so mentions in
+strings, grep patterns and python -c bodies pass. It catches slips, not deliberate evasion. Fails open.
+
+Modules:
+- ``repeat_guard`` blocks an identical call that already failed twice in the session with
+  nothing changed since;
+- ``skill_size`` blocks growing a skill markdown file past its size limit;
+- ``kanban_policy`` (only with ``kanban.default_assignee`` set) keeps delegated cards on the
+  worker profile, out of triage and without execution overrides;
+- ``review_gate`` (same condition) blocks ``kanban_request_review`` until the five pre-review
+  checks are closed in ``todo_list``;
+- ``stale_wake`` wakes a card's subscribed chat once when the card has not moved for 1 h
+  (needs ``plugins.entries.agent-guards.allow_gateway_injection: true``).
+"""
+
+import re
+from typing import Any, Optional
+
+from . import kanban_policy, repeat_guard, review_gate, skill_size, stale_wake
+
+_START = r"(?:^|[;&|\n(`{]|\$\(|\bthen\b|\bdo\b|\belse\b)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:sudo\s+|command\s+)?"
+_SEGMENT_END = re.compile(r"[;\n]|&&|\|\|")
+_QUOTED = re.compile(r"'[^']*'|\"(?:[^\"\\]|\\.)*\"")
+_SLEEP = re.compile(_START + r"sleep\s+(\d+(?:\.\d+)?)([smh]?)\b")
+_MERGE = re.compile(_START + r"gh\s+pr\s+merge\b")
+_OSASCRIPT = re.compile(_START + r"osascript\b")
+_PUSH = re.compile(_START + r"git\s+push\b")
+_BARE_FORCE = re.compile(r"\s(?:--force|-f)(?=\s|$)")
+_UNIT_SECONDS = {"": 1, "s": 1, "m": 60, "h": 3600}
+_MAX_FOREGROUND_SLEEP = 60
+_EMPTY_TO_ABSENT = {"kanban_list": ("assignee", "status", "tenant"), "kanban_create": ("completion_contract",)}
+_ENV_TASK_LITERAL = re.compile(r"^\s*\$?\{?HERMES_KANBAN_TASK\}?\s*$")
+
+
+def register(ctx) -> None:
+    ctx.register_hook("pre_tool_call", _pre_tool_call)
+    ctx.register_hook("post_tool_call", _post_tool_call)
+    stale_wake.register(ctx)
+
+
+def _segments(command: str, pattern: re.Pattern) -> list[str]:
+    found = []
+    for match in pattern.finditer(command):
+        end = _SEGMENT_END.search(command, match.end())
+        found.append(command[match.start() : end.start() if end else len(command)])
+    return found
+
+
+def terminal_violations(command: str, background: bool) -> list[str]:
+    command = _QUOTED.sub("''", command)
+    found = []
+    if not background:
+        for match in _SLEEP.finditer(command):
+            if float(match.group(1)) * _UNIT_SECONDS[match.group(2)] >= _MAX_FOREGROUND_SLEEP:
+                found.append(
+                    "foreground sleep >= 60s: run the wait with background=true and notify=true, "
+                    "or wait on the process with process_manage"
+                )
+                break
+    if any("--match-head-commit" not in segment for segment in _segments(command, _MERGE)):
+        found.append("gh pr merge needs --match-head-commit <verified head sha>")
+    if _OSASCRIPT.search(command):
+        found.append("osascript is not allowed: use ego-browser for browser work")
+    if any(_BARE_FORCE.search(segment) for segment in _segments(command, _PUSH)):
+        found.append("git push --force/-f is not allowed: use --force-with-lease")
+    return found
+
+
+def normalized_args(tool_name: str, args: dict[str, Any]) -> Optional[dict[str, Any]]:
+    changes: dict[str, Any] = {key: None for key in _EMPTY_TO_ABSENT.get(tool_name, ()) if args.get(key) == ""}
+    if tool_name.startswith("kanban_") and _ENV_TASK_LITERAL.match(str(args.get("task_id") or "")):
+        changes["task_id"] = None
+    if tool_name == "skill_view":
+        name = args.get("name")
+        if isinstance(name, str) and ":" in name:
+            prefix, _, rest = name.partition(":")
+            if prefix == rest:
+                changes["name"] = rest
+    return changes or None
+
+
+def _post_tool_call(**kwargs) -> None:
+    for guard in (repeat_guard, review_gate):
+        try:
+            guard.record(**kwargs)
+        except Exception:
+            pass
+
+
+def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -> Optional[dict]:
+    for check in (
+        lambda: repeat_guard.check(tool_name, args, **kwargs),
+        lambda: kanban_policy.check(tool_name, args),
+        lambda: review_gate.check(tool_name, **kwargs),
+        lambda: skill_size.check(tool_name, args),
+    ):
+        try:
+            blocked = check()
+        except Exception:
+            blocked = None
+        if blocked:
+            return {"action": "block", "message": blocked}
+    try:
+        args = args if isinstance(args, dict) else {}
+        if tool_name == "terminal":
+            found = terminal_violations(str(args.get("command") or ""), bool(args.get("background")))
+            if found:
+                return {"action": "block", "message": "agent-guards blocked terminal: " + "; ".join(found) + "."}
+            return None
+        changes = normalized_args(tool_name, args)
+        return {"action": "modify", "args": changes} if changes else None
+    except Exception:
+        return None
