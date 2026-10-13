@@ -10,6 +10,9 @@ Terminal blocks:
 - `osascript`;
 - `git push --force`/`-f` without `--force-with-lease`.
 
+Attachment block:
+- `kanban_attach` with more than 256 characters of inline base64. Models transcribe those bytes and corrupt them; attach by path (`artifacts=[absolute path]` at handoff, or `hermes kanban attach <task_id> <path>`).
+
 Argument normalization (the call proceeds with corrected arguments):
 - empty optional Kanban arguments become absent;
 - `skill_view` names of the form `x:x` become `x`;

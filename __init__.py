@@ -6,6 +6,10 @@ Blocks (terminal, foreground or background as noted):
 - ``osascript``: desktop automation goes through ego-browser;
 - ``git push --force``/``-f`` without ``--force-with-lease``.
 
+Blocks (other tools):
+- ``kanban_attach`` with more than 256 characters of inline base64: the model transcribes
+  those bytes and corrupts them; attach by path instead.
+
 Normalizes (modify directive, never blocks):
 - optional Kanban arguments sent as empty strings (``assignee`` in kanban_list,
   ``completion_contract`` in kanban_create) become absent;
@@ -45,6 +49,12 @@ _UNIT_SECONDS = {"": 1, "s": 1, "m": 60, "h": 3600}
 _MAX_FOREGROUND_SLEEP = 60
 _EMPTY_TO_ABSENT = {"kanban_list": ("assignee", "status", "tenant"), "kanban_create": ("completion_contract",)}
 _ENV_TASK_LITERAL = re.compile(r"^\s*\$?\{?HERMES_KANBAN_TASK\}?\s*$")
+_MAX_INLINE_ATTACH = 256
+_INLINE_ATTACH_MESSAGE = (
+    "agent-guards blocked kanban_attach: inline base64 over 256 characters is transcribed by the model "
+    "and arrives corrupted. Attach by path: kanban_complete/kanban_request_review artifacts=[absolute path], "
+    "or terminal `hermes kanban attach <task_id> <absolute path>`; then compare the stored file's sha256 with the source."
+)
 
 
 def register(ctx) -> None:
@@ -122,6 +132,8 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
             if found:
                 return {"action": "block", "message": "agent-guards blocked terminal: " + "; ".join(found) + "."}
             return None
+        if tool_name == "kanban_attach" and len(str(args.get("content_base64") or "")) > _MAX_INLINE_ATTACH:
+            return {"action": "block", "message": _INLINE_ATTACH_MESSAGE}
         changes = normalized_args(tool_name, args)
         return {"action": "modify", "args": changes} if changes else None
     except Exception:

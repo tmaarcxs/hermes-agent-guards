@@ -120,3 +120,12 @@ def test_register_wires_every_hook():
     ctx = types.SimpleNamespace(register_hook=lambda name, fn: hooks.append(name))
     guards.register(ctx)
     assert sorted(hooks) == ["on_kanban_dispatch_tick", "post_tool_call", "pre_tool_call"]
+
+
+def test_large_inline_attach_blocked():
+    result = guards._pre_tool_call(tool_name="kanban_attach", args={"filename": "r.json", "content_base64": "QUJD" * 65})
+    assert result["action"] == "block" and "hermes kanban attach" in result["message"]
+
+
+def test_small_inline_attach_allowed():
+    assert guards._pre_tool_call(tool_name="kanban_attach", args={"filename": "r.txt", "content_base64": "QUJD" * 64}) is None
