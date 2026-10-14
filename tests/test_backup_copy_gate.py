@@ -52,6 +52,21 @@ def test_nested_metadata_is_checked():
     assert message and "Rollback is git" in message
 
 
+# --- The reporting defect from review run 3543 (paren-scoped keep claims) must be rejected ---
+
+@pytest.mark.parametrize("summary", [
+    "purged 77 entries (backup kept)",
+    "all 77 fake-card entries purged (backup kept)",
+    "backup kept",
+    "kept a backup",
+    "backup retained",
+    "Cleanup done (test files removed, backup kept)",
+])
+def test_paren_scoped_and_bare_keep_claims_are_blocked(summary):
+    message = check(summary)
+    assert message and "Rollback is git" in message
+
+
 # --- Normal handoffs must pass ---
 
 def test_normal_handoff_passes():

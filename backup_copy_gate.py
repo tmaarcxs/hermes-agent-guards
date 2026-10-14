@@ -50,7 +50,9 @@ _MESSAGE = (
 
 
 def _sentences(text: str) -> list[str]:
-    parts = re.split(r"(?<=[;.\n])\s+|(?<=[;.])$", text)
+    # Literal parentheses are segment boundaries too: a keep claim inside a
+    # "(backup kept)" paren must not stay glued to a preceding removal clause.
+    parts = re.split(r"(?<=[;.\n])\s+|[()]", text)
     return [part for part in (sentence.strip() for sentence in parts) if part]
 
 
@@ -61,10 +63,12 @@ def keeps_backup_copy(text: str) -> bool:
             continue
         # Drop only sentence-scoped negation evidence: a negator immediately before
         # the claim ("no backup copies were kept"), a negator scoped to the artifact
-        # noun, or a removal verb in the same sentence ("... then deleted").
+        # noun, or a removal verb AFTER the claim ("backed up, then deleted").
+        # A removal BEFORE the claim must not neutralize it: "test files removed,
+        # backup kept" and "purged 77 entries (backup kept)" still keep the copy.
         if re.search(rf"(?i)\b(?:no|not|never|none|without|nor|neither)\b[^\n.;]{{0,60}}$", sentence[: match.start()]):
             continue
-        if re.search(r"(?i)\b(?:removed?|deleted?|dropped|cleaned?|purged|erased|gone)\b", sentence):
+        if re.search(r"(?i)\b(?:removed?|deleted?|dropped|cleaned?|purged|erased|gone)\b", sentence[match.end() :]):
             continue
         if re.search(
             r"(?i)\b(?:no|not|never|none)\b[^\n.;]{0,60}?\b(?:backup|rollback|pristine|snapshot|cop(?:y|ies)|versions?)\b",
