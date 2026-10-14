@@ -9,7 +9,7 @@ Terminal blocks:
 - `gh pr merge` without `--match-head-commit`;
 - `osascript`;
 - `git push --force`/`-f` without `--force-with-lease`;
-- in a worker process, `github_contact`: commands that contact people on GitHub — review requests (`gh pr edit --add-reviewer`, `gh pr create --reviewer`, `gh api` POST to `.../requested_reviewers`, every `gh pr review`), issue assignees and comments whose body `@mentions` a user or org/team (inline or via a readable body file). Mention-free comments stay allowed; `@me`/`@copilot` and removal flags are exempt. Message: contacting people needs the owner's approval — for a CODEOWNERS-only gap use `github-agent-ops/scripts/pr_merge_verified`, otherwise `kanban_block` with `kind=needs_input`.
+- in a worker process, `github_contact`: commands that contact people on GitHub — review requests (`gh pr edit --add-reviewer`, `gh pr create --reviewer`, `gh api` POST to `.../requested_reviewers`, every `gh pr review`), issue assignees and comments whose body `@mentions` a user or org/team (inline or via a readable body file). Mention-free comments stay allowed; `@me`/`@copilot` and removal flags are exempt; on assignee flags the authenticated login is also exempt (self-assignment contacts nobody — resolved once via `gh api user` and cached; unresolvable login fails closed). Message: contacting people needs the owner's approval — for a CODEOWNERS-only gap use `github-agent-ops/scripts/pr_merge_verified`, otherwise `kanban_block` with `kind=needs_input`.
 
 Attachment block:
 - `kanban_attach` with more than 256 characters of inline base64. Models transcribe those bytes and corrupt them; attach by path (`artifacts=[absolute path]` at handoff, or `hermes kanban attach <task_id> <path>`).

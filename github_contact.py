@@ -13,8 +13,11 @@ a quoted string is never a command word, so grep patterns and commit messages pa
 - ``gh pr review ...``: every form posts a review;
 - ``gh pr create --reviewer/-r`` and ``--assignee/-a``, ``gh issue create --assignee/-a``,
   ``gh pr edit --add-reviewer``, ``gh pr edit --add-assignee`` and
-  ``gh issue edit --add-assignee``. Removal flags stay allowed (they reduce contact), and
-  ``@me``/``@copilot`` are exempt (not people);
+  ``gh issue edit --add-assignee``. Removal flags stay allowed (they reduce contact),
+  and ``@me``/``@copilot`` are exempt (not people); for the assignee flags only, the
+  authenticated login is also exempt (self-assignment contacts nobody — resolved once
+  per process via ``gh api user --jq .login`` and cached; if resolution fails, a value
+  that is not ``@me`` still blocks, fail closed);
 - ``gh api`` POST to ``.../requested_reviewers`` (GET stays allowed);
 - ``gh pr comment`` / ``gh issue comment`` and ``gh api`` POST to ``.../comments`` whose
   body — inline via ``-b/--body`` or ``-f/-F body=...``, or via ``--body-file`` /
@@ -30,6 +33,7 @@ substitution inside a body. Fails open on unreadable files.
 
 import os
 import re
+import subprocess
 from pathlib import Path
 from typing import Any, Optional
 
@@ -63,6 +67,35 @@ _NOT_PEOPLE = {"@me", "@copilot"}
 _NOT_PEOPLE_TEXT = re.compile(r"(?<![\w@./])@(?:me|copilot)\b", re.I)
 _CREATE_FLAGS = {"-r": "reviewer", "--reviewer": "reviewer", "-a": "assignee", "--assignee": "assignee"}
 _EDIT_FLAGS = {"--add-reviewer": "reviewer", "--add-assignee": "assignee"}
+# Flags whose values contact people only when the value is not the authenticated
+# login itself: assigning work to yourself contacts nobody (self-assignment).
+_ASSIGN_FLAGS = {"--assignee", "-a", "--add-assignee"}
+_login_cache: Optional[str] = None
+_login_resolved = False
+
+
+def authenticated_login() -> Optional[str]:
+    """The authenticated GitHub login, resolved once per process and cached.
+
+    None when resolution fails (no gh, not authenticated, network error) — that
+    outcome is cached too, and callers then fail closed for values that are not
+    ``@me``.
+    """
+    global _login_cache, _login_resolved
+    if not _login_resolved:
+        _login_resolved = True
+        try:
+            proc = subprocess.run(
+                ["gh", "api", "user", "--jq", ".login"],
+                capture_output=True, text=True, timeout=10,
+            )
+            login = (proc.stdout or "").strip().lstrip("@") if proc.returncode == 0 else ""
+        except (OSError, ValueError):
+            login = ""
+        _login_cache = login or None
+    return _login_cache
+
+
 _COMMENT_BODY = {"-b": "text", "--body": "text", "-F": "file", "--body-file": "file"}
 _API_VALUE_FLAGS = {
     "-X", "--method", "-H", "--header", "-f", "--raw-field", "-F", "--field", "--input",
@@ -171,7 +204,18 @@ def _flags(parts: list[tuple[str, bool]], names: dict[str, str]) -> dict[str, li
     return found
 
 
-def _contacts(values: list[str]) -> bool:
+def _contacts(values: list[str], flag: str = "") -> bool:
+    """True when any value contacts a person.
+
+    ``@me``/``@copilot`` are never people. For assignee flags, the authenticated
+    login is not a person either (self-assignment); when the login cannot be
+    resolved, fail closed and keep blocking other values.
+    """
+    if flag in _ASSIGN_FLAGS:
+        me = authenticated_login()
+        if me:
+            others = [v for v in values if str(v).strip().lstrip("@").lower() != me.lower()]
+            return any(str(value).strip().lower() not in _NOT_PEOPLE for value in others)
     return any(str(value).strip().lower() not in _NOT_PEOPLE for value in values)
 
 
@@ -297,12 +341,12 @@ def violations(command: str, workdir: str = "") -> list[str]:
         elif sub in ("pr", "issue") and kind == "create":
             for flag in _CREATE_FLAGS:
                 values = _flags(parts[3:], {flag: _CREATE_FLAGS[flag]})
-                if _contacts(values.get(flag, [])):
+                if _contacts(values.get(flag, []), flag=flag):
                     found.append(f"gh {sub} create {flag} assigns to or requests review from a person")
                     break
         elif sub in ("pr", "issue") and kind == "edit":
             for flag, values in _flags(parts[3:], _EDIT_FLAGS).items():
-                if _contacts(values):
+                if _contacts(values, flag=flag):
                     found.append(f"gh {sub} edit {flag} requests review or assignment from a person")
                     break
         elif sub == "api":

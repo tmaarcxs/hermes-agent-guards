@@ -34,7 +34,9 @@ Modules:
 - ``completion_gate`` (same condition, worker process only) blocks ``kanban_complete`` until
   ``metadata.acceptance`` maps every numbered Acceptance item of the card to its evidence;
 - ``github_contact`` (same condition, worker process only) blocks terminal calls that contact
-  people on GitHub: review requests, issue assignees and @mention comments; the authorized
+  people on GitHub: review requests, issue assignees and @mention comments; ``@me``/``@copilot``,
+  removal flags and, on assignee flags, the authenticated login itself are exempt
+  (self-assignment contacts nobody; unresolvable login fails closed); the authorized
   alternatives for a CODEOWNERS-only gap are ``github-agent-ops/scripts/pr_merge_verified``
   or ``kanban_block`` with ``kind=needs_input``;
 - ``review_gate`` (same condition) blocks ``kanban_request_review`` until the eight pre-review

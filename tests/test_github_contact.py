@@ -15,6 +15,10 @@ def run(command, workdir=None):
 @pytest.fixture(autouse=True)
 def worker_setup(monkeypatch):
     monkeypatch.setenv("HERMES_KANBAN_TASK", "t_28cfac35")
+    # Pin a login that appears in no test command, so guard checks never shell
+    # out to `gh api user`; self-assignment tests override via the `login` fixture.
+    monkeypatch.setattr(gc, "_login_cache", "nobody-here")
+    monkeypatch.setattr(gc, "_login_resolved", True)
 
 
 @pytest.fixture
@@ -62,6 +66,86 @@ def test_review_requests_blocked(command):
 )
 def test_copilot_and_me_not_people(command):
     assert run(command) is None
+
+
+@pytest.fixture
+def login(monkeypatch):
+    """Force a cached authenticated login; any real `gh` call fails the test."""
+    def _set(login):
+        monkeypatch.setattr(gc, "_login_cache", login)
+        monkeypatch.setattr(gc, "_login_resolved", True)
+        monkeypatch.setattr(
+            gc.subprocess, "run",
+            lambda *a, **k: pytest.fail("network call leaked: gh ran during check"),
+        )
+    return _set
+
+
+def test_self_assignment_allowed(login):
+    login("kexi")
+    for command in (
+        "gh issue create --assignee kexi -t t",
+        "gh issue create -a kexi -t t",
+        "gh pr create -t t -b b -a kexi",
+        "gh issue edit 3 --add-assignee kexi",
+    ):
+        assert run(command) is None
+
+
+def test_self_assignment_mixed_values(login):
+    login("kexi")
+    result = run("gh issue create --assignee kexi,monalisa -t t")
+    assert result is not None and result["action"] == "block"
+    assert run("gh issue create --assignee monalisa -t t") is not None
+
+
+def test_self_assignment_case_and_at_sign_insensitive(login):
+    login("kexi")
+    assert run("gh issue create --assignee '@KEXI' -t t") is None
+    assert run("gh issue edit 3 --add-assignee 'Kexi'") is None
+
+
+def test_self_assignment_not_applied_to_reviewer_flags(login):
+    login("kexi")
+    assert run("gh pr edit 1 --add-reviewer kexi") is not None
+    assert run("gh pr create -t t -b b -r kexi") is not None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "gh issue create --assignee monalisa -t t",
+        "gh issue create -a monalisa,hubot -t t",
+        "gh pr create -t t -b b -a kexi",
+        "gh issue edit 3 --add-assignee monalisa",
+    ],
+)
+def test_login_unresolvable_fails_closed(command, monkeypatch):
+    monkeypatch.setattr(gc, "_login_cache", None)
+    monkeypatch.setattr(gc, "_login_resolved", False)
+    calls = []
+    monkeypatch.setattr(
+        gc.subprocess, "run",
+        lambda *a, **k: calls.append(1) or type("P", (), {"returncode": 1, "stdout": ""})(),
+    )
+    result = run(command)
+    assert result is not None and result["action"] == "block"
+
+
+def test_login_resolved_once_per_process(monkeypatch):
+    calls = []
+
+    def fake_run(*args, **kwargs):
+        calls.append(1)
+        return type("P", (), {"returncode": 0, "stdout": "kexi\n"})()
+
+    monkeypatch.setattr(gc, "_login_cache", None)
+    monkeypatch.setattr(gc, "_login_resolved", False)
+    import unittest.mock as mock
+    with mock.patch.object(gc.subprocess, "run", fake_run):
+        assert gc.authenticated_login() == "kexi"
+        assert gc.authenticated_login() == "kexi"
+    assert calls == [1]
 
 
 def test_comment_with_mention_blocked(body_files):
