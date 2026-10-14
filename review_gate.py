@@ -76,7 +76,8 @@ def check(tool_name: str, **kwargs) -> Optional[str]:
         + ", ".join(open_checks)
         + ". Add one todo_list item per check from delivery-verification ('Before requesting review'), named "
         "exactly as there, and close each: status completed after the check passed with its receipt, or status "
-        "cancelled with 'N/A: <reason>' in the item text. Then request review again."
+        "cancelled with 'N/A: <reason>' in the item text. Then request review again — "
+        + kanban_policy.RETRY_INSTRUCTION
     )
 
 

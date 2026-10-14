@@ -77,6 +77,8 @@ def check(tool_name: str, args: Any, load_task=_task) -> Optional[str]:
         return None
     missing = missing_items(task[0], metadata)
     if missing:
-        return MESSAGE.format(missing=", ".join(missing))
+        return MESSAGE.format(missing=", ".join(missing)) + " " + kanban_policy.RETRY_INSTRUCTION
     unmet = unmet_items(task[0], metadata)
-    return UNMET_MESSAGE.format(unmet=", ".join(unmet)) if unmet else None
+    if not unmet:
+        return None
+    return UNMET_MESSAGE.format(unmet=", ".join(unmet)) + " " + kanban_policy.RETRY_INSTRUCTION

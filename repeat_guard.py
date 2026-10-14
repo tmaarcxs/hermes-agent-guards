@@ -18,6 +18,8 @@ import re
 from collections import OrderedDict
 from typing import Any, Optional
 
+from . import kanban_policy
+
 FAILURES_BEFORE_BLOCK = 2
 _MAX_SESSIONS = 200
 _UNTRACKED = frozenset({"terminal", "execute_code", "process_manage"})
@@ -31,6 +33,12 @@ _TRANSIENT = re.compile(
     r"|No such process",
     re.IGNORECASE,
 )
+
+# Lifecycle calls the ledger may block: when one of these is blocked, the run must not end
+# on the block text (the core stop-guard counts the mere presence of the call as terminal).
+_TERMINAL_TOOLS = frozenset({
+    "kanban_complete", "kanban_block", "kanban_schedule", "kanban_request_review", "kanban_request_changes",
+})
 
 _failures: "OrderedDict[str, dict[str, tuple[int, str]]]" = OrderedDict()
 
@@ -79,11 +87,16 @@ def check(tool_name: str = "", args: Any = None, **kwargs: Any) -> Optional[str]
     count, error = _failures[session].get(_call_key(tool_name, args), (0, ""))
     if count < FAILURES_BEFORE_BLOCK:
         return None
-    return (
+    message = (
         f"agent-guards blocked {tool_name}: this exact call already failed {count} times in this session "
         f"with: {error}. Repeating it unchanged will fail again. Change the arguments, fix the cause first, "
         "or take a different approach."
     )
+    if tool_name in _TERMINAL_TOOLS:
+        # A ledger-blocked lifecycle call counts as terminal for the core stop-guard
+        # (transcript tool-name scan), so the run must not end on the block text alone.
+        message += " " + kanban_policy.RETRY_INSTRUCTION
+    return message
 
 
 def reset() -> None:

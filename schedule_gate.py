@@ -24,4 +24,6 @@ MESSAGE = (
 def check(tool_name: str, args: Any) -> Optional[str]:
     if tool_name != "kanban_schedule" or not os.environ.get("HERMES_KANBAN_TASK"):
         return None
-    return MESSAGE if kanban_policy.configured_worker() else None
+    return (
+        MESSAGE + " " + kanban_policy.RETRY_INSTRUCTION
+    ) if kanban_policy.configured_worker() else None

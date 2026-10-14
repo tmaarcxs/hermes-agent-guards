@@ -15,6 +15,17 @@ from typing import Any, Optional
 EXECUTION_OVERRIDES = ("model", "provider", "goal_mode", "goal_max_turns", "max_runtime_seconds")
 ACCEPTANCE_LIST = re.compile(r"(?im)^[#*\s]*acceptance\b[^\n]*\n(?:[ \t]*\n)*[ \t]*1[.)][ \t]+\S")
 
+# Appended to every guard block of a Kanban lifecycle call. A blocked call does not satisfy
+# the terminal-call protocol: Hermes' core stop-guard (`agent/kanban_stop.py`
+# `session_called_kanban_terminal`) scans transcript TOOL NAMES, not outcomes, so a reply
+# that ends on text after the block exits rc=0 as a protocol violation with no nudge. The
+# only reliable lever a plugin block message has is the message itself: demand the fixed
+# retry in the SAME response, because a text-only reply is a run-ending violation.
+RETRY_INSTRUCTION = (
+    "Then retry the lifecycle call in this same response — do not end on a text-only reply: "
+    "a reply without the lifecycle call ends the run as a protocol violation."
+)
+
 
 def configured_worker() -> str:
     try:
@@ -54,4 +65,7 @@ def check(tool_name: str, args: Any) -> Optional[str]:
     found = violations(tool_name, args, worker)
     if not found:
         return None
-    return f"agent-guards blocked {tool_name}: " + "; ".join(found) + ". Fix the call and retry."
+    return (
+        f"agent-guards blocked {tool_name}: " + "; ".join(found)
+        + ". Fix the call and retry — " + RETRY_INSTRUCTION
+    )

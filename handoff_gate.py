@@ -56,4 +56,4 @@ def check(tool_name: str, args: Any, **kwargs) -> Optional[str]:
     _bounced[session] = True
     while len(_bounced) > _MAX_SESSIONS:
         _bounced.popitem(last=False)
-    return MESSAGE
+    return MESSAGE + " " + kanban_policy.RETRY_INSTRUCTION
