@@ -53,9 +53,72 @@ def test_card_without_acceptance_list_passes():
     assert check({}, body="Just do it") is None
 
 
-def test_review_runs_and_verdicts_are_exempt():
-    assert check({}, review=True) is None
-    assert check({"review_verdict": "APPROVE"}) is None
+def test_review_runs_and_verdicts_are_exempt():  # legacy name kept: proves pure-review cards complete
+    assert check({}, review=True, body=PURE_REVIEW_BODY) is None
+    assert check({"review_verdict": "APPROVE"}, body=PURE_REVIEW_BODY) is None
+
+
+POST_REVIEW_BODY = (
+    "Goal\n\n## Acceptance\n1. Suites pass.\n2. PR #1066 merged.\n3. DES deployed and verified.\n4. Tracker issue #1069 closed.\n"
+)
+PURE_REVIEW_BODY = (
+    "Goal: independent review.\n\n## Acceptance\n1. Review verdict recorded with findings.\n2. Findings converge with prior rounds.\n"
+)
+
+
+def reviewer_check(metadata, body=POST_REVIEW_BODY, review=True):
+    return gate.check("kanban_complete", {"summary": "s", "metadata": metadata}, load_task=lambda _: (body, review))
+
+
+def test_reviewer_approval_blocked_on_pending_post_review_items():
+    message = reviewer_check({"review_verdict": "APPROVE"})
+    assert message and "2, 3, 4" in message
+
+
+def test_reviewer_run_claimed_from_review_blocked_on_pending_post_review_items():
+    message = reviewer_check({})
+    assert message and "2, 3, 4" in message
+
+
+@pytest.mark.parametrize("body,expected", [
+    ("## Acceptance\n1. Verdict recorded.\n2. PR needs merge before release.", "2"),
+    ("## Acceptance\n1. Verdict recorded.\n2. Deploy to production after approval.", "2"),
+    ("## Acceptance\n1. Verdict recorded.\n2. DES verification of the fix.", "2"),
+    ("## Acceptance\n1. Verdict recorded.\n2. Close tracker issue #1069.", "2"),
+])
+def test_each_post_review_keyword_triggers_reviewer_block(body, expected):
+    message = reviewer_check({}, body=body)
+    assert message and expected in message and "kanban_request_changes" in message
+
+
+def test_reviewer_approval_with_post_review_evidence_passes():
+    assert reviewer_check({
+        "review_verdict": "APPROVE",
+        "acceptance": {"1": "118 passed", "2": "PR #1066 merged abc1234", "3": "DES 200", "4": "#1069 closed"},
+    }) is None
+
+
+def test_reviewer_approval_on_pure_review_card_passes():
+    assert reviewer_check({"review_verdict": "APPROVE"}, body=PURE_REVIEW_BODY) is None
+    assert reviewer_check({}, body=PURE_REVIEW_BODY, review=True) is None
+
+
+def test_reviewer_block_directs_to_request_changes_with_retry_instruction():
+    message = reviewer_check({})
+    assert "APPROVED" in message and "implementer" in message
+    from test_retry_instruction import assert_retry_instruction
+    assert_retry_instruction(message)
+
+
+def test_reviewer_unmet_evidence_for_post_review_item_is_blocked():
+    # "merge pending review" is real evidence in the map, but it admits the item
+    # is unmet — the unmet branch fires even though it is not "pending" (unevidenced).
+    message = reviewer_check({
+        "review_verdict": "APPROVE",
+        "acceptance": {"2": "merge pending review", "3": "DES 200", "4": "#1069 closed"},
+    })
+    assert message and "items 2 " in message and "not met yet" in message
+    assert "kanban_request_changes" not in message
 
 
 def test_lead_process_is_not_gated(monkeypatch):
