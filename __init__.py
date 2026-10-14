@@ -4,7 +4,10 @@ Blocks (terminal, foreground or background as noted):
 - foreground ``sleep`` of 60 s or more: use background=true with notify instead;
 - ``gh pr merge`` without ``--match-head-commit``: merges must pin the verified head;
 - ``osascript``: desktop automation goes through ego-browser;
-- ``git push --force``/``-f`` without ``--force-with-lease``.
+- ``git push --force``/``-f`` without ``--force-with-lease``;
+- in a worker process (``github_contact``): commands that contact people on GitHub —
+  review requests, issue assignees and comments whose body ``@mentions`` a user or
+  org/team; a CODEOWNERS-only gap goes through ``pr_merge_verified`` instead.
 
 Blocks (other tools):
 - ``kanban_attach`` with more than 256 characters of inline base64: the model transcribes
@@ -30,6 +33,10 @@ Modules:
   repository roots and from ``git commit``/``git push``/``gh pr create`` there: delivery goes to workers;
 - ``completion_gate`` (same condition, worker process only) blocks ``kanban_complete`` until
   ``metadata.acceptance`` maps every numbered Acceptance item of the card to its evidence;
+- ``github_contact`` (same condition, worker process only) blocks terminal calls that contact
+  people on GitHub: review requests, issue assignees and @mention comments; the authorized
+  alternatives for a CODEOWNERS-only gap are ``github-agent-ops/scripts/pr_merge_verified``
+  or ``kanban_block`` with ``kind=needs_input``;
 - ``review_gate`` (same condition) blocks ``kanban_request_review`` until the eight pre-review
   checks are closed in ``todo_list``, each completed item carrying a receipt's anchor.
 - ``handoff_gate`` (same condition) bounces, once per session, a ``kanban_block`` whose reason
@@ -47,7 +54,7 @@ Modules:
 import re
 from typing import Any, Optional
 
-from . import completion_gate, handoff_gate, kanban_policy, lead_delegation, published_head_gate, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake
+from . import completion_gate, github_contact, handoff_gate, kanban_policy, lead_delegation, published_head_gate, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake
 from . import stop_gate
 
 _START = r"(?:^|[;&|\n(`{]|\$\(|\bthen\b|\bdo\b|\belse\b)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:sudo\s+|command\s+)?"
@@ -132,6 +139,7 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
         lambda: repeat_guard.check(tool_name, args, **kwargs),
         lambda: kanban_policy.check(tool_name, args),
         lambda: lead_delegation.check(tool_name, args),
+        lambda: github_contact.check(tool_name, args),
         lambda: review_gate.check(tool_name, **kwargs),
         lambda: published_head_gate.check(tool_name, args),
         lambda: handoff_gate.check(tool_name, args, **kwargs),

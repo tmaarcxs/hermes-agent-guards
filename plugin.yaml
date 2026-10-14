@@ -1,5 +1,5 @@
 name: agent-guards
-version: "0.2.1"
+version: "0.2.2"
 description: Block long foreground sleeps, unpinned PR merges, osascript, bare force pushes, repeated identical failing calls and oversized skill files; normalize common Kanban argument slips; in worker setups enforce the Kanban delegation policy and pre-review checklist, refuse narrated stops after a blocked lifecycle call, and tell every lifecycle-call block to retry in the same response; wake a card's chat once when the card stops moving.
 author: "tmaarcxs"
 kind: standalone
