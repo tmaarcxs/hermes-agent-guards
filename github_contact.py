@@ -90,7 +90,10 @@ def authenticated_login() -> Optional[str]:
                 capture_output=True, text=True, timeout=10,
             )
             login = (proc.stdout or "").strip().lstrip("@") if proc.returncode == 0 else ""
-        except (OSError, ValueError):
+        except (OSError, ValueError, subprocess.SubprocessError):
+            # SubprocessError covers TimeoutExpired and CalledProcessError too:
+            # any resolver failure must fail closed, not crash the guard chain
+            # (a crashed guard swallows into pass-through = contact allowed).
             login = ""
         _login_cache = login or None
     return _login_cache

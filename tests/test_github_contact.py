@@ -132,6 +132,31 @@ def test_login_unresolvable_fails_closed(command, monkeypatch):
     assert result is not None and result["action"] == "block"
 
 
+@pytest.mark.parametrize(
+    "exc",
+    [
+        __import__("subprocess").TimeoutExpired(cmd="gh", timeout=10),
+        __import__("subprocess").CalledProcessError(returncode=1, cmd="gh"),
+        OSError("boom"),
+    ],
+    ids=["timeout", "called-process-error", "oserror"],
+)
+def test_resolver_crash_fails_closed_not_fail_open(exc, monkeypatch):
+    """A crashing resolver must not crash the guard chain — the chain swallows
+    exceptions into pass-through, so swallowed == fail-open. Every failure path
+    must instead resolve to cache= None and keep blocking non-@me values."""
+    monkeypatch.setattr(gc, "_login_cache", None)
+    monkeypatch.setattr(gc, "_login_resolved", False)
+
+    def boom(*args, **kwargs):
+        raise exc
+
+    monkeypatch.setattr(gc.subprocess, "run", boom)
+    assert gc.authenticated_login() is None
+    result = run("gh issue create -t x --assignee monalisa")
+    assert result is not None and result["action"] == "block"
+
+
 def test_login_resolved_once_per_process(monkeypatch):
     calls = []
 
