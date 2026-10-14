@@ -56,7 +56,7 @@ Modules:
 import re
 from typing import Any, Optional
 
-from . import completion_gate, github_contact, handoff_gate, kanban_policy, lead_delegation, published_head_gate, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake
+from . import backup_copy_gate, completion_gate, github_contact, handoff_gate, kanban_policy, lead_delegation, published_head_gate, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake
 from . import stop_gate
 
 _START = r"(?:^|[;&|\n(`{]|\$\(|\bthen\b|\bdo\b|\belse\b)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:sudo\s+|command\s+)?"
@@ -146,6 +146,7 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
         lambda: published_head_gate.check(tool_name, args),
         lambda: handoff_gate.check(tool_name, args, **kwargs),
         lambda: completion_gate.check(tool_name, args),
+        lambda: backup_copy_gate.check(tool_name, args),
         lambda: schedule_gate.check(tool_name, args),
         lambda: skill_size.check(tool_name, args),
     ):
