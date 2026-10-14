@@ -6,7 +6,11 @@ import pytest
 guards = sys.modules["agent_guards"]
 gate = guards.review_gate
 
-ALL_DONE = [{"id": str(i), "content": f"{name}: receipt", "status": "completed"} for i, name in enumerate(gate.CHECKS)]
+EIGHT = (
+    "Contract coverage", "Failure lifecycle", "Model evidence", "Claims within evidence", "Real boundary", "Stale siblings",
+    "Self reproduction", "Claims anchored",
+)
+ALL_DONE = [{"id": str(i), "content": f"{name}: receipt", "status": "completed"} for i, name in enumerate(EIGHT)]
 
 
 @pytest.fixture(autouse=True)
@@ -26,6 +30,13 @@ def review(session="s1"):
     return guards._pre_tool_call(tool_name="kanban_request_review", args={"summary": "s"}, session_id=session)
 
 
+def teardown_with_evidence():
+    """Completed stale-siblings item backed by a sweep receipt path."""
+    return [item for item in ALL_DONE if item["content"].split(":")[0] != "Stale siblings"] + [
+        {"id": "99", "content": "Stale siblings: grep found 0 old references (receipt: artifacts/stale.log)", "status": "completed"},
+    ]
+
+
 def test_blocks_review_without_any_todo_list():
     result = review()
     assert result["action"] == "block"
@@ -36,6 +47,20 @@ def test_blocks_review_without_any_todo_list():
 def test_allows_review_when_all_checks_completed():
     todo(ALL_DONE)
     assert review() is None
+
+
+def test_completed_check_without_receipt_evidence_blocks():
+    items = [dict(item) for item in ALL_DONE]
+    items[1] = {"id": "1", "content": "Failure lifecycle", "status": "completed"}
+    todo(items)
+    assert "Failure lifecycle" in review()["message"]
+
+
+def test_completed_stale_siblings_without_receipt_blocks():
+    items = [dict(item) for item in ALL_DONE]
+    items[5] = {"id": "5", "content": "Stale siblings", "status": "completed"}
+    todo(items)
+    assert "Stale siblings" in review()["message"]
 
 
 def test_cancelled_check_needs_na_reason():
@@ -54,7 +79,7 @@ def test_open_check_blocks(status):
     items[-1]["status"] = status
     todo(items)
     message = review()["message"]
-    assert "Stale siblings" in message and "Real boundary" not in message
+    assert "Claims anchored" in message and "Self reproduction" not in message
 
 
 def test_matching_is_case_insensitive_and_session_scoped():
@@ -66,7 +91,7 @@ def test_matching_is_case_insensitive_and_session_scoped():
 def test_latest_list_wins():
     todo(ALL_DONE)
     todo(ALL_DONE[:-1])
-    assert "Stale siblings" in review()["message"]
+    assert "Claims anchored" in review()["message"]
 
 
 def test_other_tools_and_unparseable_results_pass():

@@ -30,8 +30,8 @@ Modules:
   repository roots and from ``git commit``/``git push``/``gh pr create`` there: delivery goes to workers;
 - ``completion_gate`` (same condition, worker process only) blocks ``kanban_complete`` until
   ``metadata.acceptance`` maps every numbered Acceptance item of the card to its evidence;
-- ``review_gate`` (same condition) blocks ``kanban_request_review`` until the six pre-review
-  checks are closed in ``todo_list``;
+- ``review_gate`` (same condition) blocks ``kanban_request_review`` until the eight pre-review
+  checks are closed in ``todo_list``, each completed item carrying a receipt's anchor.
 - ``handoff_gate`` (same condition) bounces, once per session, a ``kanban_block`` whose reason
   says the worker's part is finished and only lead-owned steps remain; that is a completion;
 - ``schedule_gate`` (same condition, worker process only) blocks ``kanban_schedule``: it ends

@@ -1,14 +1,17 @@
-"""Block ``kanban_request_review`` until the six pre-review checks are closed in the task list.
+"""Block ``kanban_request_review`` until the pre-review checks are closed with receipts in the task list.
 
 Active only in worker setups (``kanban.default_assignee`` set; see ``kanban_policy``).
 
 ``record`` runs on ``post_tool_call`` and keeps the latest ``todo_list`` result of each
 session. ``check`` runs on ``pre_tool_call``: a review request passes only when that list
-has one item per check from ``delivery-verification`` and each one is completed, or
-cancelled with ``N/A: <reason>`` in its text.
+has one item per check from ``delivery-verification`` and each one is closed — completed
+with a receipt (a receipt path, file reference, hash, exit code or count — anything that
+survives the session, unlike a bare "done"), or cancelled with ``N/A: <reason>`` in its
+text. A bare completed item like ``Contract coverage`` with no receipt does not pass.
 """
 
 import json
+import re
 from collections import OrderedDict
 from typing import Any, Optional
 
@@ -16,6 +19,16 @@ from . import kanban_policy
 
 CHECKS = (
     "Contract coverage", "Failure lifecycle", "Model evidence", "Claims within evidence", "Real boundary", "Stale siblings",
+    "Self reproduction", "Claims anchored",
+)
+RECEIPT = re.compile(
+    r"\breceipts?\b"                                                   # the word itself
+    r"|\b\w[\w./-]*:\d{1,6}\b"                                         # file:line references
+    r"|\b[0-9a-fA-F]{7,64}\b"                                          # commit or content hashes
+    r"|\bexit\b|\brc\b|exit[=:]\s*\d+"                                 # exit codes / rc values
+    r"|\b\d+\s+(?:passed|failed|error|errors)\b"                       # test-summary counts
+    r"|\b[\w./-]+\.(?:md|txt|log|json|csv|py|yaml|yml|xml|html)\b",    # artifact paths
+    re.I,
 )
 _MAX_SESSIONS = 200
 
@@ -40,8 +53,11 @@ def record(tool_name: str = "", result: Any = None, **kwargs) -> None:
 
 
 def _closed(item: dict) -> bool:
+    """Completed items need a receipt in their text; cancelled items need an N/A reason."""
     status = item.get("status")
-    return status == "completed" or (status == "cancelled" and "N/A:" in str(item.get("content", "")))
+    if status == "completed":
+        return bool(RECEIPT.search(str(item.get("content", ""))))
+    return status == "cancelled" and "N/A:" in str(item.get("content", ""))
 
 
 def check(tool_name: str, **kwargs) -> Optional[str]:
