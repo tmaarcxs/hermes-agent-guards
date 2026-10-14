@@ -16,11 +16,18 @@ the reviewer run and restores the implementer. Cards whose Acceptance is only a 
 verdict, or whose post-review items are already evidenced, complete normally.
 """
 
+import json
 import os
 import re
 from typing import Any, Optional
 
 from . import kanban_policy
+
+try:  # shared Jev client in this plugin package
+    from .jev import decide as jev_decide
+except Exception:  # pragma: no cover - the plugin must never fail on import
+    def jev_decide(state: str, questions: dict, timeout: float = 2.0, caller: str = "") -> Optional[dict]:
+        return None
 
 _ACCEPTANCE = re.compile(r"(?im)^[#*\s]*acceptance\b[^\n]*\n((?:[ \t]*\n|[ \t]*\d+[.)][^\n]*\n?|[ \t]+[^\n]*\n?)*)")
 _ITEM = re.compile(r"(?m)^[ \t]*(\d+)[.)][ \t]+(\S.*)$")
@@ -47,6 +54,81 @@ REVIEWER_MESSAGE = (
     "'APPROVED — <verdict summary>; returning the card to the implementer for the remaining Acceptance items'. "
     "If those items are genuinely already evidenced, retry kanban_complete with the full metadata.acceptance map. "
 )
+
+# --- Jev semantic completion layer -------------------------------------------------
+#-extra regex layer (unmet-evidence, post-review) only catches handoffs with a fixed
+# signal; free-text pending work ("merge pending", "screenshots not taken yet") without
+# those keywords is Jev's case. `mode shadow` only asks and logs (fail open, audit via
+# jev-decisions.jsonl); `mode enforce` blocks partial/failed at/above the threshold.
+JEV_THRESHOLD = 0.85
+JEV_QUESTIONS = {
+    "completion": {
+        "type": "choice",
+        "instructions": (
+            "A software agent is closing a work card as done. From the state below "
+            "(card acceptance criteria plus the agent's completion summary and evidence), "
+            "decide whether every acceptance item is genuinely finished."
+        ),
+        "criteria": {
+            "done": "Every acceptance item is completed with real evidence; nothing remains pending.",
+            "partial": "Some acceptance items are still pending, unverified or explicitly deferred (merge, deploy, review, screenshots, follow-up...).",
+            "failed": "The work failed or cannot be completed as specified.",
+        },
+    }
+}
+JEV_MESSAGE = (
+    "agent-guards blocked kanban_complete: the semantic completion check (Jev) judged the handoff "
+    "'not done' ({choice}, probability={probability}). Finish the remaining Acceptance items "
+    "(merge, deploy, verify, close), or kanban_block with the exact external constraint. "
+    "If the judgement does not match your evidence, retry once with the concrete items in "
+    "metadata.acceptance; a second block means the handoff must change, not the evidence wording."
+)
+
+
+def jev_settings() -> tuple[str, float]:
+    """(mode, threshold) from the profile config ``plugins.agent_guards``; defaults shadow / 0.85."""
+    try:
+        from hermes_cli.config import load_config_readonly
+
+        cg = ((load_config_readonly() or {}).get("plugins") or {}).get("agent_guards") or {}
+        mode = str(cg.get("jev_mode") or "shadow").lower()
+        threshold = cg.get("jev_threshold", JEV_THRESHOLD)
+        return (mode if mode in ("shadow", "enforce") else "shadow"), float(threshold)
+    except Exception:
+        return "shadow", JEV_THRESHOLD
+
+
+def _jev_state(body: str, metadata: dict) -> str:
+    acceptance = "\n".join(f"{number}. {text}" for number, text in acceptance_item_texts(body))
+    summary = str(metadata.get("summary") or "")
+    evidence = json.dumps(metadata.get("acceptance") or {}, ensure_ascii=False)
+    return f"Acceptance items:\n{acceptance}\n\nCompletion summary:\n{summary}\n\nAcceptance evidence:\n{evidence}"
+
+
+def _jev_verdict(decision: Optional[dict], threshold: float) -> Optional[tuple[str, float]]:
+    """(choice, probability) when Jev says partial/failed at or above ``threshold``."""
+    answer = ((decision or {}).get("answers") or {}).get("completion")
+    if not isinstance(answer, dict):
+        return None
+    choice = str(answer.get("choice") or "")
+    if choice not in ("partial", "failed"):
+        return None
+    probability = float((answer.get("probabilities") or {}).get(choice) or 0.0)
+    return (choice, probability) if probability >= threshold else None
+
+
+def jev_check(body: str, metadata: dict) -> Optional[str]:
+    """Ask Jev whether the handoff reads as done (worker completions only; the caller
+    gates that). ``shadow`` only asks — the decision is audit-logged, never blocks.
+    ``enforce`` blocks partial/failed at/above the threshold, fail open on any error."""
+    mode, threshold = jev_settings()
+    state = _jev_state(body, metadata)
+    decision = jev_decide(state, JEV_QUESTIONS, caller="completion_gate")
+    verdict = _jev_verdict(decision, threshold)
+    if mode != "enforce" or verdict is None:
+        return None
+    choice, probability = verdict
+    return JEV_MESSAGE.format(choice=choice, probability=round(probability, 2)) + " " + kanban_policy.RETRY_INSTRUCTION
 
 
 def _metadata(args: Any) -> dict:
@@ -138,5 +220,8 @@ def check(tool_name: str, args: Any, load_task=_task) -> Optional[str]:
     if missing:
         return MESSAGE.format(missing=", ".join(missing)) + " " + kanban_policy.RETRY_INSTRUCTION
     if not unmet:
+        semantic = jev_check(body, metadata)
+        if semantic:
+            return semantic
         return None
     return UNMET_MESSAGE.format(unmet=", ".join(unmet)) + " " + kanban_policy.RETRY_INSTRUCTION
