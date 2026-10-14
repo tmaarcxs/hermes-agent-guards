@@ -46,6 +46,7 @@ import re
 from typing import Any, Optional
 
 from . import completion_gate, handoff_gate, kanban_policy, lead_delegation, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake
+from . import stop_gate
 
 _START = r"(?:^|[;&|\n(`{]|\$\(|\bthen\b|\bdo\b|\belse\b)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:sudo\s+|command\s+)?"
 _SEGMENT_END = re.compile(r"[;\n]|&&|\|\|")
@@ -70,6 +71,7 @@ _INLINE_ATTACH_MESSAGE = (
 def register(ctx) -> None:
     ctx.register_hook("pre_tool_call", _pre_tool_call)
     ctx.register_hook("post_tool_call", _post_tool_call)
+    ctx.register_hook("pre_verify", stop_gate.check)
     stale_wake.register(ctx)
     ctx.register_hook("on_kanban_dispatch_tick", review_loop.on_tick)
 
@@ -116,7 +118,7 @@ def normalized_args(tool_name: str, args: dict[str, Any]) -> Optional[dict[str, 
 
 
 def _post_tool_call(**kwargs) -> None:
-    for guard in (repeat_guard, review_gate):
+    for guard in (repeat_guard, review_gate, stop_gate):
         try:
             guard.record(**kwargs)
         except Exception:
