@@ -26,6 +26,8 @@ Modules:
 - ``skill_size`` blocks growing a skill markdown file past its size limit;
 - ``kanban_policy`` (only with ``kanban.default_assignee`` set) keeps delegated cards on the
   worker profile, out of triage, without execution overrides and with a numbered Acceptance list;
+- ``lead_delegation`` (same condition, lead process only) blocks the lead from editing files under
+  repository roots and from ``git commit``/``git push``/``gh pr create`` there: delivery goes to workers;
 - ``review_gate`` (same condition) blocks ``kanban_request_review`` until the six pre-review
   checks are closed in ``todo_list``;
 - ``handoff_gate`` (same condition) bounces, once per session, a ``kanban_block`` whose reason
@@ -39,7 +41,7 @@ Modules:
 import re
 from typing import Any, Optional
 
-from . import handoff_gate, kanban_policy, repeat_guard, review_gate, review_loop, skill_size, stale_wake
+from . import handoff_gate, kanban_policy, lead_delegation, repeat_guard, review_gate, review_loop, skill_size, stale_wake
 
 _START = r"(?:^|[;&|\n(`{]|\$\(|\bthen\b|\bdo\b|\belse\b)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:sudo\s+|command\s+)?"
 _SEGMENT_END = re.compile(r"[;\n]|&&|\|\|")
@@ -121,6 +123,7 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
     for check in (
         lambda: repeat_guard.check(tool_name, args, **kwargs),
         lambda: kanban_policy.check(tool_name, args),
+        lambda: lead_delegation.check(tool_name, args),
         lambda: review_gate.check(tool_name, **kwargs),
         lambda: handoff_gate.check(tool_name, args, **kwargs),
         lambda: skill_size.check(tool_name, args),
