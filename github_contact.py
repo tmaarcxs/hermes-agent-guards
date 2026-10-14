@@ -207,18 +207,30 @@ def _flags(parts: list[tuple[str, bool]], names: dict[str, str]) -> dict[str, li
     return found
 
 
+def _split_users(value: str) -> list[str]:
+    """Split one flag value into candidate logins.
+
+    ``gh`` accepts both ``--assignee a,b`` and ``--assignee a -b``; comma-splitting
+    keeps ``a,self`` from hiding behind the self-assignment exemption.
+    """
+    return [part.strip() for part in str(value).split(",")]
+
+
 def _contacts(values: list[str], flag: str = "") -> bool:
     """True when any value contacts a person.
 
     ``@me``/``@copilot`` are never people. For assignee flags, the authenticated
     login is not a person either (self-assignment); when the login cannot be
-    resolved, fail closed and keep blocking other values.
+    resolved, fail closed and keep blocking other values. Comma-splitting applies
+    to assignee values only: reviewer flags keep their prior whole-value checks.
     """
     if flag in _ASSIGN_FLAGS:
-        me = authenticated_login()
-        if me:
-            others = [v for v in values if str(v).strip().lstrip("@").lower() != me.lower()]
-            return any(str(value).strip().lower() not in _NOT_PEOPLE for value in others)
+        users = [u for value in values for u in _split_users(value) if u]
+        if users:
+            me = authenticated_login()
+            if me:
+                users = [u for u in users if u.lstrip("@").lower() != me.lower()]
+            return any(u.strip().lower() not in _NOT_PEOPLE for u in users)
     return any(str(value).strip().lower() not in _NOT_PEOPLE for value in values)
 
 

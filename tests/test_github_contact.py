@@ -99,6 +99,11 @@ def test_self_assignment_mixed_values(login):
     assert run("gh issue create --assignee monalisa -t t") is not None
 
 
+def test_self_assignment_comma_list_pure_self_allowed(login):
+    login("kexi")
+    assert run("gh issue create -t x --assignee '@KEXI,kexi '") is None
+
+
 def test_self_assignment_case_and_at_sign_insensitive(login):
     login("kexi")
     assert run("gh issue create --assignee '@KEXI' -t t") is None
