@@ -36,6 +36,8 @@ Modules:
   says the worker's part is finished and only lead-owned steps remain; that is a completion;
 - ``schedule_gate`` (same condition, worker process only) blocks ``kanban_schedule``: it ends
   the run without a timer, so a self-scheduled card silently stops;
+- ``published_head_gate`` (same condition, worker process only) blocks ``kanban_request_review``
+  when the claimed ``metadata.commit``/``head`` is not the live head of the named pull request;
 - ``stale_wake`` wakes a card's subscribed chat once when the card has not moved for 1 h
   (needs ``plugins.entries.agent-guards.allow_gateway_injection: true``);
 - ``review_loop`` wakes the same chats when an open card reaches 3, 6, 9... review rounds
@@ -45,7 +47,7 @@ Modules:
 import re
 from typing import Any, Optional
 
-from . import completion_gate, handoff_gate, kanban_policy, lead_delegation, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake
+from . import completion_gate, handoff_gate, kanban_policy, lead_delegation, published_head_gate, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake
 from . import stop_gate
 
 _START = r"(?:^|[;&|\n(`{]|\$\(|\bthen\b|\bdo\b|\belse\b)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:sudo\s+|command\s+)?"
@@ -131,6 +133,7 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
         lambda: kanban_policy.check(tool_name, args),
         lambda: lead_delegation.check(tool_name, args),
         lambda: review_gate.check(tool_name, **kwargs),
+        lambda: published_head_gate.check(tool_name, args),
         lambda: handoff_gate.check(tool_name, args, **kwargs),
         lambda: completion_gate.check(tool_name, args),
         lambda: schedule_gate.check(tool_name, args),
