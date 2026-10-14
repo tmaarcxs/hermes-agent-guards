@@ -14,6 +14,12 @@ from typing import Any, Optional
 
 EXECUTION_OVERRIDES = ("model", "provider", "goal_mode", "goal_max_turns", "max_runtime_seconds")
 ACCEPTANCE_LIST = re.compile(r"(?im)^[#*\s]*acceptance\b[^\n]*\n(?:[ \t]*\n)*[ \t]*1[.)][ \t]+\S")
+DES_MEASUREMENT = re.compile(
+    r"(?i)\b(?:fresh|new)\b[^.\n]{0,40}\bexecutions?\b[^.\n]{0,60}\bat least\s+\d+\s+audits?"
+    r"|\bin DES\b[^.\n]{0,60}\bat least\s+\d+\s+audits?"
+    r"|\bat least\s+\d+\s+audits?\b[^.\n]{0,60}\bin DES\b"
+)
+LOCAL_REPLAY = re.compile(r"(?i)\blocal(?:ly)?\b[^.\n]{0,80}\b(?:replay|replicat\w*|snapshots?)\b")
 
 # Appended to every guard block of a Kanban lifecycle call. A blocked call does not satisfy
 # the terminal-call protocol: Hermes' core stop-guard (`agent/kanban_stop.py`
@@ -49,6 +55,13 @@ def violations(tool_name: str, args: dict[str, Any], worker: str) -> list[str]:
             found.append(
                 "body needs an 'Acceptance' heading followed by a numbered list (1., 2., ...) with one checkable "
                 "criterion per item, ending at the last step the worker can execute"
+            )
+        body = str(args.get("body") or "")
+        if DES_MEASUREMENT.search(body) and not LOCAL_REPLAY.search(body):
+            found.append(
+                "the body measures analysis behavior with DES executions on several audits; analysis tests run "
+                "locally on replicated DES snapshots (real LUMEN, task-owned Postgres), before the PR. Say so in the "
+                "body and keep DES to the deployed-identity readback plus at most one rendered execution"
             )
         return found
     if tool_name == "kanban_request_review" and args.get("reviewer") not in (None, worker):
