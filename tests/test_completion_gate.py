@@ -35,6 +35,20 @@ def test_full_evidence_passes():
     assert check({"acceptance": {"1": "3416 passed", 2: "PR #9 merged abc", "3": "DES 200"}}) is None
 
 
+@pytest.mark.parametrize("evidence", [
+    "PR MERGED? NOT YET - PR #1059 is OPEN with all gates green",
+    "ISSUE CLOSURE PENDING MERGE: #1057 remains OPEN by design",
+    "Acceptance not met: no DES run",
+])
+def test_evidence_admitting_unmet_item_is_blocked(evidence):
+    message = check({"acceptance": {"1": "3416 passed", "2": evidence, "3": "DES 200"}})
+    assert message and "items 2 " in message
+
+
+def test_evidence_mentioning_done_states_passes():
+    assert check({"acceptance": {"1": "flake fixed, was pending before", "2": "PR #9 merged abc", "3": "DES 200 open"}}) is None
+
+
 def test_card_without_acceptance_list_passes():
     assert check({}, body="Just do it") is None
 

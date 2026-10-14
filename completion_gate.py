@@ -23,6 +23,12 @@ MESSAGE = (
     '{{"1": "...", "2": "..."}}. If an item cannot be met, do not complete: finish it, or kanban_block with the '
     "exact external constraint."
 )
+_UNMET = re.compile(r"(?i)\b(?:not yet|not met|pending (?:merge|review|des|deploy)|remains open)\b")
+UNMET_MESSAGE = (
+    "agent-guards blocked kanban_complete: the evidence for Acceptance items {unmet} says they are not met yet. "
+    "Finish those items (merge, deploy, verify, close), or kanban_block with the exact external constraint. "
+    "Completing hands the card off as done and the remaining steps are lost."
+)
 
 
 def acceptance_items(body: str) -> list[str]:
@@ -51,6 +57,12 @@ def missing_items(body: str, metadata: Any) -> list[str]:
     return [item for item in acceptance_items(body) if item not in evidenced]
 
 
+def unmet_items(body: str, metadata: Any) -> list[str]:
+    covered = metadata.get("acceptance") if isinstance(metadata, dict) else None
+    covered = {str(key).strip(): str(value or "") for key, value in covered.items()} if isinstance(covered, dict) else {}
+    return [item for item in acceptance_items(body) if _UNMET.search(covered.get(item, ""))]
+
+
 def check(tool_name: str, args: Any, load_task=_task) -> Optional[str]:
     if tool_name != "kanban_complete" or not isinstance(args, dict) or not kanban_policy.configured_worker():
         return None
@@ -64,4 +76,7 @@ def check(tool_name: str, args: Any, load_task=_task) -> Optional[str]:
     if task is None or task[1]:
         return None
     missing = missing_items(task[0], metadata)
-    return MESSAGE.format(missing=", ".join(missing)) if missing else None
+    if missing:
+        return MESSAGE.format(missing=", ".join(missing))
+    unmet = unmet_items(task[0], metadata)
+    return UNMET_MESSAGE.format(unmet=", ".join(unmet)) if unmet else None
