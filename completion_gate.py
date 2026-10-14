@@ -49,6 +49,20 @@ REVIEWER_MESSAGE = (
 )
 
 
+def _metadata(args: Any) -> dict:
+    """The runtime delivers ``metadata`` to pre_tool_call hooks as a JSON string
+    (see ``tools/kanban_tools.py`` handler contracts); accept both shapes."""
+    metadata = args.get("metadata") if isinstance(args, dict) else None
+    if isinstance(metadata, str):
+        import json
+
+        try:
+            metadata = json.loads(metadata)
+        except Exception:
+            metadata = None
+    return metadata if isinstance(metadata, dict) else {}
+
+
 def acceptance_item_texts(body: str) -> list[tuple[str, str]]:
     match = _ACCEPTANCE.search(body or "")
     if not match:
@@ -106,9 +120,7 @@ def check(tool_name: str, args: Any, load_task=_task) -> Optional[str]:
     task_id = str(args.get("task_id") or os.environ.get("HERMES_KANBAN_TASK") or "")
     if not os.environ.get("HERMES_KANBAN_TASK") or not task_id:
         return None
-    metadata = args.get("metadata")
-    if not isinstance(metadata, dict):
-        metadata = {}
+    metadata = _metadata(args)
     task = load_task(task_id)
     if task is None:
         return None

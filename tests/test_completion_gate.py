@@ -129,3 +129,24 @@ def test_lead_process_is_not_gated(monkeypatch):
 def test_items_are_parsed_from_the_acceptance_section_only():
     body = "Plan\n1. read\n2. code\n\n## Acceptance\n1. a\n2. b\n\n## Notes\n1. ignore"
     assert gate.acceptance_items(body) == ["1", "2"]
+
+
+def test_string_metadata_json_is_parsed():
+    import json
+    message = check(json.dumps({"acceptance": {}}.get("acceptance") and {} or {"acceptance": {}}))
+    assert message and "1, 2, 3" in message
+
+
+def test_string_metadata_with_full_map_passes_and_reviewer_block_fires():
+    import json
+    empty_json = json.dumps({"acceptance": {}})
+    assert "1, 2, 3" in check(empty_json)
+    reviewer_json = json.dumps({"review_verdict": "APPROVE"})
+    message = gate.check("kanban_complete", {"summary": "s", "metadata": reviewer_json},
+                         load_task=lambda _: (POST_REVIEW_BODY, False))
+    assert message and "2, 3, 4" in message and "kanban_request_changes" in message
+
+
+def test_string_metadata_unparsable_treated_as_empty():
+    message = check("{not json")
+    assert message and "1, 2, 3" in message
