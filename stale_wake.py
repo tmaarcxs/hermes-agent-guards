@@ -22,7 +22,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-_logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 STATUSES = ("triage", "todo", "ready", "review", "blocked", "scheduled")
 STALE_AFTER = 3600
@@ -31,31 +31,6 @@ _IGNORED_KINDS = (
     "heartbeat", "skipped_nonspawnable", "respawn_guarded", "claim_extended",
     "commented", "edited", "attached", "attachment_removed", "linked", "unlinked",
 )
-
-try:  # shared Jev client in this plugin package
-    from .jev import decide as jev_decide
-except Exception:  # pragma: no cover - the plugin must never fail on import
-    def jev_decide(state: str, questions: dict, timeout: float = 2.0, caller: str = "") -> Optional[dict]:
-        return None
-
-# Jev wake filter: before injecting a wake, ask whether the card's recent context
-# makes a wake useful. ``skip`` suppresses the wake; any Jev failure wakes anyway.
-WAKE_QUESTIONS = {
-    "wake": {
-        "type": "choice",
-        "instructions": (
-            "A Kanban card has been idle for over an hour and an automatic wake message is about "
-            "to be injected into the subscriber chat so an agent can recover it. From the card's "
-            "recent activity, decide whether this wake would materially help."
-        ),
-        "criteria": {
-            "wake": "The wake plausibly helps: the card needs attention, recovery, or new context.",
-            "skip": "The wake would be noise: the card is waiting on a known external input, a scheduled time, or an in-flight dependency that activity alone cannot resolve.",
-        },
-    }
-}
-
-WAKE_SKIP_CONFIDENCE = 0.85
 
 _ctx: Any = None
 _last_check = 0.0
@@ -133,47 +108,12 @@ def wake_text(card: dict) -> str:
     )
 
 
-def _jev_wake_verdict(conn: sqlite3.Connection, task_id: str, card: dict, limit: int = 10) -> bool:
-    """True when the wake should proceed. Jev judges the card's recent activity
-    (from the DB if reachable, else the last known state) and a ``skip`` verdict
-    with the seminar's confidence suppresses this one wake; any failure wakes anyway."""
-    try:
-        cursor = conn.execute(
-            "select body from comments where task_id = ? order by id desc limit ?",
-            (task_id, limit),
-        )
-        history = "\n".join(f"- {str(row[0] or '')[:300]}" for row in reversed(cursor.fetchall()))
-    except Exception:
-        history = ""
-    state = (
-        f"Kanban card {task_id} '{str(card.get('title') or '')[:120]}' is stale in status "
-        f"'{card.get('status')}' for {card.get('age_h', 0):.0f}h and is about to auto-wake its subscriber chat.\n\n"
-        f"Recent card activity (latest last):\n{history or '(no recorded comments)'}"
-    )
-    decision = jev_decide(state, WAKE_QUESTIONS, caller="stale_wake")
-    if decision is None:
-        return True
-    answer = (decision.get("answers") or {}).get("wake")
-    if not isinstance(answer, dict):
-        return True
-    choice = answer.get("choice")
-    confidence = float(answer.get("confidence") or 0.0)
-    if choice == "skip" and confidence >= WAKE_SKIP_CONFIDENCE:
-        _logger.info("agent-guards stale wake: Jev suppressed wake for %s (confidence %.2f)", task_id, confidence)
-        return False
-    return True
-
-
 def sweep(conn: sqlite3.Connection, state: dict, inject, now: float) -> dict:
-    """Wake each stale card once per state, unless Jev suppresses it. Returns the new state."""
+    """Wake each stale card once per state. Returns the new state."""
     stale = {card["id"]: card for card in stale_cards(conn, now)}
     kept = {tid: event_id for tid, event_id in state.items() if tid in stale}
     for tid, card in stale.items():
         if kept.get(tid) == card["event_id"]:
-            continue
-        # Jev filters the wake itself (not per subscriber): a suppressed card keeps its
-        # old event id, so the next state change still wakes it.
-        if not _jev_wake_verdict(conn, tid, card):
             continue
         origins = subscribers(conn, tid)
         text = wake_text(card)
@@ -186,7 +126,7 @@ def _inject(text: str, origin: dict) -> bool:
     try:
         return bool(_ctx.inject_message(text, origin=origin))
     except Exception:
-        _logger.warning("agent-guards stale wake: injection failed for %s", origin, exc_info=True)
+        logger.warning("agent-guards stale wake: injection failed for %s", origin, exc_info=True)
         return False
 
 
@@ -211,4 +151,4 @@ def on_tick(board: Optional[str] = None, dry_run: bool = False, **_: Any) -> Non
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(new_state))
     except Exception:
-        _logger.warning("agent-guards stale wake: sweep failed", exc_info=True)
+        logger.warning("agent-guards stale wake: sweep failed", exc_info=True)
