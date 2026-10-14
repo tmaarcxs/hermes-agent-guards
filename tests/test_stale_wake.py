@@ -77,6 +77,14 @@ def test_running_and_recent_cards_are_never_woken():
     assert rec.calls == []
 
 
+def test_parked_scheduled_card_wakes_its_chat():
+    conn = board()
+    card(conn, "t_scheduled", "scheduled", 2, kind="scheduled")
+    rec = Recorder()
+    wake.sweep(conn, {}, rec, NOW)
+    assert woken(rec) == ["t_scheduled"]
+
+
 def test_heartbeats_do_not_count_as_movement_or_reset_the_state():
     conn = board()
     card(conn, "t_b", "blocked", 3)

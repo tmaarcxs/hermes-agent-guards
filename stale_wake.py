@@ -1,7 +1,7 @@
 """Wake the chat that created a Kanban card once when the card stops moving.
 
-On each dispatcher tick (at most hourly) it finds triage, todo, ready, review and
-blocked cards whose last state event is at least 1 h old; heartbeats, comments,
+On each dispatcher tick (at most hourly) it finds triage, todo, ready, review,
+blocked and scheduled cards whose last state event is at least 1 h old; heartbeats, comments,
 edits, links and attachments are not state changes. Running cards
 are never checked. For each such card it starts one agent turn in every chat
 subscribed to the card (the creating chat is auto-subscribed) via the gateway's
@@ -24,7 +24,7 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-STATUSES = ("triage", "todo", "ready", "review", "blocked")
+STATUSES = ("triage", "todo", "ready", "review", "blocked", "scheduled")
 STALE_AFTER = 3600
 CHECK_EVERY = 3600
 _IGNORED_KINDS = (
