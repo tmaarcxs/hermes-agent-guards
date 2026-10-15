@@ -33,7 +33,7 @@ def card(conn, tid, status, runs=0, crs=0, subscribed=True, reasons=()):
         )
     if subscribed:
         conn.execute(
-            "insert into kanban_notify_subs values (?, 'telegram', '407617100', '179332', 'dm', '407617100', null, 'default')",
+            "insert into kanban_notify_subs values (?, 'telegram', '555000100', '900332', 'dm', '555000100', null, 'default')",
             (tid,),
         )
 
@@ -162,12 +162,12 @@ def test_multi_origin_cards_are_warned_in_every_subscribed_chat():
         "update kanban_notify_subs set thread_id = null where task_id = 't_hot'"
     )
     conn.execute(
-        "insert into kanban_notify_subs values (?, 'telegram', '407617199', '179340', 'dm', '407617100', null, 'default')",
+        "insert into kanban_notify_subs values (?, 'telegram', '555000199', '900340', 'dm', '555000100', null, 'default')",
         ("t_hot",),
     )
     rec = Recorder()
     state = churn.sweep(conn, {}, rec)
-    assert len(rec.calls) == 2 and {o["chat_id"] for _, o in rec.calls} == {"407617100", "407617199"}
+    assert len(rec.calls) == 2 and {o["chat_id"] for _, o in rec.calls} == {"555000100", "555000199"}
     assert state == {"t_hot": 10}
 
 

@@ -24,7 +24,7 @@ def board():
 def card(conn, tid, status="ready"):
     conn.execute("insert into tasks values (?, ?, 'stalled card', null, 1)", (tid, status))
     conn.execute(
-        "insert into kanban_notify_subs values (?, 'telegram', '407617100', null, 'dm', '407617100', null, 'default')",
+        "insert into kanban_notify_subs values (?, 'telegram', '555000100', null, 'dm', '555000100', null, 'default')",
         (tid,),
     )
 
@@ -157,7 +157,7 @@ def test_stall_wake_on_tick_is_unthrottled_and_named_fails_open(monkeypatch, tmp
     )
     conn.execute("insert into tasks values ('t_s', 'ready', 'stalled card', null, 1)")
     conn.execute(
-        "insert into kanban_notify_subs values ('t_s', 'telegram', '407617100', null, 'dm', '407617100', null, 'default')"
+        "insert into kanban_notify_subs values ('t_s', 'telegram', '555000100', null, 'dm', '555000100', null, 'default')"
     )
     for i in range(wake.STALL_MIN_EVENTS):
         conn.execute(

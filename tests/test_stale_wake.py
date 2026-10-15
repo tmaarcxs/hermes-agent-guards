@@ -33,7 +33,7 @@ def card(conn, tid, status, age_h, subscribed=True, kind="created"):
     conn.execute("insert into task_events (task_id, kind, created_at) values (?, ?, ?)", (tid, kind, at))
     if subscribed:
         conn.execute(
-            "insert into kanban_notify_subs values (?, 'telegram', '407617100', '179332', 'dm', '407617100', null, 'default')",
+            "insert into kanban_notify_subs values (?, 'telegram', '555000100', '900332', 'dm', '555000100', null, 'default')",
             (tid,),
         )
 
@@ -63,8 +63,8 @@ def test_wakes_each_stale_card_once_in_its_chat():
     state = wake.sweep(conn, {}, rec, NOW)
     assert woken(rec) == ["t_blocked", "t_todo"]
     assert rec.calls[0][1] == {
-        "platform": "telegram", "chat_id": "407617100", "thread_id": "179332", "chat_type": "dm",
-        "user_id": "407617100", "profile": "default",
+        "platform": "telegram", "chat_id": "555000100", "thread_id": "900332", "chat_type": "dm",
+        "user_id": "555000100", "profile": "default",
     }
     rec2 = Recorder()
     assert wake.sweep(conn, state, rec2, NOW + 5 * HOUR) == state
@@ -238,7 +238,7 @@ def test_quiet_board_wakes_when_a_ready_card_crosses_five_minutes(monkeypatch, t
     conn.execute("insert into tasks values ('t_q', 'ready', 'quiet', null, ?)", (t0,))
     conn.execute("insert into task_events (task_id, kind, created_at) values ('t_q', 'created', ?)", (t0,))
     conn.execute(
-        "insert into kanban_notify_subs values ('t_q', 'telegram', '407617100', '179332', 'dm', '407617100', null, 'default')"
+        "insert into kanban_notify_subs values ('t_q', 'telegram', '555000100', '900332', 'dm', '555000100', null, 'default')"
     )
     conn.commit()
 
@@ -266,7 +266,7 @@ def test_a_new_state_event_rearms_the_stale_wake_on_a_quiet_board(monkeypatch, t
     conn.execute("insert into tasks values ('t_r', 'ready', 'rearm', null, ?)", (t0,))
     conn.execute("insert into task_events (task_id, kind, created_at) values ('t_r', 'created', ?)", (t0,))
     conn.execute(
-        "insert into kanban_notify_subs values ('t_r', 'telegram', '407617100', '179332', 'dm', '407617100', null, 'default')"
+        "insert into kanban_notify_subs values ('t_r', 'telegram', '555000100', '900332', 'dm', '555000100', null, 'default')"
     )
     conn.commit()
 

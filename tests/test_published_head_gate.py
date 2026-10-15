@@ -5,14 +5,14 @@ import pytest
 guards = sys.modules["agent_guards"]
 gate = guards.published_head_gate
 
-PR = "https://github.com/atlas/mic-demosuite/pull/1066"
+PR = "https://github.com/org/sample-api/pull/1066"
 PUBLISHED = "0b9f3062e6e4d2372f5f832e7afb97e12cc7c51e"
 
 
 @pytest.fixture(autouse=True)
 def worker_process(monkeypatch):
     monkeypatch.setattr(guards.kanban_policy, "configured_worker", lambda: "worker")
-    monkeypatch.setenv("HERMES_KANBAN_TASK", "t_5efb2556")
+    monkeypatch.setenv("HERMES_KANBAN_TASK", "t_pub0003")
 
 
 def review(metadata, summary=f"Corrections on {PR}", head=PUBLISHED):
@@ -27,7 +27,7 @@ def review(metadata, summary=f"Corrections on {PR}", head=PUBLISHED):
 
 def test_unpushed_claimed_commit_is_blocked():
     message, calls = review({"commit": "0e533ed2"})
-    assert calls == [("atlas", "mic-demosuite", "1066")]
+    assert calls == [("org", "sample-api", "1066")]
     assert "0e533ed2" in message and "0b9f3062e6e4" in message
 
 

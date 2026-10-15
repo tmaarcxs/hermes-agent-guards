@@ -9,9 +9,9 @@ gate = guards.handoff_gate
 
 FINISHED = [
     "Signed publication is complete and exact-head gates are green (commit 31439b10, PR #934 open). Nothing left for "
-    "this worker to execute: merge of PR #934 plus DES live acceptance are held by the lead per operator note.",
+    "this worker to execute: merge of PR #934 plus production acceptance are held by the lead per operator note.",
     "Delivery-prep phase complete and durably checkpointed: exact-head 3603ffb3 verified signed + CI-green. Merge of "
-    "PR #923 and any DES build/deploy/execution remain with the lead.",
+    "PR #923 and any production build/deploy/execution remain with the lead.",
     "F1/F2 corrections implemented and verified on signed commit 180859f0 (2150 unit green). Lead approval needed "
     "before publication.",
 ]

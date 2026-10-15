@@ -47,7 +47,7 @@ def test_blocks(command):
     [
         "sleep 5; ls",
         "sleep 29",
-        "for i in $(seq 1 30); do pg_isready -U demosuite && break; sleep 1; done",
+        "for i in $(seq 1 30); do pg_isready -U appdb && break; sleep 1; done",
         "for i in $(seq 1 45); do code=$(curl -s -m 2 http://127.0.0.1:55518/readiness); sleep 2; done",
         "for i in 1 2 3 4 5 6 7 8; do curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:55518; sleep 2; done",
         "until [ -f ready ]; do sleep 10; done",
@@ -120,7 +120,7 @@ def test_env_task_literal_becomes_absent(tool, literal):
 
 
 def test_real_task_ids_and_other_tools_untouched():
-    assert guards._pre_tool_call(tool_name="kanban_show", args={"task_id": "t_a32b8765"}) is None
+    assert guards._pre_tool_call(tool_name="kanban_show", args={"task_id": "t_show0005"}) is None
     assert guards._pre_tool_call(tool_name="kanban_show", args={}) is None
     assert guards._pre_tool_call(tool_name="read_file", args={"task_id": "$HERMES_KANBAN_TASK"}) is None
     assert guards._pre_tool_call(tool_name="kanban_show", args={"task_id": "$HERMES_KANBAN_TASK_X"}) is None

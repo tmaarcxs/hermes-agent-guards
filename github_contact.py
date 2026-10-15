@@ -3,8 +3,8 @@
 Active only in a worker process (``HERMES_KANBAN_TASK`` set; the delegation policy in
 ``kanban_policy`` is what puts repository work there). Review requests, issue assignees
 and @mention comments notify a person, and contacting people needs the owner's explicit
-approval; the authorized alternatives are the guarded admin merge
-(``github-agent-ops/scripts/pr_merge_verified``) for a CODEOWNERS-only review gap, or
+approval; the authorized alternatives are the setup's documented merge command
+(``kanban_policy.merge_hint``) for a CODEOWNERS-only review gap, or
 ``kanban_block`` with ``kind=needs_input``.
 
 Blocked at command-word position (segments split like the shell does, quotes respected;
@@ -40,11 +40,20 @@ from typing import Any, Optional
 from . import kanban_policy
 
 MESSAGE = (
-    "Contacting people needs the owner's approval. For a CODEOWNERS/review-only gap on a green "
-    "exact head merge it yourself: bash ~/.hermes/skills/github/github-agent-ops/scripts/"
-    "pr_merge_verified --repo <owner/repo> <pr> <head-sha>; if the card forbids merging or the "
-    "diff needs independent review, kanban_block with kind=needs_input — do not just wait."
+    "Contacting people needs the owner's approval. "
+    "{merge_hint}"
+    "If the card forbids merging or the diff needs independent review, "
+    "kanban_block with kind=needs_input — do not just wait."
 )
+_MERGE_HINT_BODY = (
+    "For a CODEOWNERS/review-only gap on a green exact head, merge it yourself with the "
+    "documented merge command: {hint}. "
+)
+
+
+def _merge_hint() -> str:
+    hint = kanban_policy.merge_hint()
+    return _MERGE_HINT_BODY.format(hint=hint) if hint else ""
 RETRY = (
     "Then fix the command and retry it in this same response — do not end on a text-only reply: "
     "a reply without the retry ends the run as a protocol violation."
@@ -383,5 +392,8 @@ def check(tool_name: str, args: Any) -> Optional[str]:
     if not found:
         return None
     return (
-        "agent-guards blocked terminal: " + "; ".join(found) + ". " + MESSAGE + " " + RETRY
+        "agent-guards blocked terminal: " + "; ".join(found) + ". Contacting people needs the owner's approval. "
+        + _merge_hint()
+        + "If the card forbids merging or the diff needs independent review, "
+        "kanban_block with kind=needs_input — do not just wait. " + RETRY
     )

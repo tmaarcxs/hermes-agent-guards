@@ -10,7 +10,8 @@ Blocks (terminal, foreground or background as noted):
 - ``git push --force``/``-f`` without ``--force-with-lease``;
 - in a worker process (``github_contact``): commands that contact people on GitHub —
   review requests, issue assignees and comments whose body ``@mentions`` a user or
-  org/team; a CODEOWNERS-only gap goes through ``pr_merge_verified`` instead.
+  org/team; for a CODEOWNERS-only gap the message names the setup's documented merge
+  command when one exists (``AGENT_GUARDS_MERGE_HINT``).
 
 Blocks (other tools):
 - ``kanban_attach`` with more than 256 characters of inline base64: the model transcribes
@@ -44,16 +45,16 @@ Modules:
 - ``github_contact`` (same condition, worker process only) blocks terminal calls that contact
   people on GitHub: review requests, issue assignees and @mention comments; ``@me``/``@copilot``,
   removal flags and, on assignee flags, the authenticated login itself are exempt
-  (self-assignment contacts nobody; unresolvable login fails closed); the authorized
-  alternatives for a CODEOWNERS-only gap are ``github-agent-ops/scripts/pr_merge_verified``
-  or ``kanban_block`` with ``kind=needs_input``;
-- ``approval_wait_gate`` (same condition, worker process only) blocks the silent 17-hour wait
+  (self-assignment contacts nobody; unresolvable login fails closed); for a CODEOWNERS-only
+  gap the message names the setup's documented merge command when one exists
+  (``AGENT_GUARDS_MERGE_HINT``), and always offers ``kanban_block`` with ``kind=needs_input``;
+- ``approval_wait_gate`` (same condition, worker process only) blocks the silent hours-long wait
   on an approval-only pull request: when the exact head of a polled PR is green on every
   automated check and the review approval is the only open gate, readiness polls of it
   (``gh pr checks``, ``gh pr view --json statusCheckRollup|mergeStateStatus|...``,
-  ``gh api .../pulls/<n>``, ``pr_status``/``pr_wait_checks``) are blocked with the two
-  authorized moves (merge the verified head via ``pr_merge_verified``, or
-  ``kanban_block(kind="needs_input")``), and a repeating ``kanban_heartbeat`` note that admits
+  ``gh api .../pulls/<n>``, poller helper scripts) are blocked with the
+  authorized moves (merge the verified head via the documented merge command when the
+  setup names one (``AGENT_GUARDS_MERGE_HINT``), or ``kanban_block(kind="needs_input")``), and a repeating ``kanban_heartbeat`` note that admits
   the approval-only wait is blocked from the second one on. Pending or failing checks, drafts
   and dirty states are not verdict names, so their polls flow through; verdicts are cached
   for 15 minutes and fail open on errors;

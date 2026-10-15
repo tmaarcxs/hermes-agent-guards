@@ -14,7 +14,7 @@ def run(command, workdir=None):
 
 @pytest.fixture(autouse=True)
 def worker_setup(monkeypatch):
-    monkeypatch.setenv("HERMES_KANBAN_TASK", "t_28cfac35")
+    monkeypatch.setenv("HERMES_KANBAN_TASK", "t_dem0002")
     # Pin a login that appears in no test command, so guard checks never shell
     # out to `gh api user`; self-assignment tests override via the `login` fixture.
     monkeypatch.setattr(gc, "_login_cache", "nobody-here")
@@ -23,7 +23,7 @@ def worker_setup(monkeypatch):
 
 @pytest.fixture
 def body_files(tmp_path):
-    (tmp_path / "body.md").write_text("Thanks @celiafl97, please review")
+    (tmp_path / "body.md").write_text("Thanks @alice-dev, please review")
     (tmp_path / "clean.md").write_text("Evidence attached, exit 0, 12 passed")
     return tmp_path
 
@@ -31,15 +31,15 @@ def body_files(tmp_path):
 @pytest.mark.parametrize(
     "command",
     [
-        "gh pr edit 1 -R o/r --add-reviewer celiafl97",
-        "gh pr edit 1 --add-reviewer=celiafl97",
-        "GH_REPO=o/r gh pr edit 1 --add-reviewer celiafl97",
-        "gh pr create -t t -b b -r monalisa,myorg/team -B main",
-        "gh pr create --reviewer monalisa",
-        "gh issue create --assignee monalisa,hubot",
-        "gh issue edit 12 --add-assignee monalisa",
+        "gh pr edit 1 -R o/r --add-reviewer alice-dev",
+        "gh pr edit 1 --add-reviewer=alice-dev",
+        "GH_REPO=o/r gh pr edit 1 --add-reviewer alice-dev",
+        "gh pr create -t t -b b -r reviewer-one,myorg/team -B main",
+        "gh pr create --reviewer reviewer-one",
+        "gh issue create --assignee reviewer-one,reviewer-two",
+        "gh issue edit 12 --add-assignee reviewer-one",
         "gh api repos/o/r/pulls/7/requested_reviewers -F 'reviewer_ids[]=[1]'",
-        "gh api -X POST repos/o/r/issues/1/requested_reviewers -f 'reviewers[]=monalisa'",
+        "gh api -X POST repos/o/r/issues/1/requested_reviewers -f 'reviewers[]=reviewer-one'",
         "gh pr review 123 --approve",
         "gh pr review 123 --request-changes -b 'please address'",
         "gh pr review",
@@ -52,14 +52,14 @@ def test_review_requests_blocked(command):
     result = run(command)
     assert result is not None and result["action"] == "block"
     assert "needs the owner's approval" in result["message"]
-    assert "pr_merge_verified" in result["message"]
+    assert "kanban_block" in result["message"] and "kind=needs_input" in result["message"]
 
 
 @pytest.mark.parametrize(
     "command",
     [
         "gh pr edit 1 --add-reviewer=@copilot",
-        "gh issue edit 3 --remove-assignee monalisa",
+        "gh issue edit 3 --remove-assignee reviewer-one",
         "gh pr edit 1 --remove-reviewer somebody",
         "gh issue create --assignee '@me' -t t",
     ],
@@ -82,47 +82,47 @@ def login(monkeypatch):
 
 
 def test_self_assignment_allowed(login):
-    login("kexi")
+    login("owner-dev")
     for command in (
-        "gh issue create --assignee kexi -t t",
-        "gh issue create -a kexi -t t",
-        "gh pr create -t t -b b -a kexi",
-        "gh issue edit 3 --add-assignee kexi",
+        "gh issue create --assignee owner-dev -t t",
+        "gh issue create -a owner-dev -t t",
+        "gh pr create -t t -b b -a owner-dev",
+        "gh issue edit 3 --add-assignee owner-dev",
     ):
         assert run(command) is None
 
 
 def test_self_assignment_mixed_values(login):
-    login("kexi")
-    result = run("gh issue create --assignee kexi,monalisa -t t")
+    login("owner-dev")
+    result = run("gh issue create --assignee owner-dev,reviewer-one -t t")
     assert result is not None and result["action"] == "block"
-    assert run("gh issue create --assignee monalisa -t t") is not None
+    assert run("gh issue create --assignee reviewer-one -t t") is not None
 
 
 def test_self_assignment_comma_list_pure_self_allowed(login):
-    login("kexi")
-    assert run("gh issue create -t x --assignee '@KEXI,kexi '") is None
+    login("owner-dev")
+    assert run("gh issue create -t x --assignee '@OWNER-DEV,owner-dev '") is None
 
 
 def test_self_assignment_case_and_at_sign_insensitive(login):
-    login("kexi")
-    assert run("gh issue create --assignee '@KEXI' -t t") is None
-    assert run("gh issue edit 3 --add-assignee 'Kexi'") is None
+    login("owner-dev")
+    assert run("gh issue create --assignee '@OWNER-DEV' -t t") is None
+    assert run("gh issue edit 3 --add-assignee 'Owner-Dev'") is None
 
 
 def test_self_assignment_not_applied_to_reviewer_flags(login):
-    login("kexi")
-    assert run("gh pr edit 1 --add-reviewer kexi") is not None
-    assert run("gh pr create -t t -b b -r kexi") is not None
+    login("owner-dev")
+    assert run("gh pr edit 1 --add-reviewer owner-dev") is not None
+    assert run("gh pr create -t t -b b -r owner-dev") is not None
 
 
 @pytest.mark.parametrize(
     "command",
     [
-        "gh issue create --assignee monalisa -t t",
-        "gh issue create -a monalisa,hubot -t t",
-        "gh pr create -t t -b b -a kexi",
-        "gh issue edit 3 --add-assignee monalisa",
+        "gh issue create --assignee reviewer-one -t t",
+        "gh issue create -a reviewer-one,reviewer-two -t t",
+        "gh pr create -t t -b b -a owner-dev",
+        "gh issue edit 3 --add-assignee reviewer-one",
     ],
 )
 def test_login_unresolvable_fails_closed(command, monkeypatch):
@@ -158,7 +158,7 @@ def test_resolver_crash_fails_closed_not_fail_open(exc, monkeypatch):
 
     monkeypatch.setattr(gc.subprocess, "run", boom)
     assert gc.authenticated_login() is None
-    result = run("gh issue create -t x --assignee monalisa")
+    result = run("gh issue create -t x --assignee reviewer-one")
     assert result is not None and result["action"] == "block"
 
 
@@ -167,19 +167,19 @@ def test_login_resolved_once_per_process(monkeypatch):
 
     def fake_run(*args, **kwargs):
         calls.append(1)
-        return type("P", (), {"returncode": 0, "stdout": "kexi\n"})()
+        return type("P", (), {"returncode": 0, "stdout": "owner-dev\n"})()
 
     monkeypatch.setattr(gc, "_login_cache", None)
     monkeypatch.setattr(gc, "_login_resolved", False)
     import unittest.mock as mock
     with mock.patch.object(gc.subprocess, "run", fake_run):
-        assert gc.authenticated_login() == "kexi"
-        assert gc.authenticated_login() == "kexi"
+        assert gc.authenticated_login() == "owner-dev"
+        assert gc.authenticated_login() == "owner-dev"
     assert calls == [1]
 
 
 def test_comment_with_mention_blocked(body_files):
-    result = run("gh pr comment 1 --body 'pinging @celiafl97 to review'")
+    result = run("gh pr comment 1 --body 'pinging @alice-dev to review'")
     assert result is not None and result["action"] == "block"
     result = run("gh issue comment 5 -b 'cc @org/team'")
     assert result is not None and result["action"] == "block"
@@ -205,7 +205,7 @@ def test_at_lookalikes_not_mentions(text):
     assert gc._has_mention(text) is False
 
 
-@pytest.mark.parametrize("text", ["@celiafl97", "@org/team", "ping @user.", "(@someone)", '"@user"', "@missing"])
+@pytest.mark.parametrize("text", ["@alice-dev", "@org/team", "ping @user.", "(@someone)", '"@user"', "@missing"])
 def test_real_mentions_found(text):
     assert gc._has_mention(text) is True
 
@@ -245,5 +245,5 @@ def test_lead_process_not_guarded(monkeypatch):
 def test_message_names_authorized_alternative():
     result = run("gh pr edit 1 --add-reviewer x")
     assert "needs the owner's approval" in result["message"]
-    assert "pr_merge_verified" in result["message"]
+    assert "kanban_block" in result["message"] and "kind=needs_input" in result["message"]
     assert "needs_input" in result["message"]
