@@ -74,7 +74,7 @@ def test_wakes_each_stale_card_once_in_its_chat():
 def test_running_and_recent_cards_are_never_woken():
     conn = board()
     card(conn, "t_running", "running", 10)
-    card(conn, "t_recent", "blocked", 0.5)
+    card(conn, "t_recent", "blocked", 0.05)
     card(conn, "t_done", "done", 10)
     rec = Recorder()
     wake.sweep(conn, {}, rec, NOW)
@@ -219,7 +219,7 @@ def _tick_board(tmp_path, monkeypatch):
     return conn
 
 
-def test_quiet_board_wakes_when_a_ready_card_crosses_one_hour(monkeypatch, tmp_path):
+def test_quiet_board_wakes_when_a_ready_card_crosses_five_minutes(monkeypatch, tmp_path):
     conn = _tick_board(tmp_path, monkeypatch)
     rec = Recorder()
     monkeypatch.setattr(wake, "_inject", lambda text, origin: rec(text, origin) or True)
@@ -233,15 +233,15 @@ def test_quiet_board_wakes_when_a_ready_card_crosses_one_hour(monkeypatch, tmp_p
 
     wake.on_tick(board=None, now=t0 + 1)  # installed-guard primer: init sweep wakes nothing, arms due_at
     assert rec.calls == []
-    assert json.loads((tmp_path / "kanban-stale-wake-cursor.json").read_text())["due_at"] == t0 + 3600
-    wake.on_tick(board=None, now=t0 + 3599)
+    assert json.loads((tmp_path / "kanban-stale-wake-cursor.json").read_text())["due_at"] == t0 + 300
+    wake.on_tick(board=None, now=t0 + 299)
     assert rec.calls == []  # quiet, before due: no sweep, no wake
     assert json.loads((tmp_path / "kanban-stale-wake-cursor.json").read_text())["swept_at"] == t0 + 1
-    wake.on_tick(board=None, now=t0 + 3599)
+    wake.on_tick(board=None, now=t0 + 299)
     assert rec.calls == []
-    wake.on_tick(board=None, now=t0 + 3601)
+    wake.on_tick(board=None, now=t0 + 301)
     assert woken(rec) == ["t_q"]  # first tick past STALE_AFTER: swept and woken exactly once
-    wake.on_tick(board=None, now=t0 + 7200)
+    wake.on_tick(board=None, now=t0 + 600)
     assert woken(rec) == ["t_q"]  # later quiet ticks re-wake nothing
     assert len(rec.calls) == 1
     assert json.loads((tmp_path / "kanban-stale-wake-cursor.json").read_text())["due_at"] is None
@@ -259,16 +259,16 @@ def test_a_new_state_event_rearms_the_stale_wake_on_a_quiet_board(monkeypatch, t
     )
     conn.commit()
 
-    wake.on_tick(board=None, now=t0 + 3601)
-    wake.on_tick(board=None, now=t0 + 7201)
+    wake.on_tick(board=None, now=t0 + 301)
+    wake.on_tick(board=None, now=t0 + 601)
     assert len(rec.calls) == 1  # once per state: the second quiet tick does not re-wake
-    at = t0 + 7201
+    at = t0 + 601
     conn.execute("insert into task_events (task_id, kind, created_at) values ('t_r', 'unblocked', ?)", (at,))
     conn.commit()
-    wake.on_tick(board=None, now=t0 + 7202)
-    assert len(rec.calls) == 1  # a state event re-arms: next crossing is 1 h after it
-    wake.on_tick(board=None, now=at + 3601)
-    assert len(rec.calls) == 2  # woken again exactly one hour after the new state event
+    wake.on_tick(board=None, now=t0 + 602)
+    assert len(rec.calls) == 1  # a state event re-arms: next crossing is 5 min after it
+    wake.on_tick(board=None, now=at + 301)
+    assert len(rec.calls) == 2  # woken again exactly 5 min after the new state event
 
 def test_dumping_sweep_or_dispatcher_crash_keeps_the_cursor_honest(monkeypatch, tmp_path):
     import sys

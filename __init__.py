@@ -57,7 +57,7 @@ Modules:
   the run without a timer, so a self-scheduled card silently stops;
 - ``published_head_gate`` (same condition, worker process only) blocks ``kanban_request_review``
   when the claimed ``metadata.commit``/``head`` is not the live head of the named pull request;
-- ``stale_wake`` wakes a card's subscribed chat once when the card has not moved for 1 h
+- ``stale_wake`` wakes a card's subscribed chat once when the card has not moved for 5 min
   (needs ``plugins.entries.agent-guards.allow_gateway_injection: true``);
 - ``review_loop`` wakes the same chats when an open card reaches 3, 6, 9... review rounds
   with changes requested (same injection setting);
@@ -73,7 +73,7 @@ Modules:
   dispatcher tick after wake-relevant board activity (or any successful Kanban
   mutation, via a shared poke file) instead of on fixed hourly/5-min ceilings.
   The stale wake, whose trigger ripens with time rather than events, also
-  stores the next card's 1 h crossing in its cursor and sweeps on the first
+  stores the next card's 5 min crossing in its cursor and sweeps on the first
   tick at or past it, so a quiet board can no longer hold a wake past its age
   gate. Watermark and dedup semantics are unchanged.
 """

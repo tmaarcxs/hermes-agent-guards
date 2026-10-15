@@ -1,7 +1,7 @@
 """Wake the chat that created a Kanban card once when the card stops moving.
 
 On each dispatcher tick it finds triage, todo, ready, review, blocked and
-scheduled cards whose last state event is at least 1 h old; heartbeats, comments,
+scheduled cards whose last state event is at least 5 min old; heartbeats, comments,
 edits, links and attachments are not state changes. Running cards
 are never checked. For each such card it starts one agent turn in every chat
 subscribed to the card (the creating chat is auto-subscribed) via the gateway's
@@ -11,7 +11,7 @@ The sweep is event-driven (``board_watch.tick``) with a due-time trigger: it
 runs on the first tick after any state event this wake tracks (any kind except
 the ignored ones), a successful board mutation on any process
 (``board_watch.poke``), or the earliest moment an un-woken open card crosses
-its 1 h age: each sweep returns the crossing time of the card that will go
+its 5 min age: each sweep returns the crossing time of the card that will go
 stale next, stored as ``due_at`` in the cursor, and the tick sweeps when the
 clock reaches it even on a fully quiet board (no fixed interval).
 
@@ -24,7 +24,7 @@ The same module also provides the stall wake, registered as its own unthrottled
 hook (every tick): a todo or ready card whose last 30 task_events are all
 ``respawn_guarded`` events with ``reason=active_pr`` is being held out of the
 ready queue by the dispatcher's 24 h PR-URL respawn guard despite the queue
-draining — a silent stall the 1 h stale threshold is too slow to surface. It
+draining — a silent stall the 5 min stale threshold would only catch late. It
 wakes the subscribed chats once per guard event, keyed on the newest
 respawn_guarded event id, naming the cause and the release levers.
 
@@ -43,7 +43,7 @@ from . import board_watch
 logger = logging.getLogger(__name__)
 
 STATUSES = ("triage", "todo", "ready", "review", "blocked", "scheduled")
-STALE_AFTER = 3600
+STALE_AFTER = 300
 STALL_MIN_EVENTS = 30
 STALL_STATUSES = ("todo", "ready")
 STALL_REASON = "active_pr"
@@ -95,7 +95,7 @@ def stale_cards(conn: sqlite3.Connection, now: float) -> list[dict]:
         if age >= STALE_AFTER:
             cards.append({
                 "id": tid, "status": status, "title": title or "", "block_kind": block_kind,
-                "event_id": event_id or 0, "age_h": age / 3600,
+                "event_id": event_id or 0, "age_min": age / 60,
             })
     return cards
 
@@ -148,7 +148,7 @@ def subscribers(conn: sqlite3.Connection, task_id: str) -> list[dict]:
 def wake_text(card: dict) -> str:
     status = card["status"] + (f"/{card['block_kind']}" if card["block_kind"] else "")
     return (
-        f"[Kanban stale card] {card['id']} has had no movement for {card['age_h']:.0f} h ({status}): "
+        f"[Kanban stale card] {card['id']} has had no movement for {card['age_min']:.0f} min ({status}): "
         f"{card['title'][:120]}\n"
         "This is a one-time automatic wake for this card state. Inspect the card and recover it here: "
         "resume, unblock, complete with evidence, or confirm a genuine block with its exact release "
@@ -273,7 +273,7 @@ def _stall_state_path() -> Path:
 
 
 def stall_wake_on_tick(board: Optional[str] = None, dry_run: bool = False, **_: Any) -> None:
-    """Unthrottled stall wake, separate hook so the 1 h stale sweep stays untouched."""
+    """Unthrottled stall wake, separate hook so the 5 min stale sweep stays untouched."""
     try:
         from hermes_cli import kanban_db
 
