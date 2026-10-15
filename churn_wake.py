@@ -24,7 +24,6 @@ Fails open.
 import json
 import logging
 import sqlite3
-import time
 from typing import Any, Optional
 
 from . import board_watch
