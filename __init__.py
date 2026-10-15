@@ -96,7 +96,7 @@ Modules:
 import re
 from typing import Any, Optional
 
-from . import approval_wait_gate, background_notify_gate, backup_copy_gate, checkpoint_gate, churn_wake, completion_gate, github_contact, handoff_gate, kanban_policy, lead_delegation, pr_acceptance_gate, pr_comment_gate, published_head_gate, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake
+from . import approval_wait_gate, background_notify_gate, backup_copy_gate, checkpoint_gate, churn_wake, completion_gate, github_contact, handoff_gate, kanban_policy, lead_delegation, notification_reconcile, pr_acceptance_gate, pr_comment_gate, published_head_gate, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake
 from . import stop_gate
 
 _START = r"(?:^|[;&|\n(`{]|\$\(|\bthen\b|\bdo\b|\belse\b)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:sudo\s+|command\s+)?"
@@ -131,6 +131,7 @@ def register(ctx) -> None:
     ctx.register_hook("on_kanban_dispatch_tick", stale_wake.stall_wake_on_tick)
     ctx.register_hook("on_kanban_dispatch_tick", review_loop.on_tick)
     ctx.register_hook("on_kanban_dispatch_tick", churn_wake.on_tick)
+    ctx.register_hook("on_kanban_dispatch_tick", notification_reconcile.on_tick)
 
 
 def _segments(command: str, pattern: re.Pattern) -> list[str]:
