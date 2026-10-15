@@ -16,11 +16,42 @@ the reviewer run and restores the implementer. Cards whose Acceptance is only a 
 verdict, or whose post-review items are already evidenced, complete normally.
 """
 
+import json
 import os
 import re
 from typing import Any, Optional
 
 from . import kanban_policy
+
+try:  # shared Jev client in this plugin package
+    from .jev import decide as jev_decide
+except Exception:  # pragma: no cover - the plugin must never fail on import
+    def jev_decide(state: str, questions: dict, timeout: float = 2.0, caller: str = "",
+                   context: Optional[dict] = None, gate_verdict: Optional[str] = None,
+                   action: Optional[str] = None) -> Optional[dict]:
+        return None
+
+# Jev semantic completion check, shadow-only: the rule layer (missing-evidence,
+# unmet-evidence, post-review) only catches handoffs with fixed signals; free-text
+# pending work ("screenshots not taken yet" without keyword hits) is Jev's case.
+# Row context (task id, run, this gate's own verdict and the action actually taken)
+# is stored with each decision so a later outcome can be joined to it for
+# calibration. Shadow mode never blocks and never reads a threshold.
+JEV_QUESTIONS = {
+    "completion": {
+        "type": "choice",
+        "instructions": (
+            "A software agent is closing a work card as done. From the state below "
+            "(card acceptance criteria plus the agent's completion summary and evidence), "
+            "decide whether every acceptance item is genuinely finished."
+        ),
+        "criteria": {
+            "done": "Every acceptance item is completed with real evidence; nothing remains pending.",
+            "partial": "Some acceptance items are still pending, unverified or explicitly deferred (merge, deploy, review, screenshots, follow-up...).",
+            "failed": "The work failed or cannot be completed as specified.",
+        },
+    }
+}
 
 _ACCEPTANCE = re.compile(r"(?im)^[#*\s]*acceptance\b[^\n]*\n((?:[ \t]*\n|[ \t]*\d+[.)][^\n]*\n?|[ \t]+[^\n]*\n?)*)")
 _ITEM = re.compile(r"(?m)^[ \t]*(\d+)[.)][ \t]+(\S.*)$")
@@ -114,6 +145,30 @@ def pending_post_review_items(body: str, metadata: Any) -> list[str]:
     ]
 
 
+def _jev_state(body: str, metadata: dict) -> str:
+    """The state Jev sees: acceptance items plus the completion summary/evidence."""
+    acceptance = "\n".join(f"{number}. {text}" for number, text in acceptance_item_texts(body))
+    summary = str(metadata.get("summary") or "")
+    evidence = json.dumps(metadata.get("acceptance") or {}, ensure_ascii=False)
+    return f"Acceptance items:\n{acceptance}\n\nCompletion summary:\n{summary}\n\nAcceptance evidence:\n{evidence}"
+
+
+def _jev_shadow(body: str, metadata: dict, task_id: str, gate_verdict: str, action: str) -> None:
+    """Ask Jev in shadow mode and let the client log the labeled row. Never blocks,
+    never raises — the gate's own verdict is unchanged whatever Jev answers."""
+    try:
+        jev_decide(
+            _jev_state(body, metadata),
+            JEV_QUESTIONS,
+            caller="completion_gate",
+            context={"task_id": task_id, "session_id": os.environ.get("HERMES_SESSION_ID", "")},
+            gate_verdict=gate_verdict,
+            action=action,
+        )
+    except Exception:  # pragma: no cover - shadow ask must never break the gate
+        pass
+
+
 def check(tool_name: str, args: Any, load_task=_task) -> Optional[str]:
     if tool_name != "kanban_complete" or not isinstance(args, dict) or not kanban_policy.configured_worker():
         return None
@@ -131,12 +186,21 @@ def check(tool_name: str, args: Any, load_task=_task) -> Optional[str]:
     if reviewer:
         pending = pending_post_review_items(body, metadata)
         if pending:
+            _jev_shadow(body, metadata, task_id, "pass", "blocked:post-review-items-" + ",".join(pending))
             return REVIEWER_MESSAGE.format(pending=", ".join(pending)) + " " + kanban_policy.RETRY_INSTRUCTION
         if unmet:
+            _jev_shadow(body, metadata, task_id, "pass", "blocked:unmet-evidence-" + ",".join(unmet))
             return UNMET_MESSAGE.format(unmet=", ".join(unmet)) + " " + kanban_policy.RETRY_INSTRUCTION
+        _jev_shadow(body, metadata, task_id, "pass", "allowed:reviewer-approve")
         return None
     if missing:
+        _jev_shadow(body, metadata, task_id, "pass", "blocked:missing-evidence-" + ",".join(missing))
         return MESSAGE.format(missing=", ".join(missing)) + " " + kanban_policy.RETRY_INSTRUCTION
     if not unmet:
+        # Judgment call the rules cannot make: ask Jev in shadow mode; the gate
+        # still allows whatever the answer is (audit-only, fail open).
+        _jev_shadow(body, metadata, task_id, "pass", "ask:pass-path")
         return None
+    _jev_shadow(body, metadata, task_id, "pass", "blocked:unmet-evidence-" + ",".join(unmet))
     return UNMET_MESSAGE.format(unmet=", ".join(unmet)) + " " + kanban_policy.RETRY_INSTRUCTION
+

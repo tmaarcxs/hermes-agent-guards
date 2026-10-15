@@ -42,6 +42,9 @@ Modules:
   repository roots and from ``git commit``/``git push``/``gh pr create`` there: delivery goes to workers;
 - ``completion_gate`` (same condition, worker process only) blocks ``kanban_complete`` until
   ``metadata.acceptance`` maps every numbered Acceptance item of the card to its evidence;
+  after the rule verdict it also asks Jev the semantic-completion question in shadow mode —
+  the decision row (card id, session, the gate's own verdict, the action taken) is audit-only
+  and never blocks;
 - ``github_contact`` (same condition, worker process only) blocks terminal calls that contact
   people on GitHub: review requests, issue assignees and @mention comments; ``@me``/``@copilot``,
   removal flags and, on assignee flags, the authenticated login itself are exempt
@@ -72,6 +75,9 @@ Modules:
   missing") gains the exact fix, and after two counted rejections a retry still lacking a
   matching ``published_pr`` is blocked with the contract restated and the ``kanban_block`` escape;
 - ``stale_wake`` wakes a card's subscribed chat once when the card has not moved for 5 min
+  and asks Jev the wake-usefulness question in shadow mode before each injection — the row
+  (card id, question verdict, whether the wake was injected) is audit-only and never
+  suppresses a wake
   (needs ``plugins.entries.agent-guards.allow_gateway_injection: true``);
 - ``review_loop`` wakes the same chats when an open card reaches 3, 6, 9... review rounds
   with changes requested (same injection setting);

@@ -49,6 +49,21 @@ class FakeResponse:
 
 
 def fake_hermes_cli(monkeypatch, config):
+    """Make ``hermes_cli`` importable with the given resolved config, or unimportable with ``config=None``."""
+    if config is None:
+        # A process that cannot import hermes at all (standalone scripts, cron
+        # --script jobs, probe interpreters): the import itself must fail.
+        import builtins
+
+        real_import = builtins.__import__
+
+        def blocked(name, *args, **kwargs):
+            if name == "hermes_cli" or name.startswith("hermes_cli."):
+                raise ModuleNotFoundError(f"No module named {name!r}")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", blocked)
+        return None
     fake = types.ModuleType("hermes_cli")
     fake.__path__ = []  # allow `from hermes_cli.config import ...` to resolve via sys.modules
     fake_config = types.ModuleType("hermes_cli.config")
@@ -67,6 +82,15 @@ def isolated(monkeypatch, tmp_path):
 def logged(tmp_path):
     path = tmp_path / "jev-decisions.jsonl"
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()] if path.exists() else []
+
+
+def write_profile_config(monkeypatch, tmp_path, text: str) -> str:
+    """Create a temp HERMES_HOME with the given config.yaml and point the env at it."""
+    home = tmp_path / "hermes-home"
+    home.mkdir()
+    (home / "config.yaml").write_text(text, encoding="utf-8")
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    return str(home)
 
 
 def test_success_parses_answers_and_logs(monkeypatch, tmp_path):
@@ -112,9 +136,66 @@ def test_unparsable_body_fails_open_and_logs(monkeypatch, tmp_path):
 
 
 def test_missing_config_fails_open_and_logs(monkeypatch, tmp_path):
-    fake_hermes_cli(monkeypatch, {})
+    fake_hermes_cli(monkeypatch, None)  # hermes unimportable, AND no fallback config below
+    write_profile_config(monkeypatch, tmp_path, "providers: {}\n")
     assert jev.decide("state", QUESTIONS) is None
     assert logged(tmp_path)[0]["error"] == "missing_config"
+
+
+def test_fallback_reads_the_profile_config_when_hermes_is_unimportable(monkeypatch, tmp_path):
+    """Regression: guard processes that cannot import hermes_cli resolved no config at
+    all (263 of the first 456 decision rows failed missing_config). With the import
+    blocked and the profile config file present, the direct-file fallback must supply
+    providers.9router."""
+    fake_hermes_cli(monkeypatch, None)  # hermes unimportable: the moat that killed the old path
+    write_profile_config(
+        monkeypatch,
+        tmp_path,
+        "providers:\n  9router:\n    api: http://router.example/v1\n    api_key: sk-something-secret\n",
+    )
+    url_key = jev._config()
+    assert url_key == ("http://router.example/v1", "sk-something-secret")
+
+
+def test_fallback_prefers_hermes_loader_when_importable(monkeypatch, tmp_path):
+    """The hermes loader stays authoritative: when importable it wins over the file."""
+    fake_hermes_cli(monkeypatch, {"providers": {"9router": {"api": "http://loader.example/v1", "api_key": "sk-loader"}}})
+    write_profile_config(
+        monkeypatch,
+        tmp_path,
+        "providers:\n  9router:\n    api: http://file.example/v1\n    api_key: sk-file\n",
+    )
+    assert jev._config() == ("http://loader.example/v1", "sk-loader")
+
+
+def test_fallback_skips_incomplete_provider(monkeypatch, tmp_path):
+    fake_hermes_cli(monkeypatch, None)
+    write_profile_config(
+        monkeypatch,
+        tmp_path,
+        "providers:\n  9router:\n    api: http://router.example/v1\n",  # api without key
+    )
+    assert jev._config() is None
+
+
+def test_decision_log_carries_labeling_context(monkeypatch, tmp_path):
+    """Acceptance: each row names the card/session, the caller's own verdict and the
+    action taken, so a later outcome can be joined to the decision."""
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout: FakeResponse(RESPONSE))
+    jev.decide(
+        "state",
+        QUESTIONS,
+        caller="completion_gate",
+        context={"task_id": "t_1", "session_id": "s_9"},
+        gate_verdict="blocked:missing-acceptance-2",
+        action="blocked_complete",
+    )
+    record = logged(tmp_path)[0]
+    assert record["context"]["task_id"] == "t_1"
+    assert record["context"]["session_id"] == "s_9"
+    assert record["gate_verdict"].startswith("blocked")
+    assert record["action"] == "blocked_complete"
+    assert "sk-something-secret" not in json.dumps(record)
 
 
 def test_log_failure_never_breaks_the_call(monkeypatch, tmp_path):
