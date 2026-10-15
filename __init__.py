@@ -60,13 +60,16 @@ Modules:
 - ``stale_wake`` wakes a card's subscribed chat once when the card has not moved for 1 h
   (needs ``plugins.entries.agent-guards.allow_gateway_injection: true``);
 - ``review_loop`` wakes the same chats when an open card reaches 3, 6, 9... review rounds
-  with changes requested (same injection setting).
+  with changes requested (same injection setting);
+- ``churn_wake`` warns the same chats when a non-archived, non-done card reaches 10/20/40
+  worker runs or 5/10/20 change-requests — warning only, nothing is blocked — so the lead
+  splits, narrows or confirms the card (same injection setting).
 """
 
 import re
 from typing import Any, Optional
 
-from . import approval_wait_gate, backup_copy_gate, completion_gate, github_contact, handoff_gate, kanban_policy, lead_delegation, published_head_gate, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake
+from . import approval_wait_gate, backup_copy_gate, churn_wake, completion_gate, github_contact, handoff_gate, kanban_policy, lead_delegation, published_head_gate, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake
 from . import stop_gate
 
 _START = r"(?:^|[;&|\n(`{]|\$\(|\bthen\b|\bdo\b|\belse\b)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:sudo\s+|command\s+)?"
@@ -95,6 +98,7 @@ def register(ctx) -> None:
     ctx.register_hook("pre_verify", stop_gate.check)
     stale_wake.register(ctx)
     ctx.register_hook("on_kanban_dispatch_tick", review_loop.on_tick)
+    ctx.register_hook("on_kanban_dispatch_tick", churn_wake.on_tick)
 
 
 def _segments(command: str, pattern: re.Pattern) -> list[str]:

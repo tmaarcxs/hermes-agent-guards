@@ -40,6 +40,8 @@ Stale card wake (`stale_wake`): on the Kanban dispatcher tick (at most hourly) i
 
 Review loop wake (`review_loop`): on the dispatcher tick (at most every 5 min) it wakes each chat subscribed to an open card that has reached 3, 6, 9... review rounds with changes requested, once per threshold, with the latest requested change, so the lead narrows, splits, corrects or takes over the card. It uses the same gateway injection setting.
 
+Churn warning (`churn_wake`): on the dispatcher tick (at most hourly) it warns each chat subscribed to a non-archived, non-done card whose worker runs have reached 10, 20, 40… or whose change-requests have reached 5, 10, 20…, once per threshold, with the last change-request reasons, so the lead decides to split the card, narrow the acceptance or confirm continue. It is a warning only: nothing is blocked. It uses the same gateway injection setting.
+
 ```yaml
 plugins:
   entries:

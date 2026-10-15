@@ -119,7 +119,7 @@ def test_register_wires_every_hook():
     hooks = []
     ctx = types.SimpleNamespace(register_hook=lambda name, fn: hooks.append(name))
     guards.register(ctx)
-    assert sorted(hooks) == ["on_kanban_dispatch_tick", "on_kanban_dispatch_tick", "post_tool_call", "pre_tool_call", "pre_verify"]
+    assert sorted(hooks) == ["on_kanban_dispatch_tick"] * 3 + ["post_tool_call", "pre_tool_call", "pre_verify"]
 
 
 def test_large_inline_attach_blocked():
