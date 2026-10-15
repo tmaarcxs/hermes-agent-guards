@@ -1,10 +1,10 @@
 """Block a worker from silently waiting on an approval-only pull-request gate.
 
 Active only in worker setups (``kanban.default_assignee`` set; see ``kanban_policy``)
-and only in a worker process (``HERMES_KANBAN_TASK`` set). The incident: PR #410
-(spa-demosuite) was green on every automated check with ``mss=BLOCKED review=REVIEW_REQUIRED``
+and only in a worker process (``HERMES_KANBAN_TASK`` set). The failure: a pull
+request green on every automated check with ``mss=BLOCKED review=REVIEW_REQUIRED``
 — the CODEOWNERS approval was the sole open gate — and the worker, barred from requesting
-reviews by ``github_contact``, polled it for ~17 hours with background shell loops
+reviews by ``github_contact``, polled it for hours with background shell loops
 (``for i in $(seq N); do gh pr checks|gh pr view --json statusCheckRollup; sleep; done``)
 and heartbeats saying "CODEOWNERS approval is the sole remaining gate; long poller
 continues", instead of merging via the authorized guarded path or blocking with
@@ -15,22 +15,22 @@ What this gate blocks (worker terminal calls):
 - Any PR-readiness poll of a pull request whose exact head is currently green with the
   review approval as the only open gate: ``gh pr checks <n> -R o/r``,
   ``gh pr view <n> --json statusCheckRollup/mergeStateStatus/...``,
-  ``gh api repos/o/r/pulls/<n>...`` reads, and direct ``pr_status`` / ``pr_wait_checks``
+  ``gh api repos/o/r/pulls/<n>...`` reads, and direct poller helper scripts (``pr_status`` / ``pr_wait_checks``)
   invocations. A poll cannot improve that state; the block message carries the verdict
   and the two authorized moves.
 - A repeated ``kanban_heartbeat`` note whose text admits the approval-only wait
   (first such note passes so the worker can time-stamp the situation; every later one
   is blocked — real note heartbeats are spaced minutes apart, so the second is the
-  ~15-minute bound the incident called for).
+  TTL (the module default) bounds repeated polls.
 
 How the verdict is reached: one read-only ``gh api graphql`` round-trip per
-(owner, repo, pr), TTL-cached for 15 minutes, mirroring ``pr_status``'s exact-head
+(owner, repo, pr), TTL-cached for 15 minutes, mirroring the poll helper's exact-head
 classifier (commits(last:1) rollup, pending=0, failing=0, unresolvedThreads=0,
 state OPEN, not draft, MERGEABLE, mss BLOCKED, reviewDecision REVIEW_REQUIRED).
 Genuinely pending checks, failing checks and draft/dirty states are not verdict names,
 so their polls flow through untouched; errors fail open.
 
-Not blocked on purpose: ``pr_merge_verified`` invocations (their internal ``pr_status``
+Not blocked on purpose: a documented merge command's own invocations (their internal
 calls run inside the script's own process, invisible here), workflow/run targets
 (``gh run watch``, ``gh run list``), and non-readiness reads of a PR.
 """
@@ -49,14 +49,24 @@ TTL_SECONDS = 900  # ~15 min: how long a resolved PR state stays trusted
 MESSAGE = (
     "agent-guards blocked {tool}: PR {prs} is green on every automated check and the only open gate is "
     "review/CODEOWNERS approval (REVIEW-ONLY) — waiting cannot change that, and no amount of polling "
-    "will. Authorized moves: (1) merge the exact green head you already verified with "
-    "`bash ~/.hermes/skills/github/github-agent-ops/scripts/pr_merge_verified --repo <owner/repo> "
-    "<pr> <head-sha>` (standing authorization when the review approval is the only remaining gap on the "
-    "verified head), or (2) if this card lacks independent approval of the diff or forbids merging, "
-    "`kanban_block(kind=\"needs_input\")` now so the lead is notified — do not keep waiting."
+    "will. Authorized moves: {moves}"
 )
 
-# A heartbeat note admitting the wait (run-3517 phrasings and close relatives).
+_MOVES_BLOCK = '`kanban_block(kind="needs_input")` now so the lead is notified — do not keep waiting.'
+
+
+def _moves() -> str:
+    """The sanctioned next steps, naming the documented merge command when the
+    operator set one (``AGENT_GUARDS_MERGE_HINT``); otherwise the block advice only."""
+    hint = kanban_policy.merge_hint()
+    if hint:
+        return (
+            "(1) merge the exact green head you already verified with the documented merge command "
+            f"({hint}); or (2) {_MOVES_BLOCK}"
+        )
+    return _MOVES_BLOCK
+
+# A heartbeat note admitting the wait (generic phrasings: approval-only admissions).
 _WAIT_NOTE = re.compile(
     r"(?is)"
     r"\bcodeowners?\b"
@@ -74,7 +84,9 @@ _GH_CHECKS = re.compile(r"\bgh\s+pr\s+checks\s+(\d+)\b")
 _READY_FIELDS = r"statusCheckRollup|mergeStateStatus|mergeable|reviewDecision|reviewRequests"
 _GH_VIEW = re.compile(rf"\bgh\s+pr\s+view\s+(\d+)\b[^;&|\n]*--json\b[^;&|\n]*(?:{_READY_FIELDS})")
 _GH_API = re.compile(rf"\bgh\s+api\s+[\"']?repos/({_REPO})/pulls/(\d+)\b")
-_SCRIPT = re.compile(r"(?:^|[\s/])(pr_status|pr_wait_checks)\b")
+# Poller helper scripts matched by file NAME so any install path works.
+_SCRIPT_NAMES = ("pr_status", "pr_wait_checks")
+_SCRIPT = re.compile(r"(?:^|[\s/])(" + "|".join(_SCRIPT_NAMES) + r")\b")
 _NUM = re.compile(r"\b[1-9]\d*\b")
 _QUOTED = re.compile(r"'[^']*'|\"(?:[^\"\\]|\\.)*\"")
 
@@ -220,7 +232,7 @@ def _heartbeat_check(args: Any, kwargs: dict) -> Optional[str]:
         while len(_waits) > _MAX_SESSIONS:
             _waits.popitem(last=False)
         return None
-    return MESSAGE.format(tool="kanban_heartbeat", prs="(see note)")
+    return MESSAGE.format(tool="kanban_heartbeat", prs="(see note)", moves=_moves())
 
 
 def check(tool_name: str, args: Any, **kwargs: Any) -> Optional[str]:
@@ -241,4 +253,4 @@ def check(tool_name: str, args: Any, **kwargs: Any) -> Optional[str]:
     ]
     if not blocked:
         return None
-    return MESSAGE.format(tool="terminal", prs=", ".join(blocked))
+    return MESSAGE.format(tool="terminal", prs=", ".join(blocked), moves=_moves())

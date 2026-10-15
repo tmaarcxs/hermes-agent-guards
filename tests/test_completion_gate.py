@@ -5,7 +5,7 @@ import pytest
 guards = sys.modules["agent_guards"]
 gate = guards.completion_gate
 
-BODY = "Goal\n\n## Acceptance\n1. Suites pass.\n2. PR merged.\n3. DES verified.\n\nSibling: other card."
+BODY = "Goal\n\n## Acceptance\n1. Suites pass.\n2. PR merged.\n3. Staging verified.\n\nSibling: other card."
 
 
 @pytest.fixture(autouse=True)
@@ -32,21 +32,21 @@ def test_blank_evidence_does_not_count():
 
 
 def test_full_evidence_passes():
-    assert check({"acceptance": {"1": "3416 passed", 2: "PR #9 merged abc", "3": "DES 200"}}) is None
+    assert check({"acceptance": {"1": "3416 passed", 2: "PR #9 merged abc", "3": "staging app 200"}}) is None
 
 
 @pytest.mark.parametrize("evidence", [
     "PR MERGED? NOT YET - PR #1059 is OPEN with all gates green",
     "ISSUE CLOSURE PENDING MERGE: #1057 remains OPEN by design",
-    "Acceptance not met: no DES run",
+    "Acceptance not met: no staging run",
 ])
 def test_evidence_admitting_unmet_item_is_blocked(evidence):
-    message = check({"acceptance": {"1": "3416 passed", "2": evidence, "3": "DES 200"}})
+    message = check({"acceptance": {"1": "3416 passed", "2": evidence, "3": "staging app 200"}})
     assert message and "items 2 " in message
 
 
 def test_evidence_mentioning_done_states_passes():
-    assert check({"acceptance": {"1": "flake fixed, was pending before", "2": "PR #9 merged abc", "3": "DES 200 open"}}) is None
+    assert check({"acceptance": {"1": "flake fixed, was pending before", "2": "PR #9 merged abc", "3": "staging app 200 open"}}) is None
 
 
 def test_card_without_acceptance_list_passes():
@@ -59,7 +59,7 @@ def test_review_runs_and_verdicts_are_exempt():  # legacy name kept: proves pure
 
 
 POST_REVIEW_BODY = (
-    "Goal\n\n## Acceptance\n1. Suites pass.\n2. PR #1066 merged.\n3. DES deployed and verified.\n4. Tracker issue #1069 closed.\n"
+    "Goal\n\n## Acceptance\n1. Suites pass.\n2. PR #1066 merged.\n3. Staging deployed and verified.\n4. Tracker issue #1069 closed.\n"
 )
 PURE_REVIEW_BODY = (
     "Goal: independent review.\n\n## Acceptance\n1. Review verdict recorded with findings.\n2. Findings converge with prior rounds.\n"
@@ -83,7 +83,7 @@ def test_reviewer_run_claimed_from_review_blocked_on_pending_post_review_items()
 @pytest.mark.parametrize("body,expected", [
     ("## Acceptance\n1. Verdict recorded.\n2. PR needs merge before release.", "2"),
     ("## Acceptance\n1. Verdict recorded.\n2. Deploy to production after approval.", "2"),
-    ("## Acceptance\n1. Verdict recorded.\n2. DES verification of the fix.", "2"),
+    ("## Acceptance\n1. Verdict recorded.\n2. Smoke verification on staging after deploy.", "2"),
     ("## Acceptance\n1. Verdict recorded.\n2. Close tracker issue #1069.", "2"),
 ])
 def test_each_post_review_keyword_triggers_reviewer_block(body, expected):
@@ -94,7 +94,7 @@ def test_each_post_review_keyword_triggers_reviewer_block(body, expected):
 def test_reviewer_approval_with_post_review_evidence_passes():
     assert reviewer_check({
         "review_verdict": "APPROVE",
-        "acceptance": {"1": "118 passed", "2": "PR #1066 merged abc1234", "3": "DES 200", "4": "#1069 closed"},
+        "acceptance": {"1": "118 passed", "2": "PR #1066 merged abc1234", "3": "staging app 200", "4": "#1069 closed"},
     }) is None
 
 
@@ -115,7 +115,7 @@ def test_reviewer_unmet_evidence_for_post_review_item_is_blocked():
     # is unmet — the unmet branch fires even though it is not "pending" (unevidenced).
     message = reviewer_check({
         "review_verdict": "APPROVE",
-        "acceptance": {"2": "merge pending review", "3": "DES 200", "4": "#1069 closed"},
+        "acceptance": {"2": "merge pending review", "3": "staging app 200", "4": "#1069 closed"},
     })
     assert message and "items 2 " in message and "not met yet" in message
     assert "kanban_request_changes" not in message

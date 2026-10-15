@@ -50,13 +50,13 @@ def test_completion_gate_missing_and_unmet_blocks_carry_retry_instruction(monkey
     monkeypatch.setattr(guards.kanban_policy, "configured_worker", lambda: "worker")
     monkeypatch.setenv("HERMES_KANBAN_TASK", "t_1")
     gate = guards.completion_gate
-    body = "Goal\n\n## Acceptance\n1. Suites pass.\n2. PR merged.\n3. DES verified.\n"
+    body = "Goal\n\n## Acceptance\n1. Suites pass.\n2. PR merged.\n3. Staging verified.\n"
     missing = gate.check("kanban_complete", {"summary": "s", "metadata": {"changed_files": []}},
                          load_task=lambda _: (body, False))
     assert missing and "Acceptance" in missing
     assert_retry_instruction(missing)
     unmet = gate.check("kanban_complete",
-                       {"summary": "s", "metadata": {"acceptance": {"1": "ok", "2": "PR merged? NOT YET", "3": "DES 200"}}},
+                       {"summary": "s", "metadata": {"acceptance": {"1": "ok", "2": "PR merged? NOT YET", "3": "staging app 200"}}},
                        load_task=lambda _: (body, False))
     assert unmet and "not met yet" in unmet
     assert_retry_instruction(unmet)
@@ -66,7 +66,7 @@ def test_handoff_gate_bounce_carries_retry_instruction(monkeypatch):
     monkeypatch.setattr(guards.kanban_policy, "configured_worker", lambda: "worker")
     gate = guards.handoff_gate
     reason = ("Signed publication is complete (commit 31439b10, PR #934 open). Nothing left for this worker "
-              "to execute: merge of PR #934 plus DES live acceptance are held by the lead.")
+              "to execute: merge of PR #934 plus production acceptance are held by the lead.")
     result = guards._pre_tool_call(tool_name="kanban_block",
                                    args={"reason": reason, "kind": "needs_input"}, session_id="s-hg")
     assert result["action"] == "block"
@@ -78,7 +78,7 @@ def test_schedule_gate_block_carries_retry_instruction(monkeypatch):
     monkeypatch.setenv("HERMES_KANBAN_TASK", "t_1")
     monkeypatch.setattr(guards.kanban_policy, "configured_worker", lambda: "worker")
     result = guards._pre_tool_call(tool_name="kanban_schedule",
-                                   args={"reason": "SCHEDULED_UNTIL=2026-10-20"}, session_id="s-sg")
+                                   args={"reason": "SCHEDULED_UNTIL=2099-01-20"}, session_id="s-sg")
     assert result["action"] == "block"
     assert_retry_instruction(result["message"])
 

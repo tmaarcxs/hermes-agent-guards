@@ -3,7 +3,7 @@
 Active only in worker setups (``kanban.default_assignee`` set; see ``kanban_policy``).
 
 A worker that has finished its own part and is waiting only on lead-owned steps (merge,
-deployment, DES acceptance, publication, approval) should hand off with ``kanban_complete``
+deployment, production acceptance, publication, approval) should hand off with ``kanban_complete``
 naming the next owner, not park the card in blocked. The first such ``kanban_block`` in a
 session is bounced with that advice; repeating the call lets it through, so a genuine
 decision block costs one extra call.
@@ -21,14 +21,14 @@ _FINISHED = re.compile(
     r"\b(?:is |are |was |were |now )?(?:complete|completed|done|finished|green|verified|frozen|recorded)\b"
 )
 _LEAD_OWNED = re.compile(
-    r"(?i)\b(?:merge|merging|deploy(?:ment)?|DES (?:acceptance|deploy|admission|rollout)|publication|publish|approval)\b"
+    r"(?i)\b(?:merge|merging|deploy(?:ment)?|publication|publish|approval)\b"
     r"[^.;]{0,80}\b(?:lead|operator|the owner|human)\b"
-    r"|\b(?:lead|operator|the owner)\b[^.;]{0,60}\b(?:merge|deploy|DES|publish|approv)"
+    r"|\b(?:lead|operator|the owner)\b[^.;]{0,60}\b(?:merge|deploy|publish|approv)"
 )
 _MAX_SESSIONS = 200
 MESSAGE = (
     "agent-guards bounced kanban_block: the reason says your part is finished and what remains is lead-owned "
-    "(merge, deployment, DES, publication or approval). That is a handoff, not a blocker: call kanban_complete "
+    "(merge, deployment, publication or approval). That is a handoff, not a blocker: call kanban_complete "
     "(or kanban_request_review if a code change awaits independent review) with the evidence and the exact next "
     "owner and action in the summary. If a decision you cannot make really prevents your own remaining work, "
     "repeat the same kanban_block call and it will go through."

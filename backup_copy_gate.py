@@ -1,9 +1,8 @@
 """Reject a handoff that declares a kept backup/rollback copy of prior state.
 
 The owner forbids backup/rollback/snapshot artifacts of prior state anywhere
-(rollback is git, registries or re-applying the prior value). Cards t_00374bb1
-and t_541fe4f0 still delivered "rollback copy preserved" notes, so the failure
-repeats. This gate catches the handoff itself: a worker ``kanban_complete`` or
+(rollback is git, registries or re-applying the prior value). This gate catches the handoff itself: a worker
+``kanban_complete`` or
 ``kanban_request_review`` whose ``summary``, ``result`` or metadata values state
 that a backup, rollback, pristine or before-copy was kept or preserved is
 blocked with instructions to delete it.
