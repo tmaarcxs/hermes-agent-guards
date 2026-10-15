@@ -69,7 +69,7 @@ Modules:
 import re
 from typing import Any, Optional
 
-from . import approval_wait_gate, backup_copy_gate, churn_wake, completion_gate, github_contact, handoff_gate, kanban_policy, lead_delegation, published_head_gate, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake
+from . import approval_wait_gate, background_notify_gate, backup_copy_gate, churn_wake, completion_gate, github_contact, handoff_gate, kanban_policy, lead_delegation, pr_comment_gate, published_head_gate, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake
 from . import stop_gate
 
 _START = r"(?:^|[;&|\n(`{]|\$\(|\bthen\b|\bdo\b|\belse\b)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:sudo\s+|command\s+)?"
@@ -164,6 +164,8 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
         lambda: backup_copy_gate.check(tool_name, args),
         lambda: schedule_gate.check(tool_name, args),
         lambda: skill_size.check(tool_name, args),
+        lambda: background_notify_gate.check(tool_name, args),
+        lambda: pr_comment_gate.check(tool_name, args),
     ):
         try:
             blocked = check()
