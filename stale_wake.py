@@ -7,11 +7,13 @@ are never checked. For each such card it starts one agent turn in every chat
 subscribed to the card (the creating chat is auto-subscribed) via the gateway's
 plugin injection, so that session can recover the card where its work lives.
 
-The sweep is event-driven (``board_watch.tick``): it runs on the first tick
-after any state event this wake tracks (any kind except the ignored ones) or a
-successful board mutation on any process (``board_watch.poke``); on a quiet
-board the tick skips the sweep entirely. The 1 h age gate on each card is
-unchanged — quiet boards produce no new wakes either way.
+The sweep is event-driven (``board_watch.tick``) with a due-time trigger: it
+runs on the first tick after any state event this wake tracks (any kind except
+the ignored ones), a successful board mutation on any process
+(``board_watch.poke``), or the earliest moment an un-woken open card crosses
+its 1 h age: each sweep returns the crossing time of the card that will go
+stale next, stored as ``due_at`` in the cursor, and the tick sweeps when the
+clock reaches it even on a fully quiet board (no fixed interval).
 
 Each card is woken once per state: the event id of its last real change is
 recorded, and the card is not woken again until a new state event changes it.
@@ -96,6 +98,35 @@ def stale_cards(conn: sqlite3.Connection, now: float) -> list[dict]:
                 "event_id": event_id or 0, "age_h": age / 3600,
             })
     return cards
+
+
+def next_due(conn: sqlite3.Connection, now: float) -> Optional[float]:
+    """Earliest future moment an open card crosses ``STALE_AFTER``.
+
+    Mirrors ``stale_cards``' age key (last non-ignored event, falling back to
+    creation) for every open card and returns the smallest crossing time still
+    ahead of ``now``. Crossings already in the past belong to the current
+    sweep (its wake set includes every crossed card), so nothing needs a later
+    tick for them. None when nothing will ripen.
+    """
+    placeholders = ",".join("?" * len(_IGNORED_KINDS))
+    last = (
+        f"(select max(e.id) from task_events e where e.task_id = t.id and e.kind not in ({placeholders}))"
+    )
+    rows = conn.execute(
+        f"select t.created_at, ev.created_at "
+        f"from tasks t left join task_events ev on ev.id = {last} "
+        f"where t.status in ({','.join('?' * len(STATUSES))})",
+        (*_IGNORED_KINDS, *STATUSES),
+    )
+    due = None
+    for created, event_at in rows:
+        crossing = float(event_at or created) + STALE_AFTER
+        if crossing <= now:
+            continue
+        if due is None or crossing < due:
+            due = crossing
+    return due
 
 
 def subscribers(conn: sqlite3.Connection, task_id: str) -> list[dict]:
@@ -198,32 +229,38 @@ def _poke_post_tool_call(**kwargs: Any) -> None:
 
 
 def _sweep_for(board: Optional[str], now: float):
-    def run(state: dict) -> dict:
+    def run(state: dict) -> tuple:
         from hermes_cli import kanban_db
 
         db = kanban_db.kanban_db_path(board=board)
         conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
         try:
-            return sweep(conn, state, _inject, now)
+            new_state = sweep(conn, state, _inject, now)
+            try:
+                due = next_due(conn, now)
+            except Exception:
+                logger.warning("agent-guards stale wake: due-time computation failed", exc_info=True)
+                due = None
         finally:
             conn.close()
+        return new_state, due
 
     return run
 
 
-def on_tick(board: Optional[str] = None, dry_run: bool = False, **_: Any) -> None:
+def on_tick(board: Optional[str] = None, dry_run: bool = False, now: Optional[float] = None, **_: Any) -> None:
     if dry_run:
         return
     try:
         from hermes_cli import kanban_db
 
-        now = time.time()
+        now = time.time() if now is None else now
         db = kanban_db.kanban_db_path(board=board)
         conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
         try:
             board_watch.tick(
                 conn, "kanban-stale-wake.json", _sweep_for(board, now),
-                exclude=_IGNORED_KINDS, now=now,
+                exclude=_IGNORED_KINDS, now=now, due_tracked=True,
             )
         finally:
             conn.close()

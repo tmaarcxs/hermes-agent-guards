@@ -71,8 +71,11 @@ Modules:
   with an ``owner/repo#N`` citation to use instead; worker comments are untouched.
 - ``board_watch`` makes the three wakes event-driven: each sweeps on the first
   dispatcher tick after wake-relevant board activity (or any successful Kanban
-  mutation, via a shared poke file) instead of on fixed hourly/5-min ceilings, with
-  unchanged watermark and dedup semantics.
+  mutation, via a shared poke file) instead of on fixed hourly/5-min ceilings.
+  The stale wake, whose trigger ripens with time rather than events, also
+  stores the next card's 1 h crossing in its cursor and sweeps on the first
+  tick at or past it, so a quiet board can no longer hold a wake past its age
+  gate. Watermark and dedup semantics are unchanged.
 """
 
 
