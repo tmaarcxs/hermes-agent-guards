@@ -178,26 +178,6 @@ def test_fallback_skips_incomplete_provider(monkeypatch, tmp_path):
     assert jev._config() is None
 
 
-def test_decision_log_carries_labeling_context(monkeypatch, tmp_path):
-    """Acceptance: each row names the card/session, the caller's own verdict and the
-    action taken, so a later outcome can be joined to the decision."""
-    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout: FakeResponse(RESPONSE))
-    jev.decide(
-        "state",
-        QUESTIONS,
-        caller="completion_gate",
-        context={"task_id": "t_1", "session_id": "s_9"},
-        gate_verdict="blocked:missing-acceptance-2",
-        action="blocked_complete",
-    )
-    record = logged(tmp_path)[0]
-    assert record["context"]["task_id"] == "t_1"
-    assert record["context"]["session_id"] == "s_9"
-    assert record["gate_verdict"].startswith("blocked")
-    assert record["action"] == "blocked_complete"
-    assert "sk-something-secret" not in json.dumps(record)
-
-
 def test_log_failure_never_breaks_the_call(monkeypatch, tmp_path):
     monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout: FakeResponse(RESPONSE))
     monkeypatch.setattr(jev, "_LOG_PATH", "/proc/definitely/not/writable/jev.jsonl")

@@ -43,33 +43,6 @@ from typing import Any, Optional
 
 from . import board_watch
 
-try:  # shared Jev client in this plugin package
-    from .jev import decide as jev_decide
-except Exception:  # pragma: no cover - the plugin must never fail on import
-    def jev_decide(state: str, questions: dict, timeout: float = 2.0, caller: str = "",
-                   context: Optional[dict] = None, gate_verdict: Optional[str] = None,
-                   action: Optional[str] = None) -> Optional[dict]:
-        return None
-
-# Shadow wake-usefulness check: before a wake is injected, ask whether the card's
-# recent context makes the wake useful, and log the answer — the decision row
-# (with card id and what was actually done) stays joinable to whether the card
-# then moved. Shadow mode never suppresses a wake: injection proceeds regardless.
-WAKE_QUESTIONS = {
-    "wake": {
-        "type": "choice",
-        "instructions": (
-            "A Kanban card has been idle for over an hour and an automatic wake message is about "
-            "to be injected into the subscriber chat so an agent can recover it. From the card's "
-            "recent activity, decide whether this wake would materially help."
-        ),
-        "criteria": {
-            "wake": "The wake plausibly helps: the card needs attention, recovery, or new context.",
-            "skip": "The wake would be noise: the card is waiting on a known external input, a scheduled time, or an in-flight dependency that activity alone cannot resolve.",
-        },
-    }
-}
-
 logger = logging.getLogger(__name__)
 
 STATUSES = ("triage", "todo", "ready", "review", "blocked", "scheduled")
@@ -245,26 +218,6 @@ def _open_statuses(conn: sqlite3.Connection) -> dict:
     return dict(rows.fetchall())
 
 
-def _jev_shadow_wake(card: dict, action: str) -> None:
-    """Ask Jev whether this wake is useful (shadow: audit-only, never suppresses).
-    Never raises — the wake path must behave exactly as without the ask."""
-    try:
-        state = (
-            f"Card {card['id']} ({card['status']}) idle {card.get('age_min', 0):.0f} min: "
-            f"{(card.get('title') or '')[:160]}"
-        )
-        jev_decide(
-            state,
-            WAKE_QUESTIONS,
-            caller="stale_wake",
-            context={"task_id": str(card.get("id") or "")},
-            gate_verdict="wake",
-            action=action,
-        )
-    except Exception:  # pragma: no cover - fail open
-        pass
-
-
 def sweep(conn: sqlite3.Connection, state: dict, inject, now: float) -> dict:
     """Wake each stale card once per state, and once per blocked/triage episode. Returns the new state."""
     stale = {card["id"]: card for card in stale_cards(conn, now)}
@@ -276,11 +229,7 @@ def sweep(conn: sqlite3.Connection, state: dict, inject, now: float) -> dict:
             continue
         origins = subscribers(conn, tid)
         text = wake_text(card)
-        injected = origins and any(
-            inject(text, {k: v for k, v in origin.items() if v is not None}) for origin in origins
-        )
-        _jev_shadow_wake(card, "wake:injected" if injected else ("wake:inject-failed" if origins else "wake:no-subscribers"))
-        if injected:
+        if any(inject(text, {k: v for k, v in origin.items() if v is not None}) for origin in origins):
             kept[tid] = _wake_key(card)
     return kept
 
