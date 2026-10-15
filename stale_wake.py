@@ -224,7 +224,8 @@ def sweep(conn: sqlite3.Connection, state: dict, inject, now: float) -> dict:
     open_status = _open_statuses(conn)
     kept = {tid: key for tid, key in state.items() if tid in open_status}
     for tid, card in stale.items():
-        if kept.get(tid) == _wake_key(card):
+        if kept.get(tid) in (_wake_key(card), card["event_id"]):
+            kept[tid] = _wake_key(card)
             continue
         origins = subscribers(conn, tid)
         text = wake_text(card)

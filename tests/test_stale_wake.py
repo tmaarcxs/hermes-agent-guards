@@ -343,3 +343,13 @@ def test_parked_card_wakes_once_per_episode_even_when_reblocked_or_triaged():
     event(conn, "t_p", "blocked", 0.1)
     wake.sweep(conn, state, rec, NOW)
     assert len(rec.calls) == 3
+
+
+def test_state_written_before_parked_episodes_does_not_rewake_on_upgrade():
+    conn = board()
+    card(conn, "t_old", "triage", 2)
+    event_id = conn.execute("select max(id) from task_events where task_id = 't_old'").fetchone()[0]
+    rec = Recorder()
+    state = wake.sweep(conn, {"t_old": event_id}, rec, NOW)
+    assert rec.calls == []
+    assert state == {"t_old": "parked"}
