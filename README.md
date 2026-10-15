@@ -21,6 +21,7 @@ Argument normalization (the call proceeds with corrected arguments):
 
 Other guards:
 - `repeat_guard`: blocks an identical call that already failed twice in the session with nothing changed since.
+- `checkpoint_gate`: in a worker process, once the run passes 400 API calls (read from the `api_request_id` tail) without a successful Kanban checkpoint comment (or review/complete/block), non-checkpoint tool calls are blocked until one is written; the duty re-arms every 25 calls, so a long run keeps leaving board-visible progress instead of dying at the iteration cap holding everything in hand.
 - `skill_size`: blocks any write that grows a skill markdown file past its limit (`SKILL.md` 6000 characters, other `.md` files 12000). Shrinking is always allowed, so oversized skills can be split into an index plus a reference tree.
 
 Worker setups (only when `kanban.default_assignee` is set in the profile config):

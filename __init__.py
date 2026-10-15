@@ -29,6 +29,11 @@ strings, grep patterns and python -c bodies pass. It catches slips, not delibera
 Modules:
 - ``repeat_guard`` blocks an identical call that already failed twice in the session with
   nothing changed since;
+- ``checkpoint_gate`` (same condition, worker process only) forces the budget checkpoint: once a
+  dispatcher-owned worker run passes 400 API calls (read from the ``api_request_id`` tail) without a
+  successful post-call-1 Kanban comment (or review/complete/block), non-checkpoint tool calls are
+  blocked until one is written, and the duty re-arms every 25 calls so a long run keeps
+  checkpointing instead of dying at the iteration cap holding everything in hand;
 - ``skill_size`` blocks growing a skill markdown file past its size limit;
 - ``kanban_policy`` (only with ``kanban.default_assignee`` set) keeps delegated cards on the
   worker profile, out of triage, without execution overrides and with a numbered Acceptance list;
@@ -85,7 +90,7 @@ Modules:
 import re
 from typing import Any, Optional
 
-from . import approval_wait_gate, background_notify_gate, backup_copy_gate, churn_wake, completion_gate, github_contact, handoff_gate, kanban_policy, lead_delegation, pr_comment_gate, published_head_gate, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake
+from . import approval_wait_gate, background_notify_gate, backup_copy_gate, checkpoint_gate, churn_wake, completion_gate, github_contact, handoff_gate, kanban_policy, lead_delegation, pr_comment_gate, published_head_gate, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake
 from . import stop_gate
 
 _START = r"(?:^|[;&|\n(`{]|\$\(|\bthen\b|\bdo\b|\belse\b)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:sudo\s+|command\s+)?"
@@ -195,7 +200,7 @@ def normalized_args(tool_name: str, args: dict[str, Any]) -> Optional[dict[str, 
 
 
 def _post_tool_call(**kwargs) -> None:
-    for guard in (repeat_guard, review_gate, stop_gate):
+    for guard in (repeat_guard, review_gate, stop_gate, checkpoint_gate):
         try:
             guard.record(**kwargs)
         except Exception:
@@ -205,6 +210,7 @@ def _post_tool_call(**kwargs) -> None:
 def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -> Optional[dict]:
     for check in (
         lambda: repeat_guard.check(tool_name, args, **kwargs),
+        lambda: checkpoint_gate.check(tool_name, args, **kwargs),
         lambda: kanban_policy.check(tool_name, args),
         lambda: lead_delegation.check(tool_name, args),
         lambda: github_contact.check(tool_name, args),
