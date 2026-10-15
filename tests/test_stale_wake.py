@@ -1,10 +1,14 @@
 import importlib.util
+import json
 import sqlite3
+import time
 from pathlib import Path
 
 import sys
 
 wake = sys.modules["agent_guards"].stale_wake
+
+from agent_guards import board_watch
 
 NOW = 1_000_000.0
 HOUR = 3600
@@ -141,22 +145,85 @@ def test_cards_that_leave_the_stale_set_are_forgotten():
     assert wake.sweep(conn, state, Recorder(), NOW) == {}
 
 
-def test_tick_is_rate_limited_and_fails_open(monkeypatch, tmp_path):
+def test_tick_sweeps_only_on_relevant_activity(monkeypatch, tmp_path):
     import sys
     import types
 
     fake = types.ModuleType("hermes_cli")
     fake.kanban_db = types.SimpleNamespace(kanban_db_path=lambda board=None: tmp_path / "kanban.db")
     monkeypatch.setitem(sys.modules, "hermes_cli", fake)
-    sqlite3.connect(tmp_path / "kanban.db").close()
+    conn = sqlite3.connect(tmp_path / "kanban.db")
+    conn.execute("create table task_events (id integer primary key, task_id text, kind text, payload text, created_at integer)")
+    conn.commit()
     calls = []
     monkeypatch.setattr(wake, "sweep", lambda *a: calls.append(a) or {})
-    monkeypatch.setattr(wake, "_state_path", lambda: tmp_path / "s.json")
-    monkeypatch.setattr(wake, "_last_check", 0.0)
-    wake.on_tick(board=None)
+    monkeypatch.setattr(board_watch, "state_path", lambda name: tmp_path / name)
+    wake.on_tick(board=None)  # no cursor yet: one initialization sweep, then quiet
     wake.on_tick(board=None)
     assert len(calls) == 1
-    monkeypatch.setattr(wake, "_last_check", 0.0)
-    monkeypatch.setattr(wake, "sweep", lambda *a: 1 / 0)
+    conn.execute("insert into task_events (task_id, kind) values ('t_x', 'heartbeat')")
+    conn.commit()
     wake.on_tick(board=None)
+    assert len(calls) == 1  # heartbeat is not state movement: skipped
+    conn.execute("insert into task_events (task_id, kind) values ('t_x', 'blocked')")
+    conn.commit()
+    wake.on_tick(board=None)
+    assert len(calls) == 2
+    wake.on_tick(board=None)  # no new relevant activity: skipped
+    assert len(calls) == 2
+
+def test_a_poke_forces_the_sweep_despite_an_unchanged_cursor(monkeypatch, tmp_path):
+    import sys
+    import types
+
+    fake = types.ModuleType("hermes_cli")
+    fake.kanban_db = types.SimpleNamespace(kanban_db_path=lambda board=None: tmp_path / "kanban.db")
+    monkeypatch.setitem(sys.modules, "hermes_cli", fake)
+    conn = sqlite3.connect(tmp_path / "kanban.db")
+    conn.execute("create table task_events (id integer primary key, task_id text, kind text, payload text, created_at integer)")
+    conn.commit()
+    calls = []
+    monkeypatch.setattr(wake, "sweep", lambda *a: calls.append(a) or {})
+    monkeypatch.setattr(board_watch, "state_path", lambda name: tmp_path / name)
+    wake.on_tick(board=None)
+    assert len(calls) == 1  # initialization sweep already spent the wake
+    board_watch.write_state(board_watch.POKE_FILE, {"at": time.time() + 10})
+    wake.on_tick(board=None)
+    assert len(calls) == 2
+
+def test_dumping_sweep_or_dispatcher_crash_keeps_the_cursor_honest(monkeypatch, tmp_path):
+    import sys
+    import types
+
+    fake = types.ModuleType("hermes_cli")
+    fake.kanban_db = types.SimpleNamespace(kanban_db_path=lambda board=None: tmp_path / "kanban.db")
+    monkeypatch.setitem(sys.modules, "hermes_cli", fake)
+    conn = sqlite3.connect(tmp_path / "kanban.db")
+    conn.execute("create table task_events (id integer primary key, task_id text, kind text, payload text, created_at integer)")
+    conn.commit()
+    monkeypatch.setattr(board_watch, "state_path", lambda name: tmp_path / name)
+    conn.execute("insert into task_events (task_id, kind) values ('t_x', 'blocked')")
+    conn.commit()
+
+    monkeypatch.setattr(wake, "sweep", lambda *a: 1 / 0)
+    wake.on_tick(board=None)  # sweep raised: driver still records the cursor
+    cursor = json.loads((tmp_path / "kanban-stale-wake-cursor.json").read_text())
+    assert cursor["event_id"] == 1
+
+    monkeypatch.setattr(wake, "sweep", lambda *a: {})
+    wake.on_tick(board=None)  # new activity? no — cursor already past it: skipped
+    assert json.loads((tmp_path / "kanban-stale-wake-cursor.json").read_text()) == cursor
+
+def test_dry_run_never_sweeps_and_never_writes(tmp_path, monkeypatch):
+    import sys
+    import types
+
+    fake = types.ModuleType("hermes_cli")
+    fake.kanban_db = types.SimpleNamespace(kanban_db_path=lambda board=None: tmp_path / "kanban.db")
+    monkeypatch.setitem(sys.modules, "hermes_cli", fake)
+    conn = sqlite3.connect(tmp_path / "kanban.db")
+    conn.execute("create table task_events (id integer primary key, task_id text, kind text, payload text, created_at integer)")
+    conn.commit()
+    monkeypatch.setattr(board_watch, "state_path", lambda name: tmp_path / name)
     wake.on_tick(board=None, dry_run=True)
+    assert not (tmp_path / "kanban-stale-wake.json").exists() and not (tmp_path / "kanban-stale-wake-cursor.json").exists()

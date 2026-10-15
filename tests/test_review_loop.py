@@ -1,8 +1,11 @@
 import json
 import sqlite3
+import time
 import sys
 
 loop = sys.modules["agent_guards"].review_loop
+
+from agent_guards import board_watch
 
 
 def board():
@@ -97,25 +100,78 @@ def test_closed_cards_are_forgotten():
     assert loop.sweep(conn, state, Recorder()) == {}
 
 
-def test_tick_is_rate_limited_and_fails_open(monkeypatch, tmp_path):
+def test_board_needs_relevant_events(monkeypatch, tmp_path):
     import types
 
     fake = types.ModuleType("hermes_cli")
     fake.kanban_db = types.SimpleNamespace(kanban_db_path=lambda board=None: tmp_path / "k.db")
     monkeypatch.setitem(sys.modules, "hermes_cli", fake)
-    sqlite3.connect(tmp_path / "k.db").close()
-    monkeypatch.setattr(loop.stale_wake, "_home", lambda: tmp_path)
+    conn = sqlite3.connect(tmp_path / "k.db")
+    conn.execute("create table task_events (id integer primary key, task_id text, kind text, payload text, created_at integer)")
+    conn.commit()
     calls = []
+    monkeypatch.setattr(board_watch, "state_path", lambda name: tmp_path / name)
     monkeypatch.setattr(loop, "sweep", lambda *a: calls.append(a) or {"t_x": 3})
-    monkeypatch.setattr(loop, "_last_check", 0.0)
     loop.on_tick(board=None)
+    assert len(calls) == 1  # no cursor yet: one initialization sweep
+    assert json.loads((tmp_path / "kanban-review-loop.json").read_text()) == {"t_x": 3}
+    conn.execute("insert into task_events (task_id, kind) values ('t_x', 'heartbeat')")
+    conn.commit()
     loop.on_tick(board=None)
-    assert len(calls) == 1
-    assert json.loads((tmp_path / "state" / "kanban-review-loop.json").read_text()) == {"t_x": 3}
-    monkeypatch.setattr(loop, "_last_check", 0.0)
+    assert len(calls) == 1  # heartbeat is not a review-round change: skipped
+    conn.execute("insert into task_events (task_id, kind) values ('t_x', 'changes_requested')")
+    conn.commit()
+    loop.on_tick(board=None)
+    assert len(calls) == 2
+    loop.on_tick(board=None)  # same relevant event again: skipped
+    assert len(calls) == 2
+
+def test_poke_forces_the_sweep_despite_an_unchanged_cursor(monkeypatch, tmp_path):
+    import types
+
+    fake = types.ModuleType("hermes_cli")
+    fake.kanban_db = types.SimpleNamespace(kanban_db_path=lambda board=None: tmp_path / "k.db")
+    monkeypatch.setitem(sys.modules, "hermes_cli", fake)
+    conn = sqlite3.connect(tmp_path / "k.db")
+    conn.execute("create table task_events (id integer primary key, task_id text, kind text, payload text, created_at integer)")
+    conn.commit()
+    calls = []
+    monkeypatch.setattr(board_watch, "state_path", lambda name: tmp_path / name)
+    monkeypatch.setattr(loop, "sweep", lambda *a: calls.append(a) or {})
+    loop.on_tick(board=None)
+    assert len(calls) == 1  # no cursor yet: one initialization sweep
+    board_watch.write_state(board_watch.POKE_FILE, {"at": time.time() + 10})
+    loop.on_tick(board=None)
+    assert len(calls) == 2
+
+def test_dumping_sweep_still_advances_the_cursor(monkeypatch, tmp_path):
+    import types
+
+    fake = types.ModuleType("hermes_cli")
+    fake.kanban_db = types.SimpleNamespace(kanban_db_path=lambda board=None: tmp_path / "k.db")
+    monkeypatch.setitem(sys.modules, "hermes_cli", fake)
+    conn = sqlite3.connect(tmp_path / "k.db")
+    conn.execute("create table task_events (id integer primary key, task_id text, kind text, payload text, created_at integer)")
+    conn.commit()
+    monkeypatch.setattr(board_watch, "state_path", lambda name: tmp_path / name)
+    conn.execute("insert into task_events (task_id, kind) values ('t_x', 'changes_requested')")
+    conn.commit()
     monkeypatch.setattr(loop, "sweep", lambda *a: 1 / 0)
     loop.on_tick(board=None)
+    assert json.loads((tmp_path / "kanban-review-loop-cursor.json").read_text())["event_id"] == 1
+
+def test_dry_run_never_sweeps_and_never_writes(monkeypatch, tmp_path):
+    import types
+
+    fake = types.ModuleType("hermes_cli")
+    fake.kanban_db = types.SimpleNamespace(kanban_db_path=lambda board=None: tmp_path / "k.db")
+    monkeypatch.setitem(sys.modules, "hermes_cli", fake)
+    conn = sqlite3.connect(tmp_path / "k.db")
+    conn.execute("create table task_events (id integer primary key, task_id text, kind text, payload text, created_at integer)")
+    conn.commit()
+    monkeypatch.setattr(board_watch, "state_path", lambda name: tmp_path / name)
     loop.on_tick(board=None, dry_run=True)
+    assert not (tmp_path / "kanban-review-loop.json").exists() and not (tmp_path / "kanban-review-loop-cursor.json").exists()
 
 
 def test_registered_on_dispatch_tick():

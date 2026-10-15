@@ -1,6 +1,6 @@
 """Warn the owning chat when a Kanban card grinds on: too many runs or change-requests.
 
-On each dispatcher tick (at most hourly) it counts, per non-archived, non-done
+On each dispatcher tick it counts, per non-archived, non-done
 card, the worker runs in ``task_runs`` and the ``changes_requested`` events in
 ``task_events``. The first crossing of 10 runs or 5 change-requests — then again
 at double each (20/40 runs, 10/20 change-requests) — starts one agent turn in
@@ -11,7 +11,14 @@ reassigned or cancelled.
 
 Each threshold fires once per card while it stays past that level (a card whose
 counts drop below a threshold re-arms it). Shares the gateway injection of
-``stale_wake``. Fails open.
+``stale_wake``.
+
+The sweep is event-driven (``board_watch.tick``): it runs on the first tick
+after any new ``changes_requested`` event, a status change, a completed worker
+run, or a successful board mutation on any process (``board_watch.poke``); on
+a quiet board the tick skips the sweep entirely. Thresholds are unchanged.
+
+Fails open.
 """
 
 import json
@@ -20,16 +27,14 @@ import sqlite3
 import time
 from typing import Any, Optional
 
+from . import board_watch
 from . import stale_wake
 
 logger = logging.getLogger(__name__)
 
 RUN_STEPS = (10, 20, 40)
 CR_STEPS = (5, 10, 20)
-CHECK_EVERY = 3600
 _OPEN = ("todo", "ready", "running", "review", "blocked", "triage", "scheduled")
-
-_last_check = 0.0
 
 
 def hot_cards(conn: sqlite3.Connection) -> list[dict]:
@@ -101,25 +106,34 @@ def sweep(conn: sqlite3.Connection, state: dict, inject) -> dict:
     return kept
 
 
+_WAKE_KINDS = ("changes_requested", "status", "promoted", "promoted_manual", "completed", "timed_out", "crashed", "reclaimed")
+
+
+def _sweep_for(board: Optional[str]):
+    def run(state: dict) -> dict:
+        from hermes_cli import kanban_db
+
+        db = kanban_db.kanban_db_path(board=board)
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            return sweep(conn, state, stale_wake._inject)
+        finally:
+            conn.close()
+
+    return run
+
+
 def on_tick(board: Optional[str] = None, dry_run: bool = False, **_: Any) -> None:
-    global _last_check
-    now = time.time()
-    if dry_run or now - _last_check < CHECK_EVERY:
+    if dry_run:
         return
-    _last_check = now
     try:
         from hermes_cli import kanban_db
 
         db = kanban_db.kanban_db_path(board=board)
-        path = stale_wake._home() / "state" / "kanban-churn-wake.json"
-        state = json.loads(path.read_text()) if path.exists() else {}
         conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
         try:
-            new_state = sweep(conn, state, stale_wake._inject)
+            board_watch.tick(conn, "kanban-churn-wake.json", _sweep_for(board), kinds=_WAKE_KINDS)
         finally:
             conn.close()
-        if new_state != state:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(new_state))
     except Exception:
         logger.warning("agent-guards churn wake: sweep failed", exc_info=True)

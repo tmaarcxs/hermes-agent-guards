@@ -69,7 +69,12 @@ Modules:
   any full PR URL from the last 24 h as "a worker already opened a PR" and holds the card out of
   the ready queue every tick (``respawn_guarded reason=active_pr``), so the comment is rejected
   with an ``owner/repo#N`` citation to use instead; worker comments are untouched.
+- ``board_watch`` makes the three wakes event-driven: each sweeps on the first
+  dispatcher tick after wake-relevant board activity (or any successful Kanban
+  mutation, via a shared poke file) instead of on fixed hourly/5-min ceilings, with
+  unchanged watermark and dedup semantics.
 """
+
 
 import re
 from typing import Any, Optional

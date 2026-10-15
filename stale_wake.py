@@ -1,11 +1,17 @@
 """Wake the chat that created a Kanban card once when the card stops moving.
 
-On each dispatcher tick (at most hourly) it finds triage, todo, ready, review,
-blocked and scheduled cards whose last state event is at least 1 h old; heartbeats, comments,
+On each dispatcher tick it finds triage, todo, ready, review, blocked and
+scheduled cards whose last state event is at least 1 h old; heartbeats, comments,
 edits, links and attachments are not state changes. Running cards
 are never checked. For each such card it starts one agent turn in every chat
 subscribed to the card (the creating chat is auto-subscribed) via the gateway's
 plugin injection, so that session can recover the card where its work lives.
+
+The sweep is event-driven (``board_watch.tick``): it runs on the first tick
+after any state event this wake tracks (any kind except the ignored ones) or a
+successful board mutation on any process (``board_watch.poke``); on a quiet
+board the tick skips the sweep entirely. The 1 h age gate on each card is
+unchanged — quiet boards produce no new wakes either way.
 
 Each card is woken once per state: the event id of its last real change is
 recorded, and the card is not woken again until a new state event changes it.
@@ -30,11 +36,12 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+from . import board_watch
+
 logger = logging.getLogger(__name__)
 
 STATUSES = ("triage", "todo", "ready", "review", "blocked", "scheduled")
 STALE_AFTER = 3600
-CHECK_EVERY = 3600
 STALL_MIN_EVENTS = 30
 STALL_STATUSES = ("todo", "ready")
 STALL_REASON = "active_pr"
@@ -44,13 +51,13 @@ _IGNORED_KINDS = (
 )
 
 _ctx: Any = None
-_last_check = 0.0
 
 
 def register(ctx) -> None:
     global _ctx
     _ctx = ctx
     ctx.register_hook("on_kanban_dispatch_tick", on_tick)
+    ctx.register_hook("post_tool_call", _poke_post_tool_call)
 
 
 def _home() -> Path:
@@ -186,26 +193,40 @@ def _inject(text: str, origin: dict) -> bool:
         return False
 
 
-def on_tick(board: Optional[str] = None, dry_run: bool = False, **_: Any) -> None:
-    global _last_check
-    now = time.time()
-    if dry_run or now - _last_check < CHECK_EVERY:
-        return
-    _last_check = now
-    try:
+def _poke_post_tool_call(**kwargs: Any) -> None:
+    board_watch.poke_post_tool_call(**kwargs)
+
+
+def _sweep_for(board: Optional[str], now: float):
+    def run(state: dict) -> dict:
         from hermes_cli import kanban_db
 
         db = kanban_db.kanban_db_path(board=board)
-        path = _state_path()
-        state = json.loads(path.read_text()) if path.exists() else {}
         conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
         try:
-            new_state = sweep(conn, state, _inject, now)
+            return sweep(conn, state, _inject, now)
         finally:
             conn.close()
-        if new_state != state:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(new_state))
+
+    return run
+
+
+def on_tick(board: Optional[str] = None, dry_run: bool = False, **_: Any) -> None:
+    if dry_run:
+        return
+    try:
+        from hermes_cli import kanban_db
+
+        now = time.time()
+        db = kanban_db.kanban_db_path(board=board)
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            board_watch.tick(
+                conn, "kanban-stale-wake.json", _sweep_for(board, now),
+                exclude=_IGNORED_KINDS, now=now,
+            )
+        finally:
+            conn.close()
     except Exception:
         logger.warning("agent-guards stale wake: sweep failed", exc_info=True)
 
