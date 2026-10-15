@@ -1,7 +1,10 @@
 """Block recurring agent mistakes before a tool runs, normalize known-bad arguments and keep work moving.
 
 Blocks (terminal, foreground or background as noted):
-- foreground ``sleep`` of 60 s or more: use background=true with notify instead;
+- foreground ``sleep`` of 30 s or more, or a ``for``/``while``/``until`` polling
+  loop holding a ``sleep`` of 15 s or more: run the wait with ``background=true``
+  and a notify channel, or poll once and re-issue without sleeping; heredoc bodies
+  and quoted strings are exempt (a script file's own sleeps are not the agent blocking);
 - ``gh pr merge`` without ``--match-head-commit``: merges must pin the verified head;
 - ``osascript``: desktop automation goes through ego-browser;
 - ``git push --force``/``-f`` without ``--force-with-lease``;
@@ -88,13 +91,16 @@ from . import stop_gate
 _START = r"(?:^|[;&|\n(`{]|\$\(|\bthen\b|\bdo\b|\belse\b)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:sudo\s+|command\s+)?"
 _SEGMENT_END = re.compile(r"[;\n]|&&|\|\|")
 _QUOTED = re.compile(r"'[^']*'|\"(?:[^\"\\]|\\.)*\"")
+_HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w[\w.]*)\1")
+_LOOP = re.compile(r"\b(?:for|while|until)\b")
 _SLEEP = re.compile(_START + r"sleep\s+(\d+(?:\.\d+)?)([smh]?)\b")
 _MERGE = re.compile(_START + r"gh\s+pr\s+merge\b")
 _OSASCRIPT = re.compile(_START + r"osascript\b")
 _PUSH = re.compile(_START + r"git\s+push\b")
 _BARE_FORCE = re.compile(r"\s(?:--force|-f)(?=\s|$)")
 _UNIT_SECONDS = {"": 1, "s": 1, "m": 60, "h": 3600}
-_MAX_FOREGROUND_SLEEP = 60
+_MAX_FOREGROUND_SLEEP = 30
+_MAX_LOOP_SLEEP = 15
 _EMPTY_TO_ABSENT = {"kanban_list": ("assignee", "status", "tenant"), "kanban_create": ("completion_contract",)}
 _ENV_TASK_LITERAL = re.compile(r"^\s*\$?\{?HERMES_KANBAN_TASK\}?\s*$")
 _MAX_INLINE_ATTACH = 256
@@ -123,17 +129,49 @@ def _segments(command: str, pattern: re.Pattern) -> list[str]:
     return found
 
 
+def _strip_heredocs(command: str) -> str:
+    """Blank out heredoc bodies: a script's own `sleep` (bash or `time.sleep`
+    in Python) is not the agent blocking, and scripting text that merely says
+    `sleep 600` must not be read as a command (measured: 3 false blocks)."""
+    delim = None
+    kept = []
+    for line in command.split("\n"):
+        if delim is not None:
+            if line.strip() == delim:
+                delim = None
+            kept.append("")
+            continue
+        kept.append(line)
+        match = _HEREDOC.search(line)
+        if match:
+            delim = match.group(2)
+    return "\n".join(kept)
+
+
 def terminal_violations(command: str, background: bool) -> list[str]:
+    command = _strip_heredocs(command)
     command = _QUOTED.sub("''", command)
     found = []
     if not background:
         for match in _SLEEP.finditer(command):
-            if float(match.group(1)) * _UNIT_SECONDS[match.group(2)] >= _MAX_FOREGROUND_SLEEP:
+            seconds = float(match.group(1)) * _UNIT_SECONDS[match.group(2)]
+            if seconds >= _MAX_FOREGROUND_SLEEP:
                 found.append(
-                    "foreground sleep >= 60s: run the wait with background=true and notify=true, "
-                    "or wait on the process with process_manage"
+                    "foreground sleep >= 30s: run the wait with background=true and notify=true, "
+                    "or poll once now and re-issue without sleeping"
                 )
                 break
+        if not found:
+            loop_starts = [m.start() for m in _LOOP.finditer(command)]
+            if loop_starts:
+                for match in _SLEEP.finditer(command):
+                    seconds = float(match.group(1)) * _UNIT_SECONDS[match.group(2)]
+                    if seconds >= _MAX_LOOP_SLEEP and any(start < match.start() for start in loop_starts):
+                        found.append(
+                            "polling loop with sleep >= 15s: run the whole wait with background=true "
+                            "and notify=[<ready pattern>], or poll once without sleeping"
+                        )
+                        break
     if any("--match-head-commit" not in segment for segment in _segments(command, _MERGE)):
         found.append("gh pr merge needs --match-head-commit <verified head sha>")
     if _OSASCRIPT.search(command):

@@ -5,7 +5,7 @@ A Hermes Agent plugin that blocks recurring agent mistakes before a tool runs an
 ## What it does
 
 Terminal blocks:
-- foreground `sleep` of 60 s or more (run the wait in the background with a notification instead);
+- foreground `sleep` of 30 s or more, or a `for`/`while`/`until` loop holding a `sleep` of 15 s or more (run the wait in the background with a notification, or poll once and re-issue without sleeping; heredoc bodies and quoted strings are exempt);
 - `gh pr merge` without `--match-head-commit`;
 - `osascript`;
 - `git push --force`/`-f` without `--force-with-lease`;

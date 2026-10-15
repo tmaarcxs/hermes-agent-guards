@@ -19,8 +19,14 @@ def blocked(command, background=False):
     [
         "sleep 60",
         "sleep 420; gh pr checks 1",
+        "sleep 45; gh pr checks 1054 2>&1",
+        "sleep 30 && gh pr view 400 --repo o/r",
+        "sleep 2m; echo done",
         "cd x && sleep 2m",
         "for i in 1 2; do sleep 90; done",
+        "for i in $(seq 1 12); do st=$(gh run view 1 --json status); sleep 20; done",
+        "for i in $(seq 1 30); do ST=$(status); sleep 30; done",
+        "while kill -0 $p 2>/dev/null && [ $w -lt 520 ]; do sleep 20; done",
         "X=1 sleep 120",
         "gh pr merge 12 --repo o/r --merge --admin",
         "set -e; gh pr merge 12 --merge && gh pr view 12",
@@ -39,8 +45,12 @@ def test_blocks(command):
 @pytest.mark.parametrize(
     "command",
     [
-        "sleep 59",
         "sleep 5; ls",
+        "sleep 29",
+        "for i in $(seq 1 30); do pg_isready -U demosuite && break; sleep 1; done",
+        "for i in $(seq 1 45); do code=$(curl -s -m 2 http://127.0.0.1:55518/readiness); sleep 2; done",
+        "for i in 1 2 3 4 5 6 7 8; do curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:55518; sleep 2; done",
+        "until [ -f ready ]; do sleep 10; done",
         "gh pr merge 12 --merge --admin --match-head-commit abc123",
         "m(){ gh pr merge $1 --merge --admin --match-head-commit $h; }",
         "grep -n 'gh pr merge' notes.md",
@@ -50,9 +60,12 @@ def test_blocks(command):
         "git push origin b",
         "git push origin feature/x-f",
         "python3 -c \"print('sleep 600')\"",
+        "cat > poll.sh <<'EOF'\nfor i in $(seq 1 30); do sleep 60; done\nEOF\nbash poll.sh",
+        "python3 - <<'PYEOF'\nimport time\ntime.sleep(600)\nPYEOF",
         "grep -rn \"osascript\\\\|--admin\\\\|gh pr merge\" ~/.hermes/plugins",
         "python3 -c 'p=\"backups/worker-osascript-prohibition\"; print(p)'",
         "gh pr merge 1 --merge --match-head-commit \"$h\"",
+        "echo 'sleep 45' > instructions.md",
     ],
 )
 def test_allows(command):
