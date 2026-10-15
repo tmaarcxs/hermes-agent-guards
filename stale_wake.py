@@ -12,6 +12,14 @@ recorded, and the card is not woken again until a new state event changes it.
 A genuinely blocked card therefore wakes its chat a single time, even after the
 woken agent comments on it.
 
+The same module also provides the stall wake, registered as its own unthrottled
+hook (every tick): a todo or ready card whose last 30 task_events are all
+``respawn_guarded`` events with ``reason=active_pr`` is being held out of the
+ready queue by the dispatcher's 24 h PR-URL respawn guard despite the queue
+draining — a silent stall the 1 h stale threshold is too slow to surface. It
+wakes the subscribed chats once per guard event, keyed on the newest
+respawn_guarded event id, naming the cause and the release levers.
+
 Fails open: errors are logged and never affect the dispatcher.
 """
 
@@ -27,6 +35,9 @@ logger = logging.getLogger(__name__)
 STATUSES = ("triage", "todo", "ready", "review", "blocked", "scheduled")
 STALE_AFTER = 3600
 CHECK_EVERY = 3600
+STALL_MIN_EVENTS = 30
+STALL_STATUSES = ("todo", "ready")
+STALL_REASON = "active_pr"
 _IGNORED_KINDS = (
     "heartbeat", "skipped_nonspawnable", "respawn_guarded", "claim_extended",
     "commented", "edited", "attached", "attachment_removed", "linked", "unlinked",
@@ -108,6 +119,51 @@ def wake_text(card: dict) -> str:
     )
 
 
+def stalled_cards(conn: sqlite3.Connection) -> list[dict]:
+    """Todo/ready cards whose last STALL_MIN_EVENTS events are all active_pr respawn guards."""
+    rows = conn.execute(
+        f"select t.id, t.status, t.title from tasks t where t.status in ({','.join('?' * len(STALL_STATUSES))})",
+        STALL_STATUSES,
+    )
+    cards = []
+    for tid, status, title in rows:
+        events = conn.execute(
+            "select id, kind, payload from task_events where task_id = ? order by id desc limit ?",
+            (tid, STALL_MIN_EVENTS),
+        ).fetchall()
+        if len(events) < STALL_MIN_EVENTS or any(
+            kind != "respawn_guarded" or STALL_REASON not in str(payload or "")
+            for _id, kind, payload in events
+        ):
+            continue
+        cards.append({"id": tid, "status": status, "title": title or "", "event_id": events[0][0]})
+    return cards
+
+
+def stall_text(card: dict) -> str:
+    return (
+        f"[Kanban stall] {card['id']} ({card['status']}) has been refused by the dispatcher respawn guard "
+        f"reason={STALL_REASON} for the last {STALL_MIN_EVENTS} ticks: {card['title'][:120]}\n"
+        "A full GitHub PR URL in one of this card's comments from the last 24 h makes the dispatcher treat "
+        "the card as 'a worker already opened a PR' and hold it out of the ready queue every tick. Fix here: "
+        "remove or reword that comment (cite the PR as owner/repo#N — the guard only matches full URLs), "
+        "assign the card explicitly, or archive it if the outcome was delivered outside the card."
+    )
+
+
+def stall_sweep(conn: sqlite3.Connection, state: dict, inject, now: float) -> dict:
+    """Wake each actively stalling card once per guard event. Returns the new state."""
+    stalled = {card["id"]: card for card in stalled_cards(conn)}
+    kept = {tid: event_id for tid, event_id in state.items() if tid in stalled}
+    for tid, card in stalled.items():
+        if kept.get(tid) == card["event_id"]:
+            continue
+        text = stall_text(card)
+        if any(inject(text, {k: v for k, v in origin.items() if v is not None}) for origin in subscribers(conn, tid)):
+            kept[tid] = card["event_id"]
+    return kept
+
+
 def sweep(conn: sqlite3.Connection, state: dict, inject, now: float) -> dict:
     """Wake each stale card once per state. Returns the new state."""
     stale = {card["id"]: card for card in stale_cards(conn, now)}
@@ -152,3 +208,27 @@ def on_tick(board: Optional[str] = None, dry_run: bool = False, **_: Any) -> Non
             path.write_text(json.dumps(new_state))
     except Exception:
         logger.warning("agent-guards stale wake: sweep failed", exc_info=True)
+
+
+def _stall_state_path() -> Path:
+    return _home() / "state" / "kanban-stall-wake.json"
+
+
+def stall_wake_on_tick(board: Optional[str] = None, dry_run: bool = False, **_: Any) -> None:
+    """Unthrottled stall wake, separate hook so the 1 h stale sweep stays untouched."""
+    try:
+        from hermes_cli import kanban_db
+
+        db = kanban_db.kanban_db_path(board=board)
+        path = _stall_state_path()
+        state = json.loads(path.read_text()) if path.exists() else {}
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            new_state = stall_sweep(conn, state, _inject, time.time())
+        finally:
+            conn.close()
+        if new_state != state:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(new_state))
+    except Exception:
+        logger.warning("agent-guards stall wake: sweep failed", exc_info=True)

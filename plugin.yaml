@@ -1,6 +1,6 @@
 name: agent-guards
-version: "0.2.4"
-description: Block long foreground sleeps, unpinned PR merges, osascript, bare force pushes, repeated identical failing calls and oversized skill files; block silent waits on approval-only pull requests; normalize common Kanban argument slips; in worker setups enforce the Kanban delegation policy and pre-review checklist, refuse narrated stops after a blocked lifecycle call, and tell every lifecycle-call block to retry in the same response; wake a card's chat once when the card stops moving or grinds on (too many runs or change-requests).
+version: "0.2.5"
+description: Block long foreground sleeps, unpinned PR merges, osascript, bare force pushes, repeated identical failing calls and oversized skill files; block silent waits on approval-only pull requests and lead comments carrying a full PR URL onto a stalled card; normalize common Kanban argument slips; in worker setups enforce the Kanban delegation policy and pre-review checklist, refuse narrated stops after a blocked lifecycle call, and tell every lifecycle-call block to retry in the same response; wake a card's chat once when the card stops moving, grinds on (too many runs or change-requests) or sits dispatcher-stalled (active_pr respawn guard).
 author: "tmaarcxs"
 kind: standalone
 hooks:

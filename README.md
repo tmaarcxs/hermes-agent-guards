@@ -42,6 +42,10 @@ Review loop wake (`review_loop`): on the dispatcher tick (at most every 5 min) i
 
 Churn warning (`churn_wake`): on the dispatcher tick (at most hourly) it warns each chat subscribed to a non-archived, non-done card whose worker runs have reached 10, 20, 40… or whose change-requests have reached 5, 10, 20…, once per threshold, with the last change-request reasons, so the lead decides to split the card, narrow the acceptance or confirm continue. It is a warning only: nothing is blocked. It uses the same gateway injection setting.
 
+Dispatcher-stall wake (`stale_wake.stall_wake_on_tick`): on every dispatcher tick (unthrottled, so it beats the 1 h stale wake) it wakes each chat subscribed to a todo/ready card whose last 30 task events are all `respawn_guarded` events with `reason=active_pr` — the dispatcher's 24 h PR-URL respawn guard is holding the card out of the ready queue every tick (a full GitHub PR URL in a comment reads as "a worker already opened a PR"). It wakes once per guard event with the release levers: reword the comment (cite the PR as `owner/repo#N` — the guard only matches full URLs), assign the card explicitly, or archive it if the outcome was delivered elsewhere. It uses the same gateway injection setting.
+
+Lead PR-URL comment gate (`pr_comment_gate`): in the lead process only, blocks a `kanban_comment` whose body carries a full GitHub PR URL onto a todo/ready/blocked card — the same respawn-guard stall the stall wake reports on, stopped at the source. The block message names the `owner/repo#N` citation to use instead. Worker comments are untouched (the worker's own PR URL is the guard's legitimate input), and full URLs stay fine on running/done cards.
+
 ```yaml
 plugins:
   entries:
