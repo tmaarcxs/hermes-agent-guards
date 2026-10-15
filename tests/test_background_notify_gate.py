@@ -74,6 +74,7 @@ def test_other_tools_are_not_touched():
         "docker run postgres:16",
         "SCR=/x; mkdir -p $SCR; cd $SCR && python3 -m http.server 8747 --bind 127.0.0.1",
         "python3 -c 'import x' && python3 -m http.server 52979 --bind 127.0.0.1 --directory deliverable",
+        "python3 -c \"\nimport http.server, socketserver\nclass H(http.server.SimpleHTTPRequestHandler):\n    def end_headers(self):\n        self.send_header('Connection', 'close')\nsocketserver.TCPServer.allow_reuse_address = True\nwith socketserver.TCPServer(('127.0.0.1', 18719), H) as s:\n    s.serve_forever()\n\"",
     ],
 )
 def test_server_launchers_are_exempt(command: str):
@@ -97,6 +98,7 @@ def test_server_launchers_are_exempt(command: str):
         "bash launch.sh run_quality.py > run.log 2>&1; echo EXIT=$?; echo done",
         "python3 benchmark_driver.py run --journey j > out.json 2> err; echo RUN_EXIT=$?",
         "cd /w/t && env -i PATH=/bin:/usr/bin SNOWFLAKE_USER=M /usr/bin/python3 sf.py",
+        "python3 -c \"import json, socketserver; json.load(open('a.json')); print(1)\"",
     ],
 )
 def test_bounded_jobs_are_still_blocked(command: str):

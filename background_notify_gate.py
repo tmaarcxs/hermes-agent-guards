@@ -41,6 +41,10 @@ _RETRY_INSTRUCTION = getattr(kanban_policy, "RETRY_INSTRUCTION", "")
 # Statement start: after ;, &, |, ||, &&, newline, (, {, $( then/do/else.
 _STMT = re.compile(r"(?:^|[;&|\n(`{]|\$\(|\bthen\b|\bdo\b|\belse\b)[ \t]*")
 
+# A server embedded in an inline `python3 -c "...serve_forever()"` script: the
+# launcher is inside Python code, so match the code shape instead of a command name.
+_PY_SERVER_CODE = re.compile(r"(?:http\.server|socketserver|serve_forever\(\)|HTTPServer|TCPServer|UnixHTTPServer)")
+
 # Leading env-assignment / wrapper tokens that may precede the launcher.
 _LEAD = re.compile(
     r"(?:(?:[A-Za-z_][A-Za-z0-9_]*=\S*|env(?:\s+[-\w]+(?:=?\S*)?)*|sudo|command|exec)\s+)*"
@@ -88,6 +92,12 @@ def _final_statement_is_server(command: str) -> bool:
     """True when the command's last running element is a server/daemon launcher."""
     if not command:
         return False
+    if "-c " in command and _PY_SERVER_CODE.search(command):
+        # Inline `python3 -c` script that serves forever, or a one-shot py that
+        # merely imports the module: anchor on serve_forever/HTTPServer usage.
+        stripped = re.sub(r"^import\s+[^\n]+", "", command, flags=re.MULTILINE)
+        if re.search(r"\.serve_forever\(\)|HTTPServer|TCPServer|http\.server\.[A-Z]", stripped):
+            return True
     found = None
     for match in _STMT.finditer(command):
         tail = _LEAD.sub("", command[match.end():], count=1)
