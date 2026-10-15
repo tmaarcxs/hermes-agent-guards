@@ -66,6 +66,11 @@ Modules:
   the run without a timer, so a self-scheduled card silently stops;
 - ``published_head_gate`` (same condition, worker process only) blocks ``kanban_request_review``
   when the claimed ``metadata.commit``/``head`` is not the live head of the named pull request;
+- ``pr_acceptance_gate`` (same condition, worker process only) keeps the published-PR completion
+  duty visible and capped: a ``kanban_show`` of the card with a GitHub ``completion_contract``
+  gains the ``metadata.published_pr`` reminder, a rejected ``kanban_complete`` ("PR acceptance
+  missing") gains the exact fix, and after two counted rejections a retry still lacking a
+  matching ``published_pr`` is blocked with the contract restated and the ``kanban_block`` escape;
 - ``stale_wake`` wakes a card's subscribed chat once when the card has not moved for 5 min
   (needs ``plugins.entries.agent-guards.allow_gateway_injection: true``);
 - ``review_loop`` wakes the same chats when an open card reaches 3, 6, 9... review rounds
@@ -91,7 +96,7 @@ Modules:
 import re
 from typing import Any, Optional
 
-from . import approval_wait_gate, background_notify_gate, backup_copy_gate, checkpoint_gate, churn_wake, completion_gate, github_contact, handoff_gate, kanban_policy, lead_delegation, pr_comment_gate, published_head_gate, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake
+from . import approval_wait_gate, background_notify_gate, backup_copy_gate, checkpoint_gate, churn_wake, completion_gate, github_contact, handoff_gate, kanban_policy, lead_delegation, pr_acceptance_gate, pr_comment_gate, published_head_gate, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake
 from . import stop_gate
 
 _START = r"(?:^|[;&|\n(`{]|\$\(|\bthen\b|\bdo\b|\belse\b)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:sudo\s+|command\s+)?"
@@ -121,6 +126,7 @@ def register(ctx) -> None:
     ctx.register_hook("pre_tool_call", _pre_tool_call)
     ctx.register_hook("post_tool_call", _post_tool_call)
     ctx.register_hook("pre_verify", stop_gate.check)
+    ctx.register_hook("transform_tool_result", _transform_tool_result)
     stale_wake.register(ctx)
     ctx.register_hook("on_kanban_dispatch_tick", stale_wake.stall_wake_on_tick)
     ctx.register_hook("on_kanban_dispatch_tick", review_loop.on_tick)
@@ -201,11 +207,18 @@ def normalized_args(tool_name: str, args: dict[str, Any]) -> Optional[dict[str, 
 
 
 def _post_tool_call(**kwargs) -> None:
-    for guard in (repeat_guard, review_gate, stop_gate, checkpoint_gate):
+    for guard in (repeat_guard, review_gate, stop_gate, checkpoint_gate, pr_acceptance_gate):
         try:
             guard.record(**kwargs)
         except Exception:
             pass
+
+
+def _transform_tool_result(**kwargs) -> Optional[str]:
+    try:
+        return pr_acceptance_gate.transform(**kwargs)
+    except Exception:
+        return None
 
 
 def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -> Optional[dict]:
@@ -215,6 +228,7 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
         lambda: kanban_policy.check(tool_name, args),
         lambda: lead_delegation.check(tool_name, args),
         lambda: github_contact.check(tool_name, args),
+        lambda: pr_acceptance_gate.check(tool_name, args, **kwargs),
         lambda: approval_wait_gate.check(tool_name, args, **kwargs),
         lambda: review_gate.check(tool_name, **kwargs),
         lambda: published_head_gate.check(tool_name, args),
