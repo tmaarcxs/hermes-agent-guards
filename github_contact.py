@@ -40,8 +40,10 @@ from typing import Any, Optional
 from . import kanban_policy
 
 MESSAGE = (
-    "Contacting people needs the owner's approval. For a CODEOWNERS/review-only gap use "
-    "github-agent-ops/scripts/pr_merge_verified; otherwise block the card with kind=needs_input."
+    "Contacting people needs the owner's approval. For a CODEOWNERS/review-only gap on a green "
+    "exact head merge it yourself: bash ~/.hermes/skills/github/github-agent-ops/scripts/"
+    "pr_merge_verified --repo <owner/repo> <pr> <head-sha>; if the card forbids merging or the "
+    "diff needs independent review, kanban_block with kind=needs_input — do not just wait."
 )
 RETRY = (
     "Then fix the command and retry it in this same response — do not end on a text-only reply: "

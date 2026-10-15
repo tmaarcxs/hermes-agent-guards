@@ -39,6 +39,16 @@ Modules:
   (self-assignment contacts nobody; unresolvable login fails closed); the authorized
   alternatives for a CODEOWNERS-only gap are ``github-agent-ops/scripts/pr_merge_verified``
   or ``kanban_block`` with ``kind=needs_input``;
+- ``approval_wait_gate`` (same condition, worker process only) blocks the silent 17-hour wait
+  on an approval-only pull request: when the exact head of a polled PR is green on every
+  automated check and the review approval is the only open gate, readiness polls of it
+  (``gh pr checks``, ``gh pr view --json statusCheckRollup|mergeStateStatus|...``,
+  ``gh api .../pulls/<n>``, ``pr_status``/``pr_wait_checks``) are blocked with the two
+  authorized moves (merge the verified head via ``pr_merge_verified``, or
+  ``kanban_block(kind="needs_input")``), and a repeating ``kanban_heartbeat`` note that admits
+  the approval-only wait is blocked from the second one on. Pending or failing checks, drafts
+  and dirty states are not verdict names, so their polls flow through; verdicts are cached
+  for 15 minutes and fail open on errors;
 - ``review_gate`` (same condition) blocks ``kanban_request_review`` until the eight pre-review
   checks are closed in ``todo_list``, each completed item carrying a receipt's anchor.
 - ``handoff_gate`` (same condition) bounces, once per session, a ``kanban_block`` whose reason
@@ -56,7 +66,7 @@ Modules:
 import re
 from typing import Any, Optional
 
-from . import backup_copy_gate, completion_gate, github_contact, handoff_gate, kanban_policy, lead_delegation, published_head_gate, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake
+from . import approval_wait_gate, backup_copy_gate, completion_gate, github_contact, handoff_gate, kanban_policy, lead_delegation, published_head_gate, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake
 from . import stop_gate
 
 _START = r"(?:^|[;&|\n(`{]|\$\(|\bthen\b|\bdo\b|\belse\b)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:sudo\s+|command\s+)?"
@@ -142,6 +152,7 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
         lambda: kanban_policy.check(tool_name, args),
         lambda: lead_delegation.check(tool_name, args),
         lambda: github_contact.check(tool_name, args),
+        lambda: approval_wait_gate.check(tool_name, args, **kwargs),
         lambda: review_gate.check(tool_name, **kwargs),
         lambda: published_head_gate.check(tool_name, args),
         lambda: handoff_gate.check(tool_name, args, **kwargs),
