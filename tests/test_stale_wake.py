@@ -115,13 +115,24 @@ def test_agent_comment_after_wake_does_not_rearm():
 
 def test_a_real_state_change_rearms_the_wake():
     conn = board()
+    card(conn, "t_b", "todo", 3)
+    state = wake.sweep(conn, {}, Recorder(), NOW)
+    event(conn, "t_b", "claimed", 2.5)
+    event(conn, "t_b", "released", 2)
+    rec = Recorder()
+    state = wake.sweep(conn, state, rec, NOW)
+    assert woken(rec) == ["t_b"]
+
+
+def test_unblock_and_reblock_unseen_by_a_sweep_stays_one_parked_episode():
+    conn = board()
     card(conn, "t_b", "blocked", 3)
     state = wake.sweep(conn, {}, Recorder(), NOW)
     event(conn, "t_b", "unblocked", 2.5)
     event(conn, "t_b", "blocked", 2)
     rec = Recorder()
-    state = wake.sweep(conn, state, rec, NOW)
-    assert woken(rec) == ["t_b"]
+    wake.sweep(conn, state, rec, NOW)
+    assert rec.calls == []
 
 
 def test_card_without_chat_is_skipped_and_failed_injection_retries():
@@ -306,3 +317,29 @@ def test_dry_run_never_sweeps_and_never_writes(tmp_path, monkeypatch):
     monkeypatch.setattr(board_watch, "state_path", lambda name: tmp_path / name)
     wake.on_tick(board=None, dry_run=True)
     assert not (tmp_path / "kanban-stale-wake.json").exists() and not (tmp_path / "kanban-stale-wake-cursor.json").exists()
+
+
+def test_parked_card_wakes_once_per_episode_even_when_reblocked_or_triaged():
+    conn = board()
+    card(conn, "t_p", "blocked", 2)
+    rec = Recorder()
+    state = wake.sweep(conn, {}, rec, NOW)
+    assert woken(rec) == ["t_p"]
+    event(conn, "t_p", "block_loop_detected", 1)
+    conn.execute("update tasks set status = 'ready' where id = 't_p'")
+    event(conn, "t_p", "promoted", 0.45)
+    wake.sweep(conn, state, rec, NOW - 0.44 * HOUR)
+    conn.execute("update tasks set status = 'triage' where id = 't_p'")
+    event(conn, "t_p", "block_loop_detected", 0.4)
+    state = wake.sweep(conn, state, rec, NOW)
+    assert len(rec.calls) == 1
+    state = wake.sweep(conn, state, rec, NOW + HOUR)
+    assert len(rec.calls) == 1
+    conn.execute("update tasks set status = 'ready' where id = 't_p'")
+    event(conn, "t_p", "unblocked", 0.2)
+    state = wake.sweep(conn, state, rec, NOW)
+    assert len(rec.calls) == 2
+    conn.execute("update tasks set status = 'blocked' where id = 't_p'")
+    event(conn, "t_p", "blocked", 0.1)
+    wake.sweep(conn, state, rec, NOW)
+    assert len(rec.calls) == 3

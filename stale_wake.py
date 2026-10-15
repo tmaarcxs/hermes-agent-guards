@@ -17,8 +17,11 @@ clock reaches it even on a fully quiet board (no fixed interval).
 
 Each card is woken once per state: the event id of its last real change is
 recorded, and the card is not woken again until a new state event changes it.
-A genuinely blocked card therefore wakes its chat a single time, even after the
-woken agent comments on it.
+A blocked or triage card is woken once per parked episode instead: re-blocking it,
+escalating it to triage or relinking it while it stays parked does not wake it
+again, otherwise each wake makes the woken agent touch the card and the next
+crossing wakes it once more. The episode ends when the card runs, closes, or is
+woken in another state.
 
 The same module also provides the stall wake, registered as its own unthrottled
 hook (every tick): a todo or ready card whose last 30 task_events are all
@@ -43,6 +46,8 @@ from . import board_watch
 logger = logging.getLogger(__name__)
 
 STATUSES = ("triage", "todo", "ready", "review", "blocked", "scheduled")
+PARKED_STATUSES = ("blocked", "triage")
+PARKED = "parked"
 STALE_AFTER = 300
 STALL_MIN_EVENTS = 30
 STALL_STATUSES = ("todo", "ready")
@@ -202,17 +207,29 @@ def stall_sweep(conn: sqlite3.Connection, state: dict, inject, now: float) -> di
     return kept
 
 
+def _wake_key(card: dict):
+    return PARKED if card["status"] in PARKED_STATUSES else card["event_id"]
+
+
+def _open_statuses(conn: sqlite3.Connection) -> dict:
+    rows = conn.execute(
+        f"select id, status from tasks where status in ({','.join('?' * len(STATUSES))})", STATUSES,
+    )
+    return dict(rows.fetchall())
+
+
 def sweep(conn: sqlite3.Connection, state: dict, inject, now: float) -> dict:
-    """Wake each stale card once per state. Returns the new state."""
+    """Wake each stale card once per state, and once per blocked/triage episode. Returns the new state."""
     stale = {card["id"]: card for card in stale_cards(conn, now)}
-    kept = {tid: event_id for tid, event_id in state.items() if tid in stale}
+    open_status = _open_statuses(conn)
+    kept = {tid: key for tid, key in state.items() if tid in open_status}
     for tid, card in stale.items():
-        if kept.get(tid) == card["event_id"]:
+        if kept.get(tid) == _wake_key(card):
             continue
         origins = subscribers(conn, tid)
         text = wake_text(card)
         if any(inject(text, {k: v for k, v in origin.items() if v is not None}) for origin in origins):
-            kept[tid] = card["event_id"]
+            kept[tid] = _wake_key(card)
     return kept
 
 
