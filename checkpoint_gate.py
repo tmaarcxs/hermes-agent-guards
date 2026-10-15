@@ -4,11 +4,11 @@ Active only in worker setups (``kanban.default_assignee`` set; see ``kanban_poli
 only in a worker process (``HERMES_KANBAN_TASK`` set, dispatcher-owned formula of
 ``agent/turn_iteration_prep._maybe_inject_iteration_budget_warning``).
 
-The failure this closes (14-day board forensics, 14 runs cut at the 500-iteration cap):
+The failure this closes (worker runs repeatedly grind to the 500-iteration cap):
 the core one-shot warning injects at 90% of ``iteration_budget.used``, but ``used`` lags
 the true call count because ``execute_code``-only turns refund their iteration, and it
-resets relative to the turn counter on session rotation. Five of the twelve real 500-cap
-runs never saw a warning row at all, and two more saw it and spent the last 50 calls
+resets relative to the turn counter on session rotation. Runs never saw a warning row
+at all, or saw it and spent the last 50 calls
 grinding the same blocked actions. Whatever the model opportunely keeps in hand dies with
 the process: the next worker on the card starts from the board prose alone.
 

@@ -11,7 +11,7 @@ costs one notification; ``heartbeat`` also keeps the run visibly alive on long j
 Exempt:
 - ``pty=true`` interactive sessions (driven via ``process_manage``; a completion
   notice does not apply);
-- long-lived servers/daemons, detected from real 14-day launches: the **final
+- long-lived servers/daemons, detected from observed launch shapes: the **final
   statement** of the command launches a known server (vite dev/preview, http.server,
   uvicorn, gunicorn, local proxies and mock servers, databases, containers) and is
   not piped away. Naming them keeps the list conservative: a bounded job cannot pass
@@ -69,12 +69,14 @@ _SERVER = re.compile(
                     r"webpack-dev-server\b",
                 )
             ) + r")",
-            # Python servers / proxies / mocks seen in real background launches.
+            # Python servers / proxies / mock launchers seen in real background
+            # launches, matched by ROLE SUFFIX so any setup's helper scripts are
+            # covered without hard-coding project names.
             r"(?:" + _INTERP + r")?-m\s+http\.server\b",
             r"(?:" + _INTERP + r")?(?:uvicorn|gunicorn)\b",
             r"(?:" + _INTERP + r")?flask\s+run\b",
             r"(?:" + _INTERP + r")?streamlit\s+run\b",
-            r"(?:" + _INTERP + r")?(?:same_origin_jwt_proxy|jfrog_proxy|assessment_mock|synthetic_source_server)\.py\b",
+            r"(?:" + _INTERP + r")?[A-Za-z0-9_./~-]*(?:_proxy|_server|_mock)\.py\b",
             # Database and infra daemons.
             r"(?:mysqld|redis-server|memcached|mongod|rabbitmq-server)\b",
             # Containers left in the foreground (compose without -d / run without -d).

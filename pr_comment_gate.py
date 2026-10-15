@@ -7,8 +7,8 @@ absent — reuse the lead/worker scoping of ``lead_delegation``) posts a
 the dispatcher's respawn guard (``check_respawn_guard`` in
 ``hermes_cli/kanban_db_dispatch.py``) reads that URL from ANY comment in the last 24 h
 as "a prior worker already opened a PR" and holds the card out of the ready queue
-every tick (``respawn_guarded reason=active_pr``) until someone assigns or the
-the comment ages out. The card caught this way on 2026-10-15 sat in ready for
+every tick (``respawn_guarded reason=active_pr``) until someone assigns or
+the comment ages out. A card once caught this way sat in ready for
 the full queue-drain with no signal.
 
 The comment is rejected before it is written and the lead is told to cite the PR as

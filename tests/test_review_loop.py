@@ -27,7 +27,7 @@ def card(conn, tid, status, rounds, subscribed=True):
         changes(conn, tid, f"fix {n + 1}")
     if subscribed:
         conn.execute(
-            "insert into kanban_notify_subs values (?, 'telegram', '407617100', '179332', 'dm', '407617100', null, 'default')",
+            "insert into kanban_notify_subs values (?, 'telegram', '555000100', '900332', 'dm', '555000100', null, 'default')",
             (tid,),
         )
 
@@ -62,7 +62,7 @@ def test_wakes_open_card_at_third_round_with_latest_reason():
     assert woken(rec) == ["t_loop"]
     text, origin = rec.calls[0]
     assert "3 review rounds" in text and "fix 3" in text and "reaches 6 rounds" in text
-    assert origin["chat_id"] == "407617100" and origin["thread_id"] == "179332"
+    assert origin["chat_id"] == "555000100" and origin["thread_id"] == "900332"
     assert state == {"t_loop": 3}
 
 

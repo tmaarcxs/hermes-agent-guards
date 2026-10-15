@@ -9,7 +9,7 @@ completing.
 
 Reviewer completions (``metadata.review_verdict`` set, or the run was claimed from the review
 column) are blocked, not exempt, when the remaining unevidenced Acceptance items name
-post-review steps (merge, deploy, DES, close): completing would close the card with those
+post-review steps (merge, deploy, close): completing would close the card with those
 steps never run. The approval must instead hand the card back to the implementer with the
 verdict recorded, through ``kanban_request_changes`` — the supported return path that closes
 the reviewer run and restores the implementer. Cards whose Acceptance is only a review
@@ -25,7 +25,7 @@ from . import kanban_policy
 _ACCEPTANCE = re.compile(r"(?im)^[#*\s]*acceptance\b[^\n]*\n((?:[ \t]*\n|[ \t]*\d+[.)][^\n]*\n?|[ \t]+[^\n]*\n?)*)")
 _ITEM = re.compile(r"(?m)^[ \t]*(\d+)[.)][ \t]+(\S.*)$")
 _POST_REVIEW = re.compile(
-    r"(?i)\b(?:merge[ds]?|merging|deploy(?:ment|ed)?s?|\bdes\b|clos(?:e|ed|es|ing|ure))\b"
+    r"(?i)\b(?:merge[ds]?|merging|deploy(?:ment|ed)?s?|clos(?:e|ed|es|ing|ure))\b"
 )
 MESSAGE = (
     "agent-guards blocked kanban_complete: the card's Acceptance list has items {missing} without evidence in "
@@ -33,7 +33,7 @@ MESSAGE = (
     '{{"1": "...", "2": "..."}}. If an item cannot be met, do not complete: finish it, or kanban_block with the '
     "exact external constraint."
 )
-_UNMET = re.compile(r"(?i)\b(?:not yet|not met|pending (?:merge|review|des|deploy)|remains open)\b")
+_UNMET = re.compile(r"(?i)\b(?:not yet|not met|pending (?:merge|review|deploy)|remains open)\b")
 UNMET_MESSAGE = (
     "agent-guards blocked kanban_complete: the evidence for Acceptance items {unmet} says they are not met yet. "
     "Finish those items (merge, deploy, verify, close), or kanban_block with the exact external constraint. "
@@ -41,7 +41,7 @@ UNMET_MESSAGE = (
 )
 REVIEWER_MESSAGE = (
     "agent-guards blocked kanban_complete: this reviewer approval would close the card, but Acceptance items "
-    "{pending} are post-review steps (merge, deploy, DES, close) with no evidence, so completing now loses them "
+    "{pending} are post-review steps (merge, deploy, close) with no evidence, so completing now loses them "
     "(a completion from review marks the card done — there is no approved-and-returned state). Record the verdict "
     "as APPROVED and hand the card back to the implementer instead: call kanban_request_changes with reason "
     "'APPROVED — <verdict summary>; returning the card to the implementer for the remaining Acceptance items'. "

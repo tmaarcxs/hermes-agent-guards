@@ -110,26 +110,6 @@ def test_create_accepts_numbered_acceptance_variants(body):
     assert blocked("kanban_create", {**VALID, "body": body}) is None
 
 
-DES_BATCH = [
-    "6. **Verify in DES.** Run fresh executions on at least 3 audits, including one with Employee Record findings.",
-    "3. Run fresh executions in DES on at least 3 audits and report per-analyzer coverage.",
-    "Measure coverage from at least 4 audits in DES after merge.",
-]
-
-
-@pytest.mark.parametrize("step", DES_BATCH)
-def test_des_batch_as_analysis_measurement_blocked(step):
-    body = f"Goal\n\n{step}\n\n## Acceptance\n1. Coverage table posted"
-    result = blocked("kanban_create", {**VALID, "body": body})
-    assert result and "replicated DES snapshots" in result["message"]
-
-
-def test_des_batch_with_local_replay_passes():
-    body = ("Measure locally on replicated snapshots of 4 audits with real LUMEN. Then in DES run one fresh execution "
-            "for the screenshot, not at least 3 audits.\n\n## Acceptance\n1. Coverage table posted")
-    assert blocked("kanban_create", {**VALID, "body": body}) is None
-
-
-def test_single_des_readback_passes():
-    body = "Verify the DES image carries the merge commit and render one execution.\n\n## Acceptance\n1. Image tag recorded"
+def test_single_readback_passes():
+    body = "Verify the image carries the merge commit and run one readback check.\n\n## Acceptance\n1. Image tag recorded"
     assert blocked("kanban_create", {**VALID, "body": body}) is None
