@@ -11,11 +11,23 @@ status and Tasklist pulls in cards owned by other chats. Enforcement lives here 
 prose rule in the skills failed in practice.
 
 ``transform`` rides ``transform_tool_result`` and rewrites only a successful
-``kanban_list`` JSON result: tasks are filtered to cards with a matching subscription,
-``count`` follows the filtered list, ``hidden_foreign`` reports how many other-chat cards
-were hidden, and every other key is preserved. ``kanban_show`` of a foreign card stays
-allowed — reading a card that constrains own work is legitimate. Fails open: any read or
-parse error returns ``None`` (the result is untouched).
+``kanban_list`` JSON result. The tool handler applies ``limit`` (and truncation)
+at the SQL layer *before* the transform runs, so a foreign chat's cards can fill
+the whole returned window and a naive post-filter would hide this chat's own
+later cards. Instead the transform re-queries the board with the call's own
+filters (``assignee``/``status``/``tenant``/``include_archived``, same defaults as
+the handler), keeps only the cards this chat subscribes to, applies the call's
+``limit`` to that entirely-owned set, and rebuilds the result with the handler's
+own summary helper: ``tasks`` is that owned slice, ``count`` follows it,
+``truncated``/``next_limit`` are recomputed from the owned set (same
+``next_limit`` doubling rule as the handler), ``hidden_foreign``
+reports how many filter-matching cards on the board belong to other chats, and
+``promoted`` (already applied by the handler) is preserved. When the incoming
+window already shows exactly the owned view (same ids, same truncation), the
+original result string is returned untouched. ``kanban_show`` of a foreign card
+stays allowed — reading a card that constrains own work is legitimate. Fails
+open: any read, parse or rebuild error returns ``None`` (the result is
+untouched).
 """
 
 import json
@@ -76,35 +88,95 @@ def transform(tool_name: str, args: object, result: object) -> Optional[str]:
         return None
     try:
         payload = json.loads(result)
-    except Exception:
-        return None
-    tasks = payload.get("tasks") if isinstance(payload, dict) else None
-    if not isinstance(tasks, list):
-        return None
-    from hermes_cli import kanban_db_connect as kbc
-    from hermes_cli import kanban_db as kb
+        if not isinstance(payload, dict) or not isinstance(payload.get("tasks"), list):
+            return None
+        from hermes_cli import kanban_db_connect as kbc
+        from hermes_cli import kanban_db as kb
 
-    try:
-        board_slug = str(args.get("board")) if isinstance(args, dict) and args.get("board") else None
+        args_dict = args if isinstance(args, dict) else {}
+        board_slug = str(args_dict.get("board")) if args_dict.get("board") else None
         db_path = kb.kanban_db_path(board=board_slug)
         if not db_path.exists():
             return None  # no board to read: fail open rather than hide everything
-        conn = kbc.connect(board=board_slug)
+        board_view = _board_view(board_slug, kb, kbc, origin, args_dict)
+        if board_view is None:
+            return None  # board read or rebuild failed: fail open
+        kept_ids, summary_dicts, hidden_foreign, owned_beyond = board_view
+
+        window_ids = [str(task.get("id") or "") for task in payload["tasks"]
+                      if isinstance(task, dict)]
+        if window_ids == kept_ids and bool(payload.get("truncated")) == owned_beyond:
+            return None  # the incoming window already is the owned view
+        out = dict(payload)
+        out["tasks"] = summary_dicts
+        out["count"] = len(summary_dicts)
+        out["truncated"] = owned_beyond
+        limit = _limit(args_dict)
+        out["next_limit"] = min(limit * 2, 200) if owned_beyond and limit < 200 else None
+        out[_HIDDEN_FIELD] = hidden_foreign
+        return json.dumps(out)
+    except Exception:
+        return None  # any read, parse or rebuild failure leaves the result untouched
+
+
+def _board_view(board_slug, kb, kbc, origin, args):
+    """Re-derive the owned view ``(kept_ids, summaries, hidden_foreign, owned_beyond)``.
+
+    Mirrors ``tools.kanban_tools._handle_list``'s arg handling and output shape but
+    filters the board to this origin's subscriptions before applying ``limit``, so
+    own cards beyond the handler's window are still visible. ``hidden_foreign``
+    counts filter-matching cards the chat does not subscribe to — board-wide, the
+    count the handler's window could never have shown. Returns ``None`` when any
+    read or summary build fails."""
+    try:
+        from tools.kanban_tools import _task_summary_dict
     except Exception:
         return None
+    conn = None
     try:
+        conn = kbc.connect(board=board_slug)
         owned = subscribed_task_ids(conn, *origin)
+        rows = kb.list_tasks(conn, assignee=args.get("assignee"), status=args.get("status"),
+                             tenant=args.get("tenant"),
+                             include_archived=_parse_bool(args.get("include_archived")))
+        kept_rows = [row for row in rows if row.id in owned]
+        limit = _limit(args)
+        kept_rows, owned_beyond = kept_rows[:limit], len(kept_rows) > limit
+        hidden_foreign = sum(1 for row in rows if row.id not in owned)
+        return ([row.id for row in kept_rows],
+                [_task_summary_dict(kb, conn, task) for task in kept_rows],
+                hidden_foreign, owned_beyond)
     except Exception:
         return None
     finally:
-        conn.close()
-    kept = [task for task in tasks
-            if isinstance(task, dict) and str(task.get("id") or "") in owned]
-    hidden = len(tasks) - len(kept)
-    if hidden == 0:
-        return None  # nothing foreign: keep the exact original result string
-    payload = dict(payload)
-    payload["tasks"] = kept
-    payload["count"] = len(kept)
-    payload[_HIDDEN_FIELD] = hidden
-    return json.dumps(payload)
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def _limit(args: dict) -> int:
+    """The handler's ``limit`` handling: default 50, bounds-checked 1..200. An
+    out-of-bounds or non-integer limit never reaches the transform (the handler
+    rejects it first); anything unexpected here fails open via ValueError."""
+    value = args.get("limit")
+    limit = 50 if value is None else int(value)
+    if not 1 <= limit <= 200:
+        raise ValueError(limit)
+    return limit
+
+
+def _parse_bool(value) -> bool:
+    """The handler's ``_parse_bool_arg`` semantics without the reject path: absent
+    or ``None`` is ``False``, real booleans pass through, string forms the handler
+    accepts are mapped, unknown strings raise (caller fails open)."""
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    parsed = {"true": True, "1": True, "yes": True,
+              "false": False, "0": False, "no": False}.get(str(value).strip().lower())
+    if parsed is None:
+        raise ValueError(value)
+    return parsed

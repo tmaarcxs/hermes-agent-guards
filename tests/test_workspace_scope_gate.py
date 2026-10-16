@@ -50,6 +50,7 @@ def hermes_modules():
             if isinstance(cache, dict):
                 cache.clear()
 
+
 guards = sys.modules["agent_guards"]
 gate = guards.workspace_scope_gate
 
@@ -96,14 +97,32 @@ def board(monkeypatch, tmp_path, hermes_modules):
     return {"ids": ids, "db_path": db_path}
 
 
+def make_card(board, kb, kbc, name, *, subscribed=False, created_at=None, priority=0):
+    """Create one card on the temp board; optionally subscribed for this test's origin."""
+    conn = kbc.connect(db_path=board["db_path"])
+    try:
+        tid = kb.create_task(conn, title=name, body="b", assignee="worker", created_by="t",
+                             priority=priority)
+        if created_at is not None:
+            conn.execute("UPDATE tasks SET created_at = ? WHERE id = ?", (created_at, tid))
+        if subscribed:
+            conn.execute(
+                "INSERT INTO kanban_notify_subs (task_id, platform, chat_id, thread_id, created_at)"
+                " VALUES (?, 'telegram', '100', '200', 0)", (tid,))
+        conn.commit()
+        return tid
+    finally:
+        conn.close()
+
+
 def transform_with(board, monkeypatch, tasks, *, origin=("telegram", "100", "200"),
-                   configure_worker=True):
+                   configure_worker=True, args=None):
     monkeypatch.delenv("HERMES_KANBAN_TASK", raising=False)
     monkeypatch.setattr(guards.kanban_policy, "configured_worker",
                         (lambda: "worker") if configure_worker else (lambda: ""))
     monkeypatch.setattr(gate, "_origin", (lambda: origin) if origin else (lambda: None))
     result = list_result(*tasks)
-    return gate.transform("kanban_list", {}, result)
+    return gate.transform("kanban_list", args or {}, result)
 
 
 def test_own_thread_card_kept_foreign_hidden(board, monkeypatch):
@@ -114,21 +133,60 @@ def test_own_thread_card_kept_foreign_hidden(board, monkeypatch):
     assert [t["id"] for t in payload["tasks"]] == [ids["own"]]
     assert payload["count"] == 1
     assert payload["hidden_foreign"] == 2
+    assert set(payload["tasks"][0]) >= {"id", "title", "assignee", "status", "priority",
+                                       "parents", "children", "parent_count", "child_count"}
     for key, value in LIST_BASE.items():
         if key not in ("tasks", "count"):
             assert payload[key] == value  # remaining keys preserved
 
 
 def test_other_thread_card_on_same_chat_is_hidden(board, monkeypatch):
+    """The window showed only foreign cards, yet the board holds an own card:
+    the rebuild surfaces it and hides the two same-chat/foreign rules."""
     ids = board["ids"]
     out = transform_with(board, monkeypatch, [task(ids["other_thread"]), task(ids["other_chat"])])
     payload = json.loads(out)
-    assert payload["tasks"] == []
-    assert payload["count"] == 0
+    assert [t["id"] for t in payload["tasks"]] == [ids["own"]]
+    assert payload["count"] == 1
     assert payload["hidden_foreign"] == 2
 
 
-def test_board_arg_reaches_the_same_board(board, monkeypatch):
+def test_own_card_beyond_handler_window_is_not_hidden(board, monkeypatch, hermes_modules):
+    """The core rework case: own cards past the handler's limit+1 SQL window must
+    still be listed — the transform re-queries the board, it does not merely
+    filter the returned window."""
+    kb, kbc = hermes_modules
+    ids = board["ids"]
+    foreign = [make_card(board, kb, kbc, "f%d" % i) for i in range(30)]  # ties broken by id
+    own_late = make_card(board, kb, kbc, "own_late", subscribed=True)
+    out = transform_with(board, monkeypatch, [task(fid) for fid in foreign], args={"limit": 30})
+    payload = json.loads(out)
+    assert own_late in [t["id"] for t in payload["tasks"]]
+    assert ids["own"] in [t["id"] for t in payload["tasks"]]  # not hidden by the window
+    assert payload["count"] == 2
+    assert payload["truncated"] is False
+    assert payload["next_limit"] is None  # scoped set fits the limit: handler-consistent
+    assert payload["hidden_foreign"] == len(foreign) + 2  # foreign board-wide incl. fixture rows
+    assert payload["limit"] == 30  # call's own limit echoed back
+
+
+def test_own_overflow_beyond_limit_sets_truncation_metadata(board, monkeypatch, hermes_modules):
+    """>limit own cards: the owned slice is shown and the handler-shaped
+    truncated/next_limit metadata is recomputed from the owned set."""
+    kb, kbc = hermes_modules
+    limit = 5
+    created = [make_card(board, kb, kbc, "own%d" % i, subscribed=True,
+                         created_at=1700000000 + i) for i in range(7)]
+    out = transform_with(board, monkeypatch, [task(t) for t in created], args={"limit": limit})
+    payload = json.loads(out)
+    assert [t["id"] for t in payload["tasks"]] == created[:limit]
+    assert payload["count"] == limit
+    assert payload["truncated"] is True
+    assert payload["next_limit"] == 10
+    assert payload["hidden_foreign"] == 2  # the fixture's other_thread/other_chat cards
+
+
+def test_board_args_reaches_the_same_board(board, monkeypatch):
     ids = board["ids"]
     monkeypatch.delenv("HERMES_KANBAN_TASK", raising=False)
     monkeypatch.setattr(guards.kanban_policy, "configured_worker", lambda: "worker")
@@ -168,6 +226,39 @@ def test_unconfigured_worker_setup_unchanged(board, monkeypatch):
 def test_all_cards_owned_result_unchanged(board, monkeypatch):
     result = list_result(task(board["ids"]["own"]))
     assert transform_with(board, monkeypatch, [task(board["ids"]["own"])]) is None
+
+
+def test_filter_args_reach_the_requery(board, monkeypatch, hermes_modules):
+    """assignee/tenant filters mirroring the handler's arg handling reach the
+    board re-query; a status the handler's enum never allows fails open."""
+    kb, kbc = hermes_modules
+    mine = make_card(board, kb, kbc, "mine", subscribed=True)
+    other = make_card(board, kb, kbc, "notmine")
+    out = transform_with(board, monkeypatch, [task(other)],
+                         args={"assignee": "worker"})
+    payload = json.loads(out)
+    shown = [t["id"] for t in payload["tasks"]]
+    assert mine in shown and board["ids"]["own"] in shown and set(shown) == {mine, board["ids"]["own"]}
+    assert payload["hidden_foreign"] == 3  # notmine + fixture's other_thread/other_chat
+    out = transform_with(board, monkeypatch, [task(mine), task(other)],
+                         args={"tenant": "no-such-tenant"})
+    rebuilt = json.loads(out)
+    assert rebuilt["tasks"] == []
+    assert rebuilt["truncated"] is False
+    assert rebuilt["hidden_foreign"] == 0
+    assert gate.transform("kanban_list", {"status": "bogus"},
+                          list_result(task(mine))) is None
+
+
+def test_arg_value_forms(board, monkeypatch, hermes_modules):
+    """include_archived/limit string forms mirror _parse_bool_arg/_opt_int handling."""
+    kb, kbc = hermes_modules
+    mine = make_card(board, kb, kbc, "mine", subscribed=True)
+    out = transform_with(board, monkeypatch, [task(mine)], args={"include_archived": "true"})
+    payload = json.loads(out)
+    assert board["ids"]["own"] in [t["id"] for t in payload["tasks"]]
+    assert transform_with(board, monkeypatch, [task(mine)], args={"limit": "seven"}) is None
+    assert transform_with(board, monkeypatch, [task(mine)], args={"limit": 0}) is None
 
 
 def test_non_list_tools_and_bad_payloads_pass(board, monkeypatch):
@@ -213,6 +304,9 @@ def test_chain_kanban_list_transformed(board, monkeypatch):
     monkeypatch.setattr(gate, "_origin", lambda: ("telegram", "100", "200"))
     result = list_result(task(ids["own"]), task(ids["other_chat"]))
     out = guards._transform_tool_result(tool_name="kanban_list", args={}, result=result)
-    assert out is not None and json.loads(out)["hidden_foreign"] == 1
+    payload = json.loads(out)
+    assert payload["tasks"] and payload["tasks"][0]["id"] == ids["own"]
+    assert payload["hidden_foreign"] == 2  # board-wide: other_thread + other_chat
+    assert "parents" in json.loads(out)["tasks"][0]
     assert guards._transform_tool_result(  # a foreign kanban_show is not this gate's business
         tool_name="kanban_show", args={}, result='{"task": {"id": "%s"}}' % ids["other_chat"]) is None
