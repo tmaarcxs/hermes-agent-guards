@@ -9,6 +9,8 @@ board_watch = guards.board_watch
 
 NOW = 1_000_000.0
 HOUR = 3600
+MIN = 60
+WAIT_AFTER = wake.WAIT_AFTER
 
 
 def board():
@@ -33,27 +35,30 @@ def card(conn, tid, status="running", title=None, subscribed=True):
         )
 
 
-def heart(conn, tid, note, age_h=1.0, event_id=None):
+def heart(conn, tid, note, age_s=0.0, event_id=None):
     cursor = conn.execute(
         "insert into task_events (task_id, kind, payload, created_at) values (?, 'heartbeat', ?, ?)",
-        (tid, json.dumps({"note": note}) if note is not None else None, NOW - age_h * HOUR),
+        (tid, json.dumps({"note": note}) if note is not None else None, NOW - age_s),
     )
     return event_id or cursor.lastrowid
 
 
-def spawn(conn, tid, age_h=2.0):
+def spawn(conn, tid, age_s=1800.0):
     conn.execute(
         "insert into task_events (task_id, kind, payload, created_at) values (?, 'spawned', ?, ?)",
-        (tid, '{"pid": 1}', NOW - age_h * HOUR),
+        (tid, '{"pid": 1}', NOW - age_s),
     )
 
 
 def other(conn, tid, kind="commented"):
-    """A non-heartbeat event that must NOT count toward the wait tally."""
+    """A non-heartbeat event that must not advance or reset the wait clock."""
     conn.execute("insert into task_events (task_id, kind, created_at) values (?, ?, ?)", (tid, kind, NOW))
 
 
-CDTOOL = "Still waiting on CDTool auto-merge of Deploy PR 1086. Watcher continues."
+INCIDENT = (
+    "Still waiting on CDTool auto-merge of Deploy PR 1086 (open since 10:11Z, mergeStateStatus CLEAN, "
+    "no checks). CDTool typically takes ~10-25min in observed runs; watcher continues."
+)
 COOLDOWN = "Rate cooldown from sre MCP after metric-name probe retries (~48s pause). Waiting it out; next: gateway."
 
 
@@ -70,63 +75,94 @@ def woken(rec):
     return sorted(text.split()[2] for text, _ in rec.calls)
 
 
-def waiting(conn):
-    return [c["id"] for c in wake.waiting_cards(conn, NOW)]
+def waiting(conn, now=NOW):
+    return [c["id"] for c in wake.waiting_cards(conn, now)]
 
 
-def test_two_wait_notes_in_a_run_wake_the_card():
+def a_run_with_one_wait_note(conn, tid="t_w", first_age_s=1000.0):
+    card(conn, tid)
+    spawn(conn, tid)
+    heart(conn, tid, INCIDENT, age_s=first_age_s)
+
+
+def test_a_wait_note_sixteen_minutes_old_wakes_the_card_exactly_once_with_the_incident_text():
     conn = board()
-    card(conn, "t_w")
-    spawn(conn, "t_w")
-    heart(conn, "t_w", CDTOOL)
-    assert waiting(conn) == []
-    heart(conn, "t_w", "Promotion run 12345 still awaiting rollout")
+    a_run_with_one_wait_note(conn, first_age_s=16 * MIN)
     rec = Recorder()
     state = wake.sweep(conn, {}, rec, NOW)
     assert woken(rec) == ["t_w"]
     text, origin = rec.calls[0]
-    assert "[Kanban waiting]" in text and "2 times" in text and "Promotion run 12345" in text
-    assert origin["chat_id"] == "555000100"
+    assert "[Kanban waiting]" in text and "t_w" in text
+    assert "16 min" in text and "CDTool auto-merge of Deploy PR 1086" in text
+    assert "Do not just wait longer" in text
+    assert origin == {
+        "platform": "telegram", "chat_id": "555000100", "chat_type": "dm",
+        "user_id": "555000100", "profile": "default",
+    }
+    assert state == {"t_w": 1}
+    assert wake.sweep(conn, state, Recorder(), NOW) == state
+    assert wake.sweep(conn, state, Recorder(), NOW + 5 * HOUR) == state
+
+
+def test_a_wait_note_fourteen_minutes_old_does_not_wake_yet():
+    conn = board()
+    a_run_with_one_wait_note(conn, first_age_s=14 * MIN)
+    rec = Recorder()
+    assert wake.sweep(conn, {}, rec, NOW) == {}
+    assert rec.calls == []
+    state = wake.sweep(conn, {}, Recorder(), NOW + 2 * MIN)
     assert state == {"t_w": 1}
 
 
-def test_wakes_once_per_run_and_rearms_on_a_new_run():
+def test_wakes_again_only_for_a_new_run():
     conn = board()
-    card(conn, "t_w")
-    spawn(conn, "t_w")
-    heart(conn, "t_w", CDTOOL)
-    heart(conn, "t_w", CDTOOL.replace("1086", "1087"))
+    a_run_with_one_wait_note(conn)
     state = wake.sweep(conn, {}, Recorder(), NOW)
-    assert wake.sweep(conn, state, Recorder(), NOW) == state
     spawn(conn, "t_w")
-    heart(conn, "t_w", CDTOOL.replace("1086", "1088"))
-    heart(conn, "t_w", CDTOOL.replace("1086", "1089"))
     rec = Recorder()
     state2 = wake.sweep(conn, state, rec, NOW)
-    assert woken(rec) == ["t_w"] and state2["t_w"] > state["t_w"]
+    assert rec.calls == [] and state2 == {}
+    heart(conn, "t_w", INCIDENT, age_s=WAIT_AFTER + 60)
+    heart(conn, "t_w", INCIDENT, age_s=30)
+    rec2 = Recorder()
+    state3 = wake.sweep(conn, state2, rec2, NOW)
+    assert woken(rec2) == ["t_w"] and state3["t_w"] > state["t_w"]
 
 
 def test_boundary_is_the_newest_spawn_or_claim():
     conn = board()
     card(conn, "t_w")
-    heart(conn, "t_w", CDTOOL)
+    heart(conn, "t_w", INCIDENT, age_s=WAIT_AFTER + 900)
     spawn(conn, "t_w")
-    heart(conn, "t_w", CDTOOL)
+    heart(conn, "t_w", INCIDENT, age_s=10)
     assert waiting(conn) == []
 
 
-def test_progress_notes_and_cooldown_notes_never_count():
+def test_claim_boundary_counts_like_spawn():
+    conn = board()
+    card(conn, "t_w")
+    heart(conn, "t_w", INCIDENT, age_s=WAIT_AFTER + 900)
+    conn.execute(
+        "insert into task_events (task_id, kind, payload, created_at) values ('t_w', 'claimed', '{}', ?)",
+        (NOW - 10,),
+    )
+    heart(conn, "t_w", INCIDENT, age_s=5)
+    assert waiting(conn) == []
+
+
+def test_plain_progress_heartbeats_never_wake_no_matter_how_old():
     conn = board()
     card(conn, "t_w")
     spawn(conn, "t_w")
     for note in (
+        "running tests 12/40",
+        "pushed branch feature/x",
         COOLDOWN,
-        "Run 3872: 7/12 of batch 1 GLM runs done; matrix continues.",
         "Deploy PR merged; verifying image version on the pod.",
         "Analysis essentially complete: waiting buckets (P2 med 33min), report follows.",
         None,
     ):
-        heart(conn, "t_w", note)
+        heart(conn, "t_w", note, age_s=WAIT_AFTER + 600)
     assert waiting(conn) == []
 
 
@@ -134,18 +170,18 @@ def test_a_wait_on_checks_or_sonar_counts_as_an_external_gate():
     conn = board()
     card(conn, "t_w", title="t_w")
     spawn(conn, "t_w")
-    heart(conn, "t_w", "PR #1047 open on 323c2193; waiting for Code/Integration + Code/Verify to finish")
-    heart(conn, "t_w", "Refactor pushed; waiting for SonarCloud + Code/Verify on new head")
+    heart(conn, "t_w", "PR #1047 open on 323c2193; waiting for Code/Integration + Code/Verify to finish",
+          age_s=WAIT_AFTER)
     assert waiting(conn) == ["t_w"]
 
 
-def test_a_non_heartbeat_event_between_notes_does_not_reset_the_tally():
+def test_a_non_heartbeat_event_does_not_advance_or_reset_the_wait_clock():
     conn = board()
     card(conn, "t_w", title="t_w")
     spawn(conn, "t_w")
-    heart(conn, "t_w", CDTOOL)
+    heart(conn, "t_w", INCIDENT, age_s=WAIT_AFTER + 60)
     other(conn, "t_w")
-    heart(conn, "t_w", "Promotion run 12345 still awaiting rollout")
+    other(conn, "t_w", "status")
     assert waiting(conn) == ["t_w"]
 
 
@@ -156,17 +192,13 @@ def test_only_running_cards_are_watched():
     card(conn, "t_blocked", status="blocked")
     for tid in ("t_done", "t_ready", "t_blocked"):
         spawn(conn, tid)
-        heart(conn, tid, CDTOOL)
-        heart(conn, tid, CDTOOL.replace("1086", "1087"))
+        heart(conn, tid, INCIDENT, age_s=WAIT_AFTER + 600)
     assert waiting(conn) == []
 
 
-def test_closed_or_unsubscribed_cards_drop_out_and_failed_injection_retries():
+def test_no_subscriber_or_failed_injection_retries_and_a_closed_card_drops_out():
     conn = board()
-    card(conn, "t_w")
-    spawn(conn, "t_w")
-    heart(conn, "t_w", CDTOOL)
-    heart(conn, "t_w", CDTOOL.replace("1086", "1087"))
+    a_run_with_one_wait_note(conn)
     state = wake.sweep(conn, {}, Recorder(ok=False), NOW)
     assert state == {}
     rec = Recorder()
@@ -175,25 +207,25 @@ def test_closed_or_unsubscribed_cards_drop_out_and_failed_injection_retries():
     assert wake.sweep(conn, {"t_w": 1}, Recorder(), NOW) == {}
 
 
-def test_wait_phrase_without_an_external_actor_nearby_does_not_count():
+def test_a_wait_phrase_without_an_external_actor_after_it_never_counts():
     conn = board()
     card(conn, "t_w")
     spawn(conn, "t_w")
-    heart(conn, "t_w", "Waiting for the local test suite to finish rebuilding the venv.")
-    heart(conn, "t_w", "Waited out the rate cooldown; resuming the sweep now.")
+    heart(conn, "t_w", "Waiting for the local test suite to finish rebuilding the venv.", age_s=WAIT_AFTER + 600)
+    heart(conn, "t_w", "Waited out the rate cooldown; resuming the sweep now.", age_s=WAIT_AFTER + 300)
     assert waiting(conn) == []
 
 
-def test_heartbeat_without_a_note_is_never_admission():
+def test_a_heartbeat_without_a_note_is_never_admission():
     conn = board()
     card(conn, "t_w")
     spawn(conn, "t_w")
-    heart(conn, "t_w", None)
-    heart(conn, "t_w", None)
+    heart(conn, "t_w", None, age_s=WAIT_AFTER + 600)
+    heart(conn, "t_w", None, age_s=WAIT_AFTER + 300)
     assert waiting(conn) == []
 
 
-def test_on_tick_is_unthrottled_ignores_heartbeats_only_in_its_own_state_and_fails_open(monkeypatch, tmp_path):
+def test_on_tick_is_unthrottled_state_is_its_own_file_and_it_fails_open(monkeypatch, tmp_path):
     fake = type(sys)("hermes_cli")
     fake.kanban_db = type(sys)("kanban_db")
     fake.kanban_db.kanban_db_path = lambda board=None: tmp_path / "kanban.db"
@@ -214,26 +246,28 @@ def test_on_tick_is_unthrottled_ignores_heartbeats_only_in_its_own_state_and_fai
     conn.execute(
         "insert into task_events (task_id, kind, payload, created_at) values ('t_w', 'spawned', '{\"pid\": 1}', 0)"
     )
-    for i in range(2):
-        conn.execute(
-            "insert into task_events (task_id, kind, payload, created_at) values "
-            "('t_w', 'heartbeat', ?, ?)",
-            (json.dumps({"note": CDTOOL}), i),
-        )
+    conn.execute(
+        "insert into task_events (task_id, kind, payload, created_at) values ('t_w', 'heartbeat', ?, ?)",
+        (json.dumps({"note": INCIDENT}), -2 * WAIT_AFTER),
+    )
+    conn.execute(
+        "insert into task_events (task_id, kind, payload, created_at) values ('t_w', 'heartbeat', ?, ?)",
+        (json.dumps({"note": INCIDENT}), -15 * 60),
+    )
     conn.commit()
     conn.close()
 
     calls = []
     monkeypatch.setattr(wake.stale_wake, "_inject", lambda text, origin: calls.append((text, origin)) or True)
     monkeypatch.setattr(board_watch, "state_path", lambda name: tmp_path / name)
-    board_watch_state = tmp_path / "kanban-waiting-wake.json"
+    state_file = tmp_path / "kanban-waiting-wake.json"
 
     wake.on_tick(board=None)
     assert len(calls) == 1 and "[Kanban waiting]" in calls[0][0]
-    first = board_watch_state.read_text()
+    first = state_file.read_text()
     wake.on_tick(board=None)
     wake.on_tick(board=None, dry_run=True)
-    assert len(calls) == 1 and board_watch_state.read_text() == first
+    assert len(calls) == 1 and state_file.read_text() == first
 
     monkeypatch.setattr(wake, "sweep", lambda *a: 1 / 0)
     wake.on_tick(board=None)

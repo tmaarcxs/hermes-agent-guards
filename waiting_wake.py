@@ -6,14 +6,19 @@ heartbeats-are-noise cursors stay untouched) it reads each ``running`` card's
 ``claimed`` event. A note that admits waiting on something outside the worker's
 control (a merge bot, an approval, a deploy or rollout, a CI run, a promotion)
 is evidence only the card's owner can act on: the worker cannot merge itself,
-approve itself or speed up a pipeline, and heartbeat notes reach nobody. The
-first note may time-stamp the situation, so the wake fires when a run has
-accumulated ``WAIT_MIN_NOTES`` such notes and quotes the latest one with its
-age. Notes whose wait phrase has no external actor after it (a rate cooldown,
+approve itself or speed up a pipeline, and heartbeat notes reach nobody.
+
+The wake fires when the run's FIRST wait-admitting note is ``WAIT_AFTER``
+seconds old (the first note may time-stamp the situation, so fifteen minutes
+of it is the silence that counts) and quotes the latest note with its age.
+The wait wording is matched deterministically in one table (``_WAIT`` +
+``_ACTOR``): a wait phrase must be followed by the external actor being waited
+on, so notes whose wait phrase has no external actor after it (a rate cooldown,
 waiting for local tooling) and progress notes without a wait phrase never
 count; a note merely discussing waits (an analysis of waiting buckets) can
 still slip through, and the bound for that is one short injected turn per run
-with the note quoted for the owner to judge.
+with the note quoted for the owner to judge. Upgrading the wording table to a
+learned classifier is the path when the bound stops being acceptable.
 
 It wakes once per run: the recorded marker is the newest spawned/claimed event
 id at wake time, so the same run is never woken twice while a new run re-arms
@@ -38,9 +43,8 @@ from . import stale_wake
 logger = logging.getLogger(__name__)
 
 STATE_NAME = "kanban-waiting-wake.json"
-WAIT_MIN_NOTES = 2
+WAIT_AFTER = 900.0
 _BOUNDARY_KINDS = ("spawned", "claimed")
-_LOOK_BACK = 60
 _LOOK_AHEAD = 200
 
 _WAIT = re.compile(r"(?is)\b(?:still\s+)?(?:waiting|awaiting)\b(?:\s+(?:on|for|out|to))?")
@@ -48,7 +52,7 @@ _ACTOR = re.compile(
     r"(?is)\bcdtool\b|\bauto-?merge\b|\bmerge\b|\bmerge\s+queue\b|\bcodeowners\b|\bapproval\b|\breview\b"
     r"|\bpromotion\b|\brollout\b|\bdeploy(?:ment|ing|ed)?\b|\brelease\b|\bci\b|\bpipeline\b"
     r"|\bworkflow\b|\brun\s+\d+\b|\bpr\s*#?\s*\d+\b|\bpr\b|\bbot\b|\bchecks?\b|\bdisposition\b"
-    r"|\bverdicts?\b|\bcode/\w+|\bverify\b|\bintegration\b|\bsonar\b|\bsha\b"
+    r"|\bverdicts?\b|\bcode/\w+|\bverify\b|\bintegration\b|\bsonar\b|\bsha\b|\bwatcher\b"
 )
 
 
@@ -65,12 +69,11 @@ def is_wait_note(note: str) -> bool:
     hit = _WAIT.search(note)
     if not hit:
         return False
-    window = note[max(0, hit.start() - _LOOK_BACK): hit.end() + _LOOK_AHEAD]
-    return bool(_ACTOR.search(window))
+    return bool(_ACTOR.search(note[hit.end(): hit.end() + _LOOK_AHEAD]))
 
 
 def waiting_cards(conn: sqlite3.Connection, now: float) -> list:
-    """Running cards whose current run carries ``WAIT_MIN_NOTES`` wait notes."""
+    """Running cards whose first wait note this run is at least ``WAIT_AFTER`` old."""
     cards = []
     for tid, title in conn.execute("select id, title from tasks where status = 'running'"):
         boundary = conn.execute(
@@ -78,7 +81,7 @@ def waiting_cards(conn: sqlite3.Connection, now: float) -> list:
             f"and kind in ({','.join('?' * len(_BOUNDARY_KINDS))})",
             (tid, *_BOUNDARY_KINDS),
         ).fetchone()[0] or 0
-        notes = []
+        waits = []
         for event_id, payload, created_at in conn.execute(
             "select id, payload, created_at from task_events "
             "where task_id = ? and kind = 'heartbeat' and id > ? "
@@ -87,24 +90,27 @@ def waiting_cards(conn: sqlite3.Connection, now: float) -> list:
         ):
             note = note_of(payload)
             if note and is_wait_note(note):
-                notes.append((event_id, note, float(created_at)))
-        if len(notes) >= WAIT_MIN_NOTES:
+                waits.append((event_id, note, float(created_at)))
+        if waits and now - waits[0][2] >= WAIT_AFTER:
             cards.append({
                 "id": tid, "title": title or "", "boundary": boundary,
-                "count": len(notes), "latest": notes[-1][1], "latest_at": notes[-1][2],
+                "count": len(waits), "first_at": waits[0][2],
+                "latest": waits[-1][1], "latest_at": waits[-1][2],
             })
     return cards
 
 
 def wake_text(card: dict, now: float) -> str:
-    age = max(0.0, now - card["latest_at"]) / 60
+    age = max(0.0, now - card["first_at"]) / 60
+    note_age = max(0.0, now - card["latest_at"]) / 60
     return (
-        f"[Kanban waiting] {card['id']} has reported waiting on an external gate {card['count']} times "
-        f"in this run: {card['title'][:120]}\n"
-        f'Latest note, {age:.0f} min ago: "{card["latest"][:160]}".\n'
-        "The worker cannot move its card while an outside actor holds the gate: decide here — intervene "
-        "(merge, approve, re-run the pipeline), take the card over, or tell the worker to block the card "
-        "with kind=needs_input if the wait will outlive the run. This wake fires once per run."
+        f"[Kanban waiting] {card['id']} has been waiting for {age:.0f} min "
+        f"({card['count']} wait note{'s' if card['count'] != 1 else ''} this run): {card['title'][:120]}\n"
+        f'Latest note, {note_age:.0f} min ago: "{card["latest"][:160]}".\n'
+        "The worker cannot move its card while an outside actor holds the gate: act on the thing waited on "
+        "directly here — intervene (merge, approve, re-run the pipeline), take the card over, or tell the "
+        "worker to block the card with kind=needs_input if the wait will outlive the run. Do not just wait "
+        "longer. This wake fires once per run."
     )
 
 
