@@ -54,6 +54,10 @@ def stalled(conn):
     return [c["id"] for c in wake.stalled_cards(conn)]
 
 
+def next_id(conn):
+    return 1 + (conn.execute("select coalesce(max(id), 0) from task_events").fetchone()[0])
+
+
 def test_trailing_active_pr_guards_stall_the_card():
     conn = board()
     card(conn, "t_s")
@@ -95,26 +99,55 @@ def test_running_and_blocked_cards_are_never_stall_woken():
     assert stalled(conn) == []
 
 
-def test_stall_sweep_wakes_once_per_guard_event_and_rearms_on_new_guards():
+def test_stall_sweep_wakes_once_per_episode_and_stays_quiet_while_it_grows():
+    """A guard run growing from 30 to 60 events across ticks wakes once, not per event."""
     conn = board()
     card(conn, "t_s")
+    conn.execute(
+        "insert into task_events (task_id, kind, payload, created_at) values ('t_s', 'spawned', '{}', ?)",
+        (next_id(conn),),
+    )
     guards_of(conn, "t_s", wake.STALL_MIN_EVENTS)
     rec = Recorder()
     state = wake.stall_sweep(conn, {}, rec, NOW)
     assert sorted(text.split()[2] for text, _ in rec.calls) == ["t_s"]
     max_id = conn.execute("select max(id) from task_events where task_id='t_s'").fetchone()[0]
     assert list(state.values()) == [max_id]
+    for _ in range(wake.STALL_MIN_EVENTS):
+        cur = next_id(conn)
+        conn.execute(
+            "insert into task_events (task_id, kind, payload, created_at) values "
+            "('t_s', 'respawn_guarded', '{\"reason\":\"active_pr\"}', ?)",
+            (cur * TEN_S,),
+        )
     rec2 = Recorder()
     assert wake.stall_sweep(conn, state, rec2, NOW) == state
     assert rec2.calls == []
+
+
+def test_stall_sweep_rearms_only_after_leaving_and_reentering_the_stall_set():
+    """Growth inside the run never re-arms; leaving the stalled set and re-entering does."""
+    conn = board()
+    card(conn, "t_s")
     conn.execute(
-        "insert into task_events (task_id, kind, payload, created_at) values "
-        "('t_s', 'respawn_guarded', '{\"reason\":\"active_pr\"}', ?)",
-        (10_000,),
+        "insert into task_events (task_id, kind, payload, created_at) values ('t_s', 'spawned', '{}', ?)",
+        (next_id(conn),),
     )
-    rec3 = Recorder()
-    state2 = wake.stall_sweep(conn, state, rec3, NOW)
-    assert len(rec3.calls) == 1
+    guards_of(conn, "t_s", wake.STALL_MIN_EVENTS, start=next_id(conn))
+    state = wake.stall_sweep(conn, {}, Recorder(), NOW)
+    assert state, "first episode must wake"
+    more = 2 * wake.STALL_MIN_EVENTS
+    guards_of(conn, "t_s", more, start=next_id(conn))
+    assert wake.stall_sweep(conn, state, Recorder(), NOW) == state
+    conn.execute(
+        "insert into task_events (task_id, kind, payload, created_at) values ('t_s', 'commented', '{}', ?)",
+        (next_id(conn),),
+    )
+    assert wake.stalled_cards(conn) == []
+    guards_of(conn, "t_s", wake.STALL_MIN_EVENTS, start=next_id(conn))
+    rec = Recorder()
+    state2 = wake.stall_sweep(conn, state, rec, NOW)
+    assert sorted(text.split()[2] for text, _ in rec.calls) == ["t_s"]
     assert state2["t_s"] > state["t_s"]
 
 
@@ -137,6 +170,29 @@ def test_failed_injection_retries_next_tick():
     rec = Recorder()
     wake.stall_sweep(conn, state, rec, NOW)
     assert len(rec.calls) == 1
+
+
+def test_completed_card_produces_no_further_injection():
+    """A card completed while wake copies sit queued must not wake again afterwards."""
+    conn = board()
+    card(conn, "t_s")
+    guards_of(conn, "t_s", wake.STALL_MIN_EVENTS)
+    state = wake.stall_sweep(conn, {}, Recorder(), NOW)
+    conn.execute("update tasks set status = 'done' where id = 't_s'")
+    rec = Recorder()
+    assert wake.stall_sweep(conn, state, rec, NOW) == {}
+    assert rec.calls == []
+
+
+def test_old_shape_state_file_does_not_rewake():
+    """Pre-episode state keyed the newest guard event id; those values read as already woken."""
+    conn = board()
+    card(conn, "t_s")
+    guards_of(conn, "t_s", wake.STALL_MIN_EVENTS)
+    legacy = {"t_s": int(conn.execute("select max(id) from task_events where task_id='t_s'").fetchone()[0])}
+    rec = Recorder()
+    assert wake.stall_sweep(conn, legacy, rec, NOW) == legacy
+    assert rec.calls == []
 
 
 def test_stall_wake_on_tick_is_unthrottled_and_named_fails_open(monkeypatch, tmp_path):
