@@ -95,14 +95,14 @@ Modules:
   stores the next card's 5 min crossing in its cursor and sweeps on the first
   tick at or past it, so a quiet board can no longer hold a wake past its age
   gate. Watermark and dedup semantics are unchanged.
-- ``swarm_rule`` (lead process only): a lead ``kanban_create`` of an
-  implementation card must carry a body line ``Lane: k of N`` with integers
-  ``1 <= k <= N`` and ``N >= 10``; undeclared or out-of-bounds lanes are
-  blocked with a single-line message naming the exact line to add. Three
-  exemptions, worded the same as the code: a worker-context call (a worker's
-  own card), a card created with a non-empty ``parents`` list (reworks,
-  reviews and follow-ups are child cards, not lane heads), and every
-  non-``kanban_create`` tool.
+- ``inventory_rule`` (lead process only): one ``pre_llm_call`` hook that
+  injects the swarm-split instruction once per user turn at the lead's turn
+  prologue: before delegating anything, write the inventory of the request's
+  independent atomic units, then create one Kanban card per unit in the same
+  turn, exactly one unit per card, as many as the work genuinely allows; child
+  cards (non-empty ``parents``) are exempt. It never blocks — a worker-context
+  call (``HERMES_KANBAN_TASK`` set) returns ``None`` and the only return shape
+  is ``{"context": ...}``, which the host joins into the current user message.
 - ``workspace_scope_gate`` (lead process with a messaging session origin only) scopes a
   lead ``kanban_list`` result to the cards the calling chat thread is subscribed to
   (``kanban_notify_subs`` platform/chat_id/thread_id): other chats' cards are hidden,
@@ -113,7 +113,7 @@ Modules:
 
 import re
 from typing import Any, Optional
-from . import approval_wait_gate, background_notify_gate, backup_copy_gate, checkpoint_gate, churn_wake, completion_gate, github_contact, handoff_gate, kanban_policy, lead_delegation, notification_reconcile, paas_promote_gate, pr_acceptance_gate, pr_comment_gate, published_head_gate, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake, stop_gate, swarm_rule, waiting_wake, workspace_scope_gate
+from . import approval_wait_gate, background_notify_gate, backup_copy_gate, checkpoint_gate, churn_wake, completion_gate, github_contact, handoff_gate, inventory_rule, kanban_policy, lead_delegation, notification_reconcile, paas_promote_gate, pr_acceptance_gate, pr_comment_gate, published_head_gate, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake, stop_gate, waiting_wake, workspace_scope_gate
 
 
 _START = r"(?:^|[;&|\n(`{]|\$\(|\bthen\b|\bdo\b|\belse\b)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:sudo\s+|command\s+)?"
@@ -144,6 +144,7 @@ def register(ctx) -> None:
     ctx.register_hook("post_tool_call", _post_tool_call)
     ctx.register_hook("pre_verify", stop_gate.check)
     ctx.register_hook("transform_tool_result", _transform_tool_result)
+    ctx.register_hook("pre_llm_call", inventory_rule.hook)
     stale_wake.register(ctx)
     ctx.register_hook("on_kanban_dispatch_tick", stale_wake.stall_wake_on_tick)
     ctx.register_hook("on_kanban_dispatch_tick", waiting_wake.on_tick)
@@ -252,7 +253,6 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
         lambda: repeat_guard.check(tool_name, args, **kwargs),
         lambda: checkpoint_gate.check(tool_name, args, **kwargs),
         lambda: kanban_policy.check(tool_name, args),
-        lambda: swarm_rule.check(tool_name, args),
         lambda: lead_delegation.check(tool_name, args),
         lambda: github_contact.check(tool_name, args),
         lambda: paas_promote_gate.check(tool_name, args),

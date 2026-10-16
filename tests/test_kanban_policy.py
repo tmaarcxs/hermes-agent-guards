@@ -4,15 +4,12 @@ import pytest
 
 guard = sys.modules["agent_guards"]
 policy = guard.kanban_policy
-rule = getattr(guard, "swarm_rule", None)
 
 
 @pytest.fixture(autouse=True)
 def worker_setup(monkeypatch):
     monkeypatch.setattr(policy, "configured_worker", lambda: "worker")
-    if rule is not None:
-        monkeypatch.setenv("HERMES_KANBAN_TASK", "t_policy")
-        monkeypatch.setattr(rule, "check", lambda *args, **kwargs: None)
+
 
 VALID = {"title": "Review X", "assignee": "worker", "body": "Goal: spec\n\n## Acceptance\n1. `pytest -q` exits 0\n2. PR open",
          "parents": ["t_1"]}
