@@ -30,8 +30,9 @@ hook (every tick): a todo or ready card whose last 30 task_events are all
 ``respawn_guarded`` events with ``reason=active_pr`` is being held out of the
 ready queue by the dispatcher's 24 h PR-URL respawn guard despite the queue
 draining — a silent stall the 5 min stale threshold would only catch late. It
-wakes the subscribed chats once per guard event, keyed on the newest
-respawn_guarded event id, naming the cause and the release levers.
+wakes the subscribed chats once per guard episode (the trailing run of guard
+events — the wake is keyed on the run's first event id, and a run that only
+grows in front does not re-arm it), naming the cause and the release levers.
 
 Fails open: errors are logged and never affect the dispatcher.
 """
@@ -170,7 +171,13 @@ def wake_text(card: dict) -> str:
 
 
 def stalled_cards(conn: sqlite3.Connection) -> list[dict]:
-    """Todo/ready cards whose last STALL_MIN_EVENTS events are all active_pr respawn guards."""
+    """Todo/ready cards whose last STALL_MIN_EVENTS events are all active_pr respawn guards.
+
+    ``first_event_id`` is the first event of the trailing guard run: a run grows
+    event by event, so keying on its head would advance on every guard tick and
+    re-wake each tick; keying on a run that grows in front (and only resets when
+    a real event breaks it) wakes once per guard episode instead.
+    """
     rows = conn.execute(
         f"select t.id, t.status, t.title from tasks t where t.status in ({','.join('?' * len(STALL_STATUSES))})",
         STALL_STATUSES,
@@ -186,7 +193,16 @@ def stalled_cards(conn: sqlite3.Connection) -> list[dict]:
             for _id, kind, payload in events
         ):
             continue
-        cards.append({"id": tid, "status": status, "title": title or "", "event_id": events[0][0]})
+        first_id = min(int(i) for i, _k, _p in events)
+        anchor = conn.execute(
+            "select coalesce(max(id), 0) from task_events where task_id = ? and id < ? "
+            "and (kind != 'respawn_guarded' or instr(coalesce(payload, ''), ?) = 0)",
+            (tid, first_id, STALL_REASON),
+        ).fetchone()[0]
+        cards.append({
+            "id": tid, "status": status, "title": title or "",
+            "event_id": events[0][0], "episode_id": int(anchor),
+        })
     return cards
 
 
@@ -202,11 +218,21 @@ def stall_text(card: dict) -> str:
 
 
 def stall_sweep(conn: sqlite3.Connection, state: dict, inject, now: float) -> dict:
-    """Wake each actively stalling card once per guard event. Returns the new state."""
+    """Wake each actively stalling card once per guard episode. Returns the new state.
+
+    The state value is the event id the card's last wake covered. The stall run
+    grows only at its front, so its head event id stays put while the stall
+    continues; the wake keys on the id of the newest non-active_pr event below
+    the run (the run's episode anchor), which changes only when a real event
+    breaks the run and a fresh guard episode fills back up. State recorded by
+    older builds keyed the newest guard event id instead — that value is always
+    at or above the current run's anchor, so legacy entries read as already
+    woken and the migrate is passive.
+    """
     stalled = {card["id"]: card for card in stalled_cards(conn)}
-    kept = {tid: event_id for tid, event_id in state.items() if tid in stalled}
+    kept = {tid: key for tid, key in state.items() if tid in stalled}
     for tid, card in stalled.items():
-        if kept.get(tid) == card["event_id"]:
+        if card["episode_id"] <= kept.get(tid, -1):
             continue
         text = stall_text(card)
         if any(inject(text, {k: v for k, v in origin.items() if v is not None}) for origin in subscribers(conn, tid)):
