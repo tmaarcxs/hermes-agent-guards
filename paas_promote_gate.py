@@ -23,7 +23,8 @@ Statements are the text between ``&&``, ``;``, ``|``, newlines and ``(``, stripp
 statement blocks only when its head, after optional ``KEY=VALUE`` assignments, is the
 dispatch, so ``echo``ing the workflow name or mentioning it inside a quoted string
 passes. Deliberately out of scope (it catches slips, not deliberate evasion): shell
-expansion in any value or outside quotes (``$``, backticks), unbalanced quotes, and
+expansion in any value or outside quotes (``$``, backticks), unbalanced quotes,
+file-based field payloads (``-F file``/``--field-file``, contents unreadable here), and
 dispatches wrapped in ``env`` or another program — those fail open, as does any
 unexpected parsing error.
 """
@@ -51,6 +52,7 @@ _ASSIGN = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)=([^\s;&|]*)")
 _FIELD = re.compile(r"(?:-f|--field)[ =]([A-Za-z_][A-Za-z0-9_]*)=(\x01[^\x01]*\x01|\x02[^\x02]*\x02|[^\s;&|]*)")
 _BLOB_FIELD = re.compile(r"(?:-f|--field)[ =](\x01[^\x01]*\x01|\x02[^\x02]*\x02)")
 _DISPATCH = re.compile(r"gh\s+workflow\s+run\s+(?:\S+[ \t]+)*?paas-promote(?:\.ya?ml)?(?![\w.-])")
+_FILE_FIELD = re.compile(r"(?:^|\s)--field-file[ =]\S+|(?:^|\s)-F[ =]\S+|\b-F\S+")
 
 
 class _Unanalyzable(Exception):
@@ -122,6 +124,8 @@ def _statement_block(statement: str) -> Optional[str]:
         raise _Unanalyzable("unbalanced quote")
     if _DYNAMIC.search(stripped_of_quotes):
         raise _Unanalyzable("shell expansion outside a quoted value")
+    if _FILE_FIELD.search(stripped_of_quotes):
+        raise _Unanalyzable("file-based field payload, contents unreadable here")
     lead = _LEAD.match(masked)
     if not _DISPATCH.match(masked, len(lead.group(0)) if lead else 0):
         return None

@@ -108,6 +108,8 @@ def test_mentions_inside_echo_or_quoted_text_pass(command):
     'gh workflow run paas-promote -f SUPRAENVS=des -f LABELS="unbalanced',
     "gh workflow run paas-promote -f SUPRAENVS='des -f LABELS=x",
     "env gh workflow run paas-promote -f SUPRAENVS=des -f LABELS=x",
+    "gh workflow run paas-promote -F labels.json",
+    "gh workflow run paas-promote --field-file labels.json -f SUPRAENVS=des",
 ])
 def test_unanalyzable_shapes_fail_open(command):
     assert not blocked(command)
