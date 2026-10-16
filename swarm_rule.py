@@ -2,8 +2,11 @@
 
 A ``kanban_create`` issued outside a worker context (``HERMES_KANBAN_TASK`` unset)
 must carry a body line ``Lane: <k> of <N>`` with integers ``1 <= k <= N`` and
-``N >= 10``; everything else blocked with a single-line message naming the exact
-lines to add. Non-``kanban_create`` tools pass through untouched.
+``N >= 10``. Two exemptions, and only these: a worker-context call (the card is
+a worker's own card) and a card created with a non-empty ``parents`` list
+(reworks, reviews and follow-ups are child cards, not lane heads). Everything
+else blocks with a single-line message naming the exact line to add.
+Non-``kanban_create`` tools pass through untouched.
 """
 
 import os
@@ -23,6 +26,8 @@ BLOCK_MESSAGE = (
 def check(tool_name: str, args: Any) -> Optional[str]:
     """Return the one-line block message for an undeclared lead implementation card, else None."""
     if tool_name != "kanban_create" or os.environ.get("HERMES_KANBAN_TASK"):
+        return None
+    if isinstance(args, dict) and args.get("parents"):
         return None
     match = LANE_LINE.search(str(args.get("body") or "")) if isinstance(args, dict) else None
     if match is None:

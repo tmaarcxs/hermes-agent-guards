@@ -94,8 +94,11 @@ Modules:
 - ``swarm_rule`` (lead process only): a lead ``kanban_create`` of an
   implementation card must carry a body line ``Lane: k of N`` with integers
   ``1 <= k <= N`` and ``N >= 10``; undeclared or out-of-bounds lanes are
-  blocked with a single-line message naming the exact lines to add. Worker
-  cards and every other tool pass through untouched.
+  blocked with a single-line message naming the exact line to add. Three
+  exemptions, worded the same as the code: a worker-context call (a worker's
+  own card), a card created with a non-empty ``parents`` list (reworks,
+  reviews and follow-ups are child cards, not lane heads), and every
+  non-``kanban_create`` tool.
 """
 
 

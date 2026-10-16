@@ -1,19 +1,17 @@
 name: agent-guards
-version: "0.6.0"
-description: Block long foreground sleeps and polling loops, unpinned PR merges, osascript, bare force pushes, repeated identical failing calls and oversized skill files; force a budget checkpoint comment before a worker run is cut at the iteration cap; block silent waits on approval-only pull requests and lead comments carrying a full PR URL onto a stalled card; normalize common Kanban argument slips; in worker setups enforce the Kanban delegation policy and pre-review checklist, keep the published-PR completion duty visible and cap the "PR acceptance missing" rejection loop, refuse narrated stops after a blocked lifecycle call, and tell every lifecycle-call block to retry in the same response; wake a card's chat within one dispatcher tick of the state that triggers it (stale card, review loop, churn, or a dispatcher stall on the active_pr respawn guard), including a quiet board's first tick after a card crosses its 1 h stale age; re-notify a card's chat once per state when a terminal state event was never confirmed delivered (dropped subscription or none); advise a lead chat, without ever blocking, to route multi-item requests through kanban_create (start-of-turn hint while no card exists, end-of-turn reminder keyed on what the lead actually did after a create batch).
+version: "0.6.1"
+description: Block long foreground sleeps and polling loops, unpinned PR merges, osascript, bare force pushes, repeated identical failing calls and oversized skill files; force a budget checkpoint comment before a worker run is cut at the iteration cap; block silent waits on approval-only pull requests and lead comments carrying a full PR URL onto a stalled card; normalize common Kanban argument slips; in worker setups enforce the Kanban delegation policy and pre-review checklist and the lead swarm-lane declaration, keep the published-PR completion duty visible and cap the "PR acceptance missing" rejection loop, refuse narrated stops after a blocked lifecycle call, and tell every lifecycle-call block to retry in the same response; wake a card's chat within one dispatcher tick of the state that triggers it (stale card, review loop, churn, or a dispatcher stall on the active_pr respawn guard), including a quiet board's first tick after a card crosses its 1 h stale age; re-notify a card's chat once per state when a terminal state event was never confirmed delivered (dropped subscription or none).
 author: "shard-guard"
 kind: standalone
 hooks:
   - pre_tool_call
   - post_tool_call
   - pre_verify
-  - pre_llm_call
   - transform_tool_result
   - on_kanban_dispatch_tick
 provides_hooks:
   - pre_tool_call
   - post_tool_call
   - pre_verify
-  - pre_llm_call
   - transform_tool_result
   - on_kanban_dispatch_tick

@@ -1,7 +1,13 @@
 import importlib
 import os
+import sys
 
 import pytest
+
+try:
+    guards = sys.modules["agent_guards"]
+except KeyError:
+    guards = None
 
 swarm_rule = importlib.import_module("swarm_rule")
 
@@ -80,3 +86,36 @@ def test_non_dict_args_block_in_lead_mode(lead_mode):
 def test_block_message_is_one_line(lead_mode):
     message = _create({"title": "m", "body": "no declaration\n"})
     assert "\n" not in message
+
+
+def test_non_empty_parents_exempts_lead_card_without_lane_line(lead_mode):
+    assert _create({"title": "Rework", "parents": ["t_x"], "body": "## Acceptance\n1. done.\n"}) is None
+
+
+def test_non_empty_parents_exempts_without_validation(lead_mode):
+    assert _create({"title": "Rework", "parents": ["t_x"], "body": "Lane: 99 of 9\n"}) is None
+
+
+def test_empty_parents_does_not_exempt(lead_mode):
+    assert _create({"title": "Lane card", "parents": [], "body": "no declaration\n"}) is not None
+
+
+def test_missing_parents_does_not_exempt(lead_mode):
+    assert _create({"title": "Lane card", "body": "no declaration\n"}) is not None
+
+
+@pytest.mark.skipif(guards is None, reason="agent_guards not importable without conftest")
+def test_chain_parents_exemption_and_blocked_lead_card(monkeypatch):
+    """N4: the registered pre_tool_call chain carries the parents exemption."""
+    monkeypatch.delenv("HERMES_KANBAN_TASK", raising=False)
+    child = guards._pre_tool_call(
+        tool_name="kanban_create",
+        args={"title": "Rework", "parents": ["t_x"], "body": "## Acceptance\n1. done.\n"},
+    )
+    assert child is None
+    blocked = guards._pre_tool_call(
+        tool_name="kanban_create",
+        args={"title": "Lane card", "body": "## Acceptance\n1. done.\n"},
+    )
+    assert blocked is not None and blocked.get("action") == "block"
+    assert "`Lane: k of N`" in blocked["message"]

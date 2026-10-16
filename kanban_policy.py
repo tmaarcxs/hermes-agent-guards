@@ -9,7 +9,6 @@ the worker profile every delegated card must use. Then:
 With no default assignee configured, nothing is enforced.
 """
 
-import os
 import re
 from typing import Any, Optional
 
@@ -30,12 +29,6 @@ def configured_worker() -> str:
         return str(kanban.get("default_assignee") or "").strip()
     except Exception:
         return ""
-
-
-def is_lead_call(args: dict) -> bool:
-    """True when this kanban_create is a lead-created card: workers (HERMES_KANBAN_TASK set)
-    and child cards (parents set) are exempt from lead-side declaration checks."""
-    return not os.environ.get("HERMES_KANBAN_TASK") and not bool(args.get("parents"))
 
 
 def violations(tool_name: str, args: dict[str, Any], worker: str) -> list[str]:
