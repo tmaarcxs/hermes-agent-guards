@@ -85,14 +85,16 @@ def test_all_violations_in_one_message():
     assert "sleep" in message and "match-head-commit" in message and "force-with-lease" in message
 
 
-def test_empty_kanban_args_become_absent():
+def test_empty_kanban_args_become_absent(monkeypatch):
+    monkeypatch.setenv("HERMES_KANBAN_TASK", "t_worker")
     result = guards._pre_tool_call(tool_name="kanban_list", args={"assignee": "", "status": "ready", "limit": 5})
     assert result == {"action": "modify", "args": {"assignee": None}}
     result = guards._pre_tool_call(tool_name="kanban_create", args={"title": "t", "completion_contract": ""})
     assert result == {"action": "modify", "args": {"completion_contract": None}}
 
 
-def test_valid_kanban_args_untouched():
+def test_valid_kanban_args_untouched(monkeypatch):
+    monkeypatch.setenv("HERMES_KANBAN_TASK", "t_worker")
     assert guards._pre_tool_call(tool_name="kanban_list", args={"assignee": "worker"}) is None
     assert guards._pre_tool_call(tool_name="kanban_create", args={"completion_contract": "o/r"}) is None
 

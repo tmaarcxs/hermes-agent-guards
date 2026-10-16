@@ -78,8 +78,6 @@ _NOT_PEOPLE = {"@me", "@copilot"}
 _NOT_PEOPLE_TEXT = re.compile(r"(?<![\w@./])@(?:me|copilot)\b", re.I)
 _CREATE_FLAGS = {"-r": "reviewer", "--reviewer": "reviewer", "-a": "assignee", "--assignee": "assignee"}
 _EDIT_FLAGS = {"--add-reviewer": "reviewer", "--add-assignee": "assignee"}
-# Flags whose values contact people only when the value is not the authenticated
-# login itself: assigning work to yourself contacts nobody (self-assignment).
 _ASSIGN_FLAGS = {"--assignee", "-a", "--add-assignee"}
 _login_cache: Optional[str] = None
 _login_resolved = False
@@ -102,9 +100,6 @@ def authenticated_login() -> Optional[str]:
             )
             login = (proc.stdout or "").strip().lstrip("@") if proc.returncode == 0 else ""
         except (OSError, ValueError, subprocess.SubprocessError):
-            # SubprocessError covers TimeoutExpired and CalledProcessError too:
-            # any resolver failure must fail closed, not crash the guard chain
-            # (a crashed guard swallows into pass-through = contact allowed).
             login = ""
         _login_cache = login or None
     return _login_cache

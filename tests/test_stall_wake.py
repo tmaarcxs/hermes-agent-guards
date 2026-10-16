@@ -107,7 +107,6 @@ def test_stall_sweep_wakes_once_per_guard_event_and_rearms_on_new_guards():
     rec2 = Recorder()
     assert wake.stall_sweep(conn, state, rec2, NOW) == state
     assert rec2.calls == []
-    # A new guard event changes the state and re-arms exactly one more wake.
     conn.execute(
         "insert into task_events (task_id, kind, payload, created_at) values "
         "('t_s', 'respawn_guarded', '{\"reason\":\"active_pr\"}', ?)",
@@ -171,7 +170,6 @@ def test_stall_wake_on_tick_is_unthrottled_and_named_fails_open(monkeypatch, tmp
     calls = []
     monkeypatch.setattr(wake, "_inject", lambda text, origin: calls.append((text, origin)) or True)
     monkeypatch.setattr(wake, "_stall_state_path", lambda: tmp_path / "stall.json")
-    # Two ticks 1 s apart: both must sweep (unthrottled), the second is a state no-op.
     wake.stall_wake_on_tick(board=None)
     n_after_first = len(tmp_path.joinpath("stall.json").read_text())
     wake.stall_wake_on_tick(board=None, dry_run=True)

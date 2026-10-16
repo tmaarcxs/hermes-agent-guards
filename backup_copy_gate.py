@@ -18,11 +18,6 @@ from typing import Any, Optional
 from . import kanban_policy
 from .kanban_policy import RETRY_INSTRUCTION
 
-# The violation is a KEEP/PRESERVE claim over a backup-class artifact:
-#   "backup kept", "rollback copy preserved", "pristine tree retained",
-#   "before-worker-manifest.py preserved", "defective versions backed up".
-# Merely naming a backup ("no backup copies were kept", "rollback via git")
-# without the artifact claim stays allowed.
 _FAMILY = r"(?:backup|backups?|back-ups?|rollback|pre-task|pristine|snapshot|before[-_][\w.-]+|prior[-_]state)"
 _VERB = (
     r"(?:kept|keep|preserv\w+|retain\w*|sav(?:e|ed|es|ing)|stor(?:e|ed|es|ing|age)"
@@ -49,8 +44,6 @@ _MESSAGE = (
 
 
 def _sentences(text: str) -> list[str]:
-    # Literal parentheses are segment boundaries too: a keep claim inside a
-    # "(backup kept)" paren must not stay glued to a preceding removal clause.
     parts = re.split(r"(?<=[;.\n])\s+|[()]", text)
     return [part for part in (sentence.strip() for sentence in parts) if part]
 
@@ -60,11 +53,6 @@ def keeps_backup_copy(text: str) -> bool:
         match = _KEPT.search(sentence)
         if not match:
             continue
-        # Drop only sentence-scoped negation evidence: a negator immediately before
-        # the claim ("no backup copies were kept"), a negator scoped to the artifact
-        # noun, or a removal verb AFTER the claim ("backed up, then deleted").
-        # A removal BEFORE the claim must not neutralize it: "test files removed,
-        # backup kept" and "purged 77 entries (backup kept)" still keep the copy.
         if re.search(rf"(?i)\b(?:no|not|never|none|without|nor|neither)\b[^\n.;]{{0,60}}$", sentence[: match.start()]):
             continue
         if re.search(r"(?i)\b(?:removed?|deleted?|dropped|cleaned?|purged|erased|gone)\b", sentence[match.end() :]):

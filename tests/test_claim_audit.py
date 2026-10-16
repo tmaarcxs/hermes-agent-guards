@@ -23,7 +23,6 @@ def test_unanchored_fixture_is_flagged():
 
 
 def test_anchored_fixture_passes():
-    # fixture lines carry anchors exactly as audit B asks: "pytest exit 0 (receipt ...)"
     result = run(str(FIXTURES / "claims_anchored.txt"))
     assert result.returncode == 0, result.stdout
 

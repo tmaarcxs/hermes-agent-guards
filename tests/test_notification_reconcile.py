@@ -72,7 +72,6 @@ def deliver(conn, tid, event_id):
     )
 
 
-# --- the reconciled hole: sub dropped with an undelivered state ---------------
 
 
 def test_dropped_sub_with_undelivered_state_notifies_once():
@@ -176,7 +175,6 @@ def test_remembered_origin_receives_the_notice_after_the_drop():
     assert conn.execute("select count(*) from kanban_notify_subs").fetchone()[0] == 0
 
 
-# --- delivered, silent, out-of-scope ------------------------------------------
 
 
 def test_delivered_state_never_notifies_nor_records():
@@ -260,7 +258,6 @@ def test_archived_card_drops_out_of_the_record():
     assert state3 == {}
 
 
-# --- grace period: never race the notifier's own delivery ---------------------
 
 
 def test_state_inside_the_grace_period_stays_pending_and_undelivered_delivery_clears_it():
@@ -311,7 +308,6 @@ def test_live_sub_lagging_is_recorded_never_notified():
     assert state2["t_l1"]["pending"] is True
 
 
-# --- failure handling ----------------------------------------------------------
 
 
 def test_failed_injection_does_not_advance_the_record():

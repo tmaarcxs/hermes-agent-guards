@@ -18,7 +18,6 @@ def check(command, tool="terminal"):
     return gate.check(tool, {"command": command})
 
 
-# --- Approval-only poll shapes must be blocked when the PR is approval-only ----
 
 PR_STATE = {
     "data": {"repository": {"pullRequest": {
@@ -62,7 +61,6 @@ def test_verdict_is_cached_for_the_ttl(approval_only, monkeypatch):
     check("gh pr view 410 -R org/sample-web --json statusCheckRollup")
     check("gh api repos/org/sample-web/pulls/410/reviews")
     assert len(calls) == 1
-    # after the TTL expires the state is re-read within the next poll
     real_time = time.time
     monkeypatch.setattr(gate.time, "time", lambda: real_time() + gate.TTL_SECONDS + 1)
     check("gh pr checks 410 --repo org/sample-web")
@@ -74,7 +72,6 @@ def test_blocked_poll_does_not_eat_other_guards_output(approval_only):
     assert message and "org/sample-web#410" in message
 
 
-# --- Polls that still have something real to wait for must pass through -------
 
 @pytest.mark.parametrize("verdict", [False, None])
 def test_pending_failing_and_unknown_states_flow_through(verdict, monkeypatch):
@@ -87,7 +84,6 @@ def test_unresolvable_repo_fails_open():
     assert check("gh pr checks 410") is None
 
 
-# --- Workflow targets, merges and non-readiness reads stay allowed ------------
 
 def test_run_watch_and_non_readiness_reads_pass(approval_only):
     assert check("gh run watch 98765432101 --repo org/sample-web --exit-status") is None
@@ -115,7 +111,6 @@ def test_merge_hint_is_named_when_the_setup_documents_one(approval_only, monkeyp
     assert message and "bash scripts/merge_verified.sh --repo o/r 410 HEAD" in message
 
 
-# --- The repeating wait-admitting heartbeat ------------------------------------
 
 def _hb(note, session="s1"):
     return gate.check("kanban_heartbeat", {"note": note}, session_id=session)
@@ -151,7 +146,6 @@ def test_variants_of_the_admission_are_caught():
         assert _hb(note, session=f"s-{abs(hash(note))}") is not None  # repetition blocked
 
 
-# --- Activation scope -----------------------------------------------------------
 
 def test_lead_process_not_guarded(monkeypatch):
     monkeypatch.delenv("HERMES_KANBAN_TASK", raising=False)

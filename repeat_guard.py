@@ -34,8 +34,6 @@ _TRANSIENT = re.compile(
     re.IGNORECASE,
 )
 
-# Lifecycle calls the ledger may block: when one of these is blocked, the run must not end
-# on the block text (the core stop-guard counts the mere presence of the call as terminal).
 _TERMINAL_TOOLS = frozenset({
     "kanban_complete", "kanban_block", "kanban_schedule", "kanban_request_review", "kanban_request_changes",
 })
@@ -93,8 +91,6 @@ def check(tool_name: str = "", args: Any = None, **kwargs: Any) -> Optional[str]
         "or take a different approach."
     )
     if tool_name in _TERMINAL_TOOLS:
-        # A ledger-blocked lifecycle call counts as terminal for the core stop-guard
-        # (transcript tool-name scan), so the run must not end on the block text alone.
         message += " " + kanban_policy.RETRY_INSTRUCTION
     return message
 

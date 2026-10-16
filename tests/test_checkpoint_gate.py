@@ -122,10 +122,8 @@ def test_backtest_on_real_forensic_chains():
             is_duty = blocked is not None
             if is_duty:
                 duties += 1
-                # the model CAN always answer the block with the checkpoint tool:
                 assert pre(tool="kanban_comment", args={"body": "cp"}, session=session, calls=call) is None
                 done(calls=call, session=session)
-            # after 400 the gate never lets more than INTERVAL calls pass without a checkpoint
             last = gate._last_checkpoint.get(session, 0)
             if call >= 400:
                 assert call - last <= gate.RECHECK_INTERVAL_CALLS or is_duty

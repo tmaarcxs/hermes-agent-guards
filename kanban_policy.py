@@ -9,18 +9,13 @@ the worker profile every delegated card must use. Then:
 With no default assignee configured, nothing is enforced.
 """
 
+import os
 import re
 from typing import Any, Optional
 
 EXECUTION_OVERRIDES = ("model", "provider", "goal_mode", "goal_max_turns", "max_runtime_seconds")
 ACCEPTANCE_LIST = re.compile(r"(?im)^[#*\s]*acceptance\b[^\n]*\n(?:[ \t]*\n)*[ \t]*1[.)][ \t]+\S")
 
-# Appended to every guard block of a Kanban lifecycle call. A blocked call does not satisfy
-# the terminal-call protocol: Hermes' core stop-guard (`agent/kanban_stop.py`
-# `session_called_kanban_terminal`) scans transcript TOOL NAMES, not outcomes, so a reply
-# that ends on text after the block exits rc=0 as a protocol violation with no nudge. The
-# only reliable lever a plugin block message has is the message itself: demand the fixed
-# retry in the SAME response, because a text-only reply is a run-ending violation.
 RETRY_INSTRUCTION = (
     "Then retry the lifecycle call in this same response — do not end on a text-only reply: "
     "a reply without the lifecycle call ends the run as a protocol violation."
@@ -35,6 +30,12 @@ def configured_worker() -> str:
         return str(kanban.get("default_assignee") or "").strip()
     except Exception:
         return ""
+
+
+def is_lead_call(args: dict) -> bool:
+    """True when this kanban_create is a lead-created card: workers (HERMES_KANBAN_TASK set)
+    and child cards (parents set) are exempt from lead-side declaration checks."""
+    return not os.environ.get("HERMES_KANBAN_TASK") and not bool(args.get("parents"))
 
 
 def violations(tool_name: str, args: dict[str, Any], worker: str) -> list[str]:

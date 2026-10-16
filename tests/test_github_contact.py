@@ -15,8 +15,6 @@ def run(command, workdir=None):
 @pytest.fixture(autouse=True)
 def worker_setup(monkeypatch):
     monkeypatch.setenv("HERMES_KANBAN_TASK", "t_dem0002")
-    # Pin a login that appears in no test command, so guard checks never shell
-    # out to `gh api user`; self-assignment tests override via the `login` fixture.
     monkeypatch.setattr(gc, "_login_cache", "nobody-here")
     monkeypatch.setattr(gc, "_login_resolved", True)
 
@@ -211,7 +209,6 @@ def test_real_mentions_found(text):
 
 
 def test_api_comment_mentions_blocked(body_files):
-    # only -F/--field has @file magic; -f passes the literal string
     command = "gh api repos/o/r/issues/1/comments -F body=@{0}/body.md --method POST".format(body_files)
     result = run(command)
     assert result is not None and result["action"] == "block"
