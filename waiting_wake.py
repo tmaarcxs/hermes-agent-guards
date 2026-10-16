@@ -61,7 +61,7 @@ def note_of(payload: Any) -> str:
 
 
 def is_wait_note(note: str) -> bool:
-    """True when the note admits waiting with an external actor named nearby."""
+    """True when the note admits waiting with an external actor named after the wait phrase."""
     hit = _WAIT.search(note)
     if not hit:
         return False
