@@ -19,6 +19,7 @@ def board():
     conn.executescript(
         """
         create table tasks (id text, status text, title text, block_kind text, created_at integer);
+        create table task_links (parent_id text, child_id text);
         create table task_events (id integer primary key, task_id text, kind text, created_at integer);
         create table kanban_notify_subs (task_id text, platform text, chat_id text, thread_id text,
             chat_type text, user_id text, user_id_alt text, notifier_profile text);
@@ -69,6 +70,38 @@ def test_wakes_each_stale_card_once_in_its_chat():
     rec2 = Recorder()
     assert wake.sweep(conn, state, rec2, NOW + 5 * HOUR) == state
     assert rec2.calls == []
+
+
+def test_todo_card_waiting_on_an_unfinished_parent_is_never_woken():
+    conn = board()
+    card(conn, "t_parent", "running", 3)
+    card(conn, "t_child", "todo", 3)
+    conn.execute("insert into task_links values ('t_parent', 't_child')")
+    rec = Recorder()
+    wake.sweep(conn, {}, rec, NOW)
+    assert rec.calls == []
+    assert wake.next_due(conn, NOW) is None
+
+
+def test_todo_card_with_all_parents_done_or_no_parents_still_wakes():
+    conn = board()
+    card(conn, "t_done_parent", "done", 3)
+    card(conn, "t_child", "todo", 3)
+    card(conn, "t_orphan", "todo", 3)
+    conn.execute("insert into task_links values ('t_done_parent', 't_child')")
+    rec = Recorder()
+    wake.sweep(conn, {}, rec, NOW)
+    assert woken(rec) == ["t_child", "t_orphan"]
+
+
+def test_blocked_card_with_an_unfinished_parent_still_wakes():
+    conn = board()
+    card(conn, "t_parent", "running", 3)
+    card(conn, "t_child", "blocked", 3)
+    conn.execute("insert into task_links values ('t_parent', 't_child')")
+    rec = Recorder()
+    wake.sweep(conn, {}, rec, NOW)
+    assert woken(rec) == ["t_child"]
 
 
 def test_running_and_recent_cards_are_never_woken():
@@ -194,6 +227,7 @@ def test_a_poke_forces_the_sweep_despite_an_unchanged_cursor(monkeypatch, tmp_pa
     conn.executescript(
         """
         create table tasks (id text, status text, title text, block_kind text, created_at integer);
+        create table task_links (parent_id text, child_id text);
         create table task_events (id integer primary key, task_id text, kind text, payload text, created_at integer);
         create table kanban_notify_subs (task_id text, platform text, chat_id text, thread_id text,
             chat_type text, user_id text, user_id_alt text, notifier_profile text);
@@ -221,6 +255,7 @@ def _tick_board(tmp_path, monkeypatch):
     conn.executescript(
         """
         create table tasks (id text, status text, title text, block_kind text, created_at integer);
+        create table task_links (parent_id text, child_id text);
         create table task_events (id integer primary key, task_id text, kind text, payload text, created_at integer);
         create table kanban_notify_subs (task_id text, platform text, chat_id text, thread_id text,
             chat_type text, user_id text, user_id_alt text, notifier_profile text);
