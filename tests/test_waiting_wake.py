@@ -60,6 +60,14 @@ INCIDENT = (
     "no checks). CDTool typically takes ~10-25min in observed runs; watcher continues."
 )
 COOLDOWN = "Rate cooldown from sre MCP after metric-name probe retries (~48s pause). Waiting it out; next: gateway."
+PROGRESS = (
+    "auto-merged within 12s of creation; CDTool deployment-success posted 11:56:19Z. "
+    "Now verifying serving pod + image via Prometheus"
+)
+PIPELINE_WAIT = (
+    "Release pipeline with queued workflows still running; our build is behind two queued jobs, "
+    "waiting on the pipeline to reach the deploy stage."
+)
 
 
 class Recorder:
@@ -279,3 +287,77 @@ def test_registered_on_dispatch_tick():
     ctx = type("Ctx", (), {"register_hook": lambda self, name, fn: hooks.append((name, fn))})()
     sys.modules["agent_guards"].register(ctx)
     assert ("on_kanban_dispatch_tick", wake.on_tick) in hooks
+
+
+def test_streak_wake_keys_on_the_newest_nonempty_note_not_the_run_first():
+    """The real incident sequence: wait note 16 minutes old, then empty heartbeats
+    each minute — empty notes neither start nor break a streak, so the newest
+    non-empty note is still the aged wait note and the wake fires exactly once."""
+    conn = board()
+    card(conn, "t_w")
+    spawn(conn, "t_w")
+    heart(conn, "t_w", INCIDENT, age_s=16 * MIN)
+    for age in (5 * MIN, 4 * MIN, 3 * MIN, 2 * MIN, 1 * MIN):
+        heart(conn, "t_w", None, age_s=age)
+    rec = Recorder()
+    state = wake.sweep(conn, {}, rec, NOW)
+    assert woken(rec) == ["t_w"]
+    assert "16 min" in rec.calls[0][0]
+    assert state == {"t_w": 1}
+
+
+def test_a_progress_note_after_a_wait_note_ends_the_streak():
+    """The lead's counter-case: a wait note 19 minutes old that the run already
+    moved past (progress 1 minute old) must NOT wake — the worker is not waiting."""
+    conn = board()
+    card(conn, "t_w")
+    spawn(conn, "t_w")
+    heart(conn, "t_w", PIPELINE_WAIT, age_s=19 * MIN)
+    for age in (16 * MIN, 12 * MIN, 8 * MIN):
+        heart(conn, "t_w", PROGRESS, age_s=age)
+    heart(conn, "t_w", None, age_s=3 * MIN)
+    heart(conn, "t_w", PROGRESS, age_s=1 * MIN)
+    rec = Recorder()
+    assert wake.sweep(conn, {}, rec, NOW) == {}
+    assert rec.calls == []
+
+
+def test_a_new_wait_note_restarts_the_streak_and_the_clock():
+    conn = board()
+    card(conn, "t_w")
+    spawn(conn, "t_w")
+    heart(conn, "t_w", INCIDENT, age_s=25 * MIN)
+    heart(conn, "t_w", PROGRESS, age_s=10 * MIN)
+    heart(conn, "t_w", "Still waiting on the code review verdict on PR 1047.", age_s=2 * MIN)
+    rec = Recorder()
+    assert wake.sweep(conn, {}, rec, NOW) == {}
+    assert rec.calls == []
+    heart(conn, "t_w", PROGRESS, age_s=1 * MIN)
+    assert wake.sweep(conn, {}, Recorder(), NOW) == {}
+
+    conn = board()
+    card(conn, "t_w")
+    spawn(conn, "t_w")
+    heart(conn, "t_w", INCIDENT, age_s=25 * MIN)
+    heart(conn, "t_w", PROGRESS, age_s=10 * MIN)
+    heart(conn, "t_w", "Still waiting on the code review verdict on PR 1047.", age_s=16 * MIN)
+    rec2 = Recorder()
+    state = wake.sweep(conn, {}, rec2, NOW)
+    assert woken(rec2) == ["t_w"] and state == {"t_w": 1}
+
+
+def test_empty_heartbeats_in_the_middle_of_a_streak_do_not_break_it():
+    conn = board()
+    card(conn, "t_w")
+    spawn(conn, "t_w")
+    heart(conn, "t_w", INCIDENT, age_s=20 * MIN)
+    heart(conn, "t_w", "Still waiting on CDTool auto-merge of Deploy PR 1086.", age_s=10 * MIN)
+    for age in (9 * MIN, 8 * MIN, 7 * MIN, 6 * MIN, 5 * MIN):
+        heart(conn, "t_w", None, age_s=age)
+    rec = Recorder()
+    state = wake.sweep(conn, {}, rec, NOW)
+    assert woken(rec) == ["t_w"]
+    text, _ = rec.calls[0]
+    assert "20 min" in text
+    assert state == {"t_w": 1}
+

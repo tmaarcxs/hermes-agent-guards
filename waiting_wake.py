@@ -8,10 +8,13 @@ control (a merge bot, an approval, a deploy or rollout, a CI run, a promotion)
 is evidence only the card's owner can act on: the worker cannot merge itself,
 approve itself or speed up a pipeline, and heartbeat notes reach nobody.
 
-The wake fires when the run's FIRST wait-admitting note is ``WAIT_AFTER``
-seconds old (the first note may time-stamp the situation, so fifteen minutes
-of it is the silence that counts) and quotes the latest note with its age.
-The wait wording is matched deterministically in one table (``_WAIT`` +
+The wake keys on the run's wait STREAK: the consecutive wait-admitting
+heartbeat notes counted back from the newest non-empty heartbeat note (empty
+notes neither start nor break a streak; a progress note ends it). It fires
+when the newest non-empty note admits a wait and the FIRST note of that
+streak is ``WAIT_AFTER`` seconds old — a run that already moved past its wait
+(progress since) stays silent — and the wake quotes the latest note with its
+age. The wait wording is matched deterministically in one table (``_WAIT`` +
 ``_ACTOR``): a wait phrase must be followed by the external actor being waited
 on, so notes whose wait phrase has no external actor after it (a rate cooldown,
 waiting for local tooling) and progress notes without a wait phrase never
@@ -73,7 +76,8 @@ def is_wait_note(note: str) -> bool:
 
 
 def waiting_cards(conn: sqlite3.Connection, now: float) -> list:
-    """Running cards whose first wait note this run is at least ``WAIT_AFTER`` old."""
+    """Running cards still waiting: the newest non-empty heartbeat note admits a
+    wait and the first note of that wait streak is at least ``WAIT_AFTER`` old."""
     cards = []
     for tid, title in conn.execute("select id, title from tasks where status = 'running'"):
         boundary = conn.execute(
@@ -81,21 +85,32 @@ def waiting_cards(conn: sqlite3.Connection, now: float) -> list:
             f"and kind in ({','.join('?' * len(_BOUNDARY_KINDS))})",
             (tid, *_BOUNDARY_KINDS),
         ).fetchone()[0] or 0
-        waits = []
-        for event_id, payload, created_at in conn.execute(
-            "select id, payload, created_at from task_events "
-            "where task_id = ? and kind = 'heartbeat' and id > ? "
-            "and payload is not null and payload not in ('', 'null') order by id",
-            (tid, boundary),
-        ):
-            note = note_of(payload)
-            if note and is_wait_note(note):
-                waits.append((event_id, note, float(created_at)))
-        if waits and now - waits[0][2] >= WAIT_AFTER:
+        newest_nonempty = None
+        streak_start = None
+        streak_len = 0
+        rows = [
+            (event_id, note_of(payload), float(created_at))
+            for event_id, payload, created_at in conn.execute(
+                "select id, payload, created_at from task_events "
+                "where task_id = ? and kind = 'heartbeat' and id > ? "
+                "and payload is not null and payload not in ('', 'null') order by id",
+                (tid, boundary),
+            )
+        ]
+        for event_id, note, created_at in reversed(rows):
+            if not note:
+                continue
+            if newest_nonempty is None:
+                newest_nonempty = (event_id, note, created_at)
+            if not is_wait_note(note):
+                break
+            streak_start = (event_id, note, created_at)
+            streak_len += 1
+        if streak_start is not None and now - streak_start[2] >= WAIT_AFTER:
             cards.append({
                 "id": tid, "title": title or "", "boundary": boundary,
-                "count": len(waits), "first_at": waits[0][2],
-                "latest": waits[-1][1], "latest_at": waits[-1][2],
+                "count": streak_len, "first_at": streak_start[2],
+                "latest": newest_nonempty[1], "latest_at": newest_nonempty[2],
             })
     return cards
 
