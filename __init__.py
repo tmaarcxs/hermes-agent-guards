@@ -99,12 +99,17 @@ Modules:
   own card), a card created with a non-empty ``parents`` list (reworks,
   reviews and follow-ups are child cards, not lane heads), and every
   non-``kanban_create`` tool.
+- ``workspace_scope_gate`` (lead process with a messaging session origin only) scopes a
+  lead ``kanban_list`` result to the cards the calling chat thread is subscribed to
+  (``kanban_notify_subs`` platform/chat_id/thread_id): other chats' cards are hidden,
+  ``count`` follows and ``hidden_foreign`` reports how many were hidden; worker processes
+  and origin-less calls (CLI, cron, TUI) pass through unchanged.
 """
 
 
 import re
 from typing import Any, Optional
-from . import approval_wait_gate, background_notify_gate, backup_copy_gate, checkpoint_gate, churn_wake, completion_gate, github_contact, handoff_gate, kanban_policy, lead_delegation, notification_reconcile, pr_acceptance_gate, pr_comment_gate, published_head_gate, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake, stop_gate, swarm_rule
+from . import approval_wait_gate, background_notify_gate, backup_copy_gate, checkpoint_gate, churn_wake, completion_gate, github_contact, handoff_gate, kanban_policy, lead_delegation, notification_reconcile, pr_acceptance_gate, pr_comment_gate, published_head_gate, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake, stop_gate, swarm_rule, workspace_scope_gate
 
 
 _START = r"(?:^|[;&|\n(`{]|\$\(|\bthen\b|\bdo\b|\belse\b)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:sudo\s+|command\s+)?"
@@ -225,7 +230,14 @@ def _post_tool_call(**kwargs) -> None:
 
 def _transform_tool_result(**kwargs) -> Optional[str]:
     try:
-        return pr_acceptance_gate.transform(**kwargs)
+        transformed = pr_acceptance_gate.transform(**kwargs)
+        if transformed is not None:
+            return transformed
+    except Exception:
+        pass
+    try:
+        return workspace_scope_gate.transform(
+            kwargs.get("tool_name") or "", kwargs.get("args"), kwargs.get("result"))
     except Exception:
         return None
 
