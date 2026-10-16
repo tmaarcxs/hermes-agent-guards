@@ -26,6 +26,13 @@ Other guards:
 
 Worker setups (only when `kanban.default_assignee` is set in the profile config):
 - `kanban_policy`: `kanban_create` must use that assignee, must not use triage, must not override execution settings and must carry an `Acceptance` heading followed by a numbered list of checkable criteria; `kanban_request_review` may only name that worker as reviewer.
+- Lead lane rule (`swarm_rule`, lead-only): a lead `kanban_create` of an implementation card must carry a body line declaring its position in the lane batch:
+
+  ```text
+  Lane: <k> of <N>
+  ```
+
+  `N` is the total number of lanes the work is split into and must be at least 10 (the swarm minimum). The declaration on the card body is the whole check; the honest limit is that the rule checks the declaration, not that N cards were actually created. Three exemptions, and only these, worded the same as the code: a worker-context call (a worker's own card, `HERMES_KANBAN_TASK` set), a card created with a non-empty `parents` list (reworks, reviews and follow-ups are child cards, not lane heads), and a non-implementation call (every tool other than `kanban_create`). The terminal `hermes kanban create` and `hermes kanban swarm` commands are not blocked by this plugin.
 - `lead_delegation`: in the lead process (no `HERMES_KANBAN_TASK`), blocks `write_file`/`patch` under repository roots (`~/git_repos`, override with `AGENT_GUARDS_REPO_ROOTS`) and `git commit`, `git push` and `gh pr create` aimed at them. The lead investigates, writes issues and cards, reviews and integrates; implementation and delivery go to a worker card.
 - `completion_gate`: in a worker process, blocks `kanban_complete` on a card whose body has a numbered `Acceptance` list until `metadata.acceptance` maps every item number to its evidence. An item that cannot be met calls for `kanban_block`, not completion. Evidence that itself admits an item is unmet ("not yet", "not met", "pending merge/review/deploy", "remains open") also blocks. Reviewer completions (run claimed from review, or `metadata.review_verdict`) are blocked too when unevidenced Acceptance items name post-review steps (merge, deploy, close): the approval must record its verdict and hand the card back to the implementer through `kanban_request_changes` (completion from review closes the whole card, and there is no approved-and-returned state). Reviews whose remaining items do not name post-review steps complete as before.
 - `review_gate`: `kanban_request_review` is blocked until the session's latest `todo_list` holds one closed item per pre-review check (Contract coverage, Failure lifecycle, Model evidence, Claims within evidence, Real boundary, Stale siblings, Self reproduction, Claims anchored): completed with a receipt anchor in the item text (a receipt path, artifact file, file:line reference, hash, exit code or test count), or cancelled with `N/A: <reason>`.
@@ -63,7 +70,7 @@ plugins:
 ## Install
 
 ```bash
-hermes plugins install tmaarcxs/hermes-agent-guards --enable
+hermes plugins install shard-guard/hermes-agent-guards --enable
 ```
 
 ## Tests

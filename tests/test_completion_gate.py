@@ -111,8 +111,6 @@ def test_reviewer_block_directs_to_request_changes_with_retry_instruction():
 
 
 def test_reviewer_unmet_evidence_for_post_review_item_is_blocked():
-    # "merge pending review" is real evidence in the map, but it admits the item
-    # is unmet — the unmet branch fires even though it is not "pending" (unevidenced).
     message = reviewer_check({
         "review_verdict": "APPROVE",
         "acceptance": {"2": "merge pending review", "3": "staging app 200", "4": "#1069 closed"},

@@ -172,9 +172,6 @@ def tick(conn, state_name: str, run_sweep: Callable[[dict], "SweepResult"],
     except Exception:
         logger.warning("agent-guards board watch: %s sweep failed", state_name, exc_info=True)
         raw = None
-        # A failed sweep must not consume a due trigger: keep the stored due
-        # time so the next tick retries. The upgrade sentinel (0.0) and the
-        # non-due sentinel (inf) are not real due times and are not kept.
         retry_due = due_at if isinstance(due_at, (int, float)) and due_at > 0 and due_at != float("inf") else None
     if due_tracked and isinstance(raw, tuple) and len(raw) == 2:
         new_state, sweep_due = raw

@@ -20,7 +20,6 @@ def check(summary, metadata=None, result=None, tool="kanban_complete"):
     return gate.check(tool, args)
 
 
-# --- The three original phrasings from past deliveries must be rejected ---
 
 @pytest.mark.parametrize("summary", [
     "Delivery complete. Pre-task rollback copy at /tmp/pre-work preserved for the lead.",
@@ -52,7 +51,6 @@ def test_nested_metadata_is_checked():
     assert message and "Rollback is git" in message
 
 
-# --- The reporting defect from review run 3543 (paren-scoped keep claims) must be rejected ---
 
 @pytest.mark.parametrize("summary", [
     "purged 77 entries (backup kept)",
@@ -67,7 +65,6 @@ def test_paren_scoped_and_bare_keep_claims_are_blocked(summary):
     assert message and "Rollback is git" in message
 
 
-# --- Normal handoffs must pass ---
 
 def test_normal_handoff_passes():
     assert check("Implemented X; 12 tests pass. Next: lead merges PR #9.") is None
@@ -90,7 +87,6 @@ def test_mentioning_a_backup_without_a_keep_claim_passes():
     assert check("Restored from the backup made earlier by the lead; no copy retained.") is None
 
 
-# --- Scope and activation ---
 
 def test_other_tools_pass_through():
     assert gate.check("kanban_block", {"reason": "backup kept"}) is None

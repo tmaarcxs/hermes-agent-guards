@@ -38,25 +38,18 @@ MESSAGE = (
 
 _RETRY_INSTRUCTION = getattr(kanban_policy, "RETRY_INSTRUCTION", "")
 
-# Statement start: after ;, &, |, ||, &&, newline, (, {, $( then/do/else.
 _STMT = re.compile(r"(?:^|[;&|\n(`{]|\$\(|\bthen\b|\bdo\b|\belse\b)[ \t]*")
 
-# A server embedded in an inline `python3 -c "...serve_forever()"` script: the
-# launcher is inside Python code, so match the code shape instead of a command name.
 _PY_SERVER_CODE = re.compile(r"(?:http\.server|socketserver|serve_forever\(\)|HTTPServer|TCPServer|UnixHTTPServer)")
 
-# Leading env-assignment / wrapper tokens that may precede the launcher.
 _LEAD = re.compile(
     r"(?:(?:[A-Za-z_][A-Za-z0-9_]*=\S*|env(?:\s+[-\w]+(?:=?\S*)?)*|sudo|command|exec)\s+)*"
 )
-# Optional interpreter between the env prefix and the server script/module.
 _INTERP = r"(?:[A-Za-z0-9_/.~-]*python[0-9.]*|node|nodejs|bash|sh|zsh)\s+"
 
 _SERVER = re.compile(
     "|".join(
         (
-            # JS dev/preview servers: vite/next/nuxt/astro/ng/webpack, with or
-            # without a package-manager runner or node_modules/.bin path prefix.
             r"(?:\.{1,2}/)?(?:node_modules/\.bin/)?"
             r"(?:(?:npx|pnpm(?:\s+exec)?|npm(?:\s+run)?|yarn(?:\s+run)?)\s+)?"
             r"(?:" + r"|".join(
@@ -69,17 +62,12 @@ _SERVER = re.compile(
                     r"webpack-dev-server\b",
                 )
             ) + r")",
-            # Python servers / proxies / mock launchers seen in real background
-            # launches, matched by ROLE SUFFIX so any setup's helper scripts are
-            # covered without hard-coding project names.
             r"(?:" + _INTERP + r")?-m\s+http\.server\b",
             r"(?:" + _INTERP + r")?(?:uvicorn|gunicorn)\b",
             r"(?:" + _INTERP + r")?flask\s+run\b",
             r"(?:" + _INTERP + r")?streamlit\s+run\b",
             r"(?:" + _INTERP + r")?[A-Za-z0-9_./~-]*(?:_proxy|_server|_mock)\.py\b",
-            # Database and infra daemons.
             r"(?:mysqld|redis-server|memcached|mongod|rabbitmq-server)\b",
-            # Containers left in the foreground (compose without -d / run without -d).
             r"docker(?:\s|-)compose\s+up\b(?![^\n;&|]*\s(?:-d|--detach)\b)",
             r"docker\s+run\b(?![^\n;&|]*\s(?:-d|--detach)\b)",
         )
@@ -95,8 +83,6 @@ def _final_statement_is_server(command: str) -> bool:
     if not command:
         return False
     if "-c " in command and _PY_SERVER_CODE.search(command):
-        # Inline `python3 -c` script that serves forever, or a one-shot py that
-        # merely imports the module: anchor on serve_forever/HTTPServer usage.
         stripped = re.sub(r"^import\s+[^\n]+", "", command, flags=re.MULTILINE)
         if re.search(r"\.serve_forever\(\)|HTTPServer|TCPServer|http\.server\.[A-Z]", stripped):
             return True

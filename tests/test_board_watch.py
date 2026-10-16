@@ -117,7 +117,6 @@ def test_tick_persists_sweep_output_and_retries_after_crash_between_writes(tmp_p
     board_watch.tick(conn, "wake-c.json", boom, kinds=("changes_requested",), now=CLOCK)
     assert json.loads((tmp_path / "wake-c-cursor.json").read_text())["event_id"] == 1
     assert not (tmp_path / "wake-c.json").exists()
-    # simulate dying between state and cursor writes: state present, cursor old
     (tmp_path / "wake-c.json").write_text(json.dumps({"t": 7}))
     (tmp_path / "wake-c-cursor.json").write_text(json.dumps({"event_id": 0, "swept_at": CLOCK}))
     runs = []

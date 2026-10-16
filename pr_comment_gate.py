@@ -26,12 +26,8 @@ from typing import Any, Optional
 
 from . import lead_delegation
 
-# Same shape the dispatcher guard matches (hermes_cli/kanban_db_dispatch.py
-# _RESPAWN_GUARD_PR_URL_RE): a full GitHub pull-request URL. owner and repo exclude
-# whitespace and slashes; case-insensitive like the original.
 PR_URL = re.compile(r"https?://github\.com/[^/\s]+/[^/\s]+/pull/\d+", re.IGNORECASE)
 
-# Statuses the respawn guard can hold back; running and done are excluded upstream.
 STALLABLE = ("todo", "ready", "blocked")
 
 MESSAGE = (

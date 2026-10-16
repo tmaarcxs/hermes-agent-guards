@@ -1,3 +1,4 @@
+
 """Block recurring agent mistakes before a tool runs, normalize known-bad arguments and keep work moving.
 
 Blocks (terminal, foreground or background as noted):
@@ -90,14 +91,21 @@ Modules:
   stores the next card's 5 min crossing in its cursor and sweeps on the first
   tick at or past it, so a quiet board can no longer hold a wake past its age
   gate. Watermark and dedup semantics are unchanged.
+- ``swarm_rule`` (lead process only): a lead ``kanban_create`` of an
+  implementation card must carry a body line ``Lane: k of N`` with integers
+  ``1 <= k <= N`` and ``N >= 10``; undeclared or out-of-bounds lanes are
+  blocked with a single-line message naming the exact line to add. Three
+  exemptions, worded the same as the code: a worker-context call (a worker's
+  own card), a card created with a non-empty ``parents`` list (reworks,
+  reviews and follow-ups are child cards, not lane heads), and every
+  non-``kanban_create`` tool.
 """
 
 
 import re
 from typing import Any, Optional
+from . import approval_wait_gate, background_notify_gate, backup_copy_gate, checkpoint_gate, churn_wake, completion_gate, github_contact, handoff_gate, kanban_policy, lead_delegation, notification_reconcile, pr_acceptance_gate, pr_comment_gate, published_head_gate, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake, stop_gate, swarm_rule
 
-from . import approval_wait_gate, background_notify_gate, backup_copy_gate, checkpoint_gate, churn_wake, completion_gate, github_contact, handoff_gate, kanban_policy, lead_delegation, notification_reconcile, pr_acceptance_gate, pr_comment_gate, published_head_gate, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake
-from . import stop_gate
 
 _START = r"(?:^|[;&|\n(`{]|\$\(|\bthen\b|\bdo\b|\belse\b)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:sudo\s+|command\s+)?"
 _SEGMENT_END = re.compile(r"[;\n]|&&|\|\|")
@@ -227,6 +235,7 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
         lambda: repeat_guard.check(tool_name, args, **kwargs),
         lambda: checkpoint_gate.check(tool_name, args, **kwargs),
         lambda: kanban_policy.check(tool_name, args),
+        lambda: swarm_rule.check(tool_name, args),
         lambda: lead_delegation.check(tool_name, args),
         lambda: github_contact.check(tool_name, args),
         lambda: pr_acceptance_gate.check(tool_name, args, **kwargs),

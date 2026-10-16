@@ -38,15 +38,9 @@ from typing import Any, Optional
 
 from . import kanban_policy
 
-# First duty lands at 400/500 calls: after it, the model still has 100 calls — enough to
-# checkpoint AND finish or hand off — and p99 of healthy worker sessions sits at ~430, so
-# normal short and medium runs never meet the gate. Gap continues mid-run gaps of 50 that
-# left the core 450-warning too late to matter.
 FIRST_CHECKPOINT_CALLS = 400
 RECHECK_INTERVAL_CALLS = 25
 
-# Tools that ARE the checkpoint (or end the run with durable state): a block must never
-# trap the model away from its own escape hatches, and a successful one discharges the duty.
 _CHECKPOINT_TOOLS = frozenset({
     "kanban_comment", "kanban_request_review", "kanban_complete", "kanban_block", "kanban_heartbeat",
 })
@@ -54,7 +48,6 @@ _CHECKPOINT_TOOLS = frozenset({
 _CALLS = re.compile(r":api:(\d+)$")
 _MAX_SESSIONS = 200
 
-# session -> state: calls at the last discharged checkpoint
 _last_checkpoint: "OrderedDict[str, int]" = OrderedDict()
 
 MESSAGE = (

@@ -66,7 +66,6 @@ def _moves() -> str:
         )
     return _MOVES_BLOCK
 
-# A heartbeat note admitting the wait (generic phrasings: approval-only admissions).
 _WAIT_NOTE = re.compile(
     r"(?is)"
     r"\bcodeowners?\b"
@@ -78,21 +77,16 @@ _WAIT_NOTE = re.compile(
 
 _REPO = r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"
 _REPO_FLAG = re.compile(rf"(?:-R|--repo|\bGH_REPO=)[ \t]*[\"']?({_REPO})")
-# Readiness polls: plain `gh pr checks <n>`, `gh pr view <n> --json <readiness field>`,
-# `gh api .../pulls/<n>...` reads, and the skill scripts by name.
 _GH_CHECKS = re.compile(r"\bgh\s+pr\s+checks\s+(\d+)\b")
 _READY_FIELDS = r"statusCheckRollup|mergeStateStatus|mergeable|reviewDecision|reviewRequests"
 _GH_VIEW = re.compile(rf"\bgh\s+pr\s+view\s+(\d+)\b[^;&|\n]*--json\b[^;&|\n]*(?:{_READY_FIELDS})")
 _GH_API = re.compile(rf"\bgh\s+api\s+[\"']?repos/({_REPO})/pulls/(\d+)\b")
-# Poller helper scripts matched by file NAME so any install path works.
 _SCRIPT_NAMES = ("pr_status", "pr_wait_checks")
 _SCRIPT = re.compile(r"(?:^|[\s/])(" + "|".join(_SCRIPT_NAMES) + r")\b")
 _NUM = re.compile(r"\b[1-9]\d*\b")
 _QUOTED = re.compile(r"'[^']*'|\"(?:[^\"\\]|\\.)*\"")
 
-# (owner, repo, pr) -> (expires_at, approval_only)
 _verdicts: dict[tuple[str, str, str], tuple[float, bool]] = OrderedDict()
-# session -> first wait-admitting heartbeat note
 _waits: "OrderedDict[str, str]" = OrderedDict()
 _MAX_SESSIONS = 200
 
