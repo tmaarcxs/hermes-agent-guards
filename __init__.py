@@ -74,10 +74,10 @@ Modules:
   matching ``published_pr`` is blocked with the contract restated and the ``kanban_block`` escape;
 - ``stale_wake`` wakes a card's subscribed chat once when the card has not moved for 5 min
   (needs ``plugins.entries.agent-guards.allow_gateway_injection: true``);
-- ``waiting_wake`` wakes the same chats when a ``running`` card's heartbeat notes have
-  repeatedly admitted waiting on an external gate (a merge bot, an approval, a deploy
-  or rollout, a CI run) — once per run, quoting the latest note — so the owner decides:
-  intervene, take the card over, or have the worker block it (same injection setting);
+- ``waiting_wake`` wakes the same chats when a ``running`` card's heartbeat notes admit
+  waiting on an external gate (a merge bot, an approval, a deploy or rollout, a CI run)
+  and that first admission is 15 min old — once per run, quoting the wait — so the owner
+  decides: intervene, take the card over, or have the worker block it (same setting);
 - ``review_loop`` wakes the same chats when an open card reaches 3, 6, 9... review rounds
   with changes requested (same injection setting);
 - ``churn_wake`` warns the same chats when a non-archived, non-done card reaches 10/20/40
