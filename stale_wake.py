@@ -1,7 +1,9 @@
 """Wake the chat that created a Kanban card once when the card stops moving.
 
 On each dispatcher tick it finds triage, todo, ready, review, blocked and
-scheduled cards whose last state event is at least 5 min old; heartbeats, comments,
+scheduled cards whose last state event is at least 5 min old (a todo card with an
+unfinished parent is waiting on a dependency and is skipped: the dispatcher starts
+it when the parents finish); heartbeats, comments,
 edits, links and attachments are not state changes. Running cards
 are never checked. For each such card it starts one agent turn in every chat
 subscribed to the card (the creating chat is auto-subscribed) via the gateway's
@@ -47,6 +49,11 @@ logger = logging.getLogger(__name__)
 
 STATUSES = ("triage", "todo", "ready", "review", "blocked", "scheduled")
 PARKED_STATUSES = ("blocked", "triage")
+_WAITS_ON_PARENT = (
+    "not (t.status = 'todo' and exists ("
+    "select 1 from task_links l join tasks p on p.id = l.parent_id "
+    "where l.child_id = t.id and p.status != 'done'))"
+)
 PARKED = "parked"
 STALE_AFTER = 300
 STALL_MIN_EVENTS = 30
@@ -91,7 +98,7 @@ def stale_cards(conn: sqlite3.Connection, now: float) -> list[dict]:
     rows = conn.execute(
         f"select t.id, t.status, t.title, t.block_kind, t.created_at, ev.id, ev.created_at "
         f"from tasks t left join task_events ev on ev.id = {last} "
-        f"where t.status in ({','.join('?' * len(STATUSES))})",
+        f"where t.status in ({','.join('?' * len(STATUSES))}) and {_WAITS_ON_PARENT}",
         (*_IGNORED_KINDS, *STATUSES),
     )
     cards = []
@@ -121,7 +128,7 @@ def next_due(conn: sqlite3.Connection, now: float) -> Optional[float]:
     rows = conn.execute(
         f"select t.created_at, ev.created_at "
         f"from tasks t left join task_events ev on ev.id = {last} "
-        f"where t.status in ({','.join('?' * len(STATUSES))})",
+        f"where t.status in ({','.join('?' * len(STATUSES))}) and {_WAITS_ON_PARENT}",
         (*_IGNORED_KINDS, *STATUSES),
     )
     due = None
