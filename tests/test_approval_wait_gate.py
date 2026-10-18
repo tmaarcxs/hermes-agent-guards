@@ -165,3 +165,27 @@ def test_worker_setup_without_task_env(monkeypatch):
 
 def test_heartbeat_without_note_passes():
     assert gate.check("kanban_heartbeat", {}, session_id="s9") is None
+
+
+def test_repeated_wait_heartbeat_names_the_pr_from_the_note():
+    note = "PR acme/widget#42 merged locally; CODEOWNERS approval is the sole remaining gate."
+    assert _hb(note) is None
+    message = _hb(note)
+    assert message and "(see note)" not in message
+    assert "acme/widget#42" in message
+
+
+def test_repeated_wait_heartbeat_names_the_pr_by_number_alone():
+    note = "PR #410 still OPEN. CODEOWNERS approval is the sole remaining gate; long poller continues."
+    assert _hb(note) is None
+    message = _hb(note)
+    assert message and "(see note)" not in message
+    assert "#410" in message
+
+
+def test_repeated_wait_heartbeat_without_identifiable_pr_says_so():
+    note = "pending the deploy rollout and its CODEOWNERS approval"
+    assert _hb(note) is None
+    message = _hb(note)
+    assert message and "(see note)" not in message
+    assert "no PR reference" in message

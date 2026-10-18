@@ -54,6 +54,25 @@ MESSAGE = (
 
 _MOVES_BLOCK = '`kanban_block(kind="needs_input")` now so the lead is notified — do not keep waiting.'
 
+_NOTE_PR_SHAPES = (
+    re.compile(r"(?i)\b([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#\d+)\b"),
+    re.compile(r"(?i)\b(?:pull request|PR)\s+#?([1-9]\d*)\b"),
+    re.compile(r"(?i)github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/([1-9]\d*)"),
+)
+
+
+def _heartbeat_prs(note: str) -> str:
+    """The PR reference the stored wait note names, or an explicit no-reference wording.
+
+    Heartbeat notes only reach the lead when quoted, so the block message must carry
+    the reference itself when the note has one.
+    """
+    for pattern in _NOTE_PR_SHAPES:
+        hit = pattern.search(note or "")
+        if hit:
+            return hit.group(1) if "/" in hit.group(1) else f"#{hit.group(1)}"
+    return "no PR reference in the note"
+
 
 def _moves() -> str:
     """The sanctioned next steps, naming the documented merge command when the
@@ -226,7 +245,7 @@ def _heartbeat_check(args: Any, kwargs: dict) -> Optional[str]:
         while len(_waits) > _MAX_SESSIONS:
             _waits.popitem(last=False)
         return None
-    return MESSAGE.format(tool="kanban_heartbeat", prs="(see note)", moves=_moves())
+    return MESSAGE.format(tool="kanban_heartbeat", prs=_heartbeat_prs(_waits[session]), moves=_moves())
 
 
 def check(tool_name: str, args: Any, **kwargs: Any) -> Optional[str]:
