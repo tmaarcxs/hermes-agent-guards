@@ -369,3 +369,44 @@ QUOTED_PROSE_PIPE_MATRIX = [
 @pytest.mark.parametrize("command,expected", QUOTED_PROSE_PIPE_MATRIX)
 def test_quoted_prose_pipe_matrix(command, expected):
     assert blocked(command) is expected
+
+
+RUNNER_DASHDASH_MATRIX = [
+    ("env -- rm -rf /Users/u/.hermes", True),
+    ("sudo -- rm -rf /Users/u/.hermes", True),
+    ("echo /Users/u/.hermes | xargs -- rm -rf", True),
+    ("echo /Users/u/.hermes | env -- rm -rf", True),
+    ("echo /Users/u/.hermes | xargs -- rm -rf /tmp/x", True),
+    ("echo /Users/u/.hermes | xargs -0 -- rm -rf", True),
+    ("echo '/Users/u/.hermes live' | xargs -- grep -c hermes", False),
+    ("echo /Users/u | xargs -- find -name '*.db' -delete", False),
+    ("echo /Users/u/.hermes | env -- xargs rm -rf", True),
+]
+
+DASHDASH_PASS_THROUGH_RUNNERS = ["env --", "sudo --", "xargs --", "xargs -0 --"]
+
+
+@pytest.mark.parametrize("runner", DASHDASH_PASS_THROUGH_RUNNERS)
+@pytest.mark.parametrize("verb", RUNNER_VERBS)
+@pytest.mark.parametrize("target", RUNNER_PROTECTED)
+def test_runner_dashdash_pipe_home_guard_matrix(runner, verb, target):
+    assert blocked("echo %s | %s %s" % (target, runner, verb))
+
+
+@pytest.mark.parametrize("runner", DASHDASH_PASS_THROUGH_RUNNERS)
+@pytest.mark.parametrize("verb", RUNNER_VERBS)
+@pytest.mark.parametrize("target", RUNNER_BELOW)
+def test_runner_dashdash_pipe_below_guard_matrix(runner, verb, target):
+    assert not blocked("echo %s | %s %s" % (target, runner, verb))
+
+
+CONTINUATION_MATRIX = [
+    ("echo /Users/u/.hermes | xargs rm -rf", True),
+    ('echo "$HOME"/.hermes | xargs rm -rf', True),
+    ("echo /Users/u/.hermes | xargs printf %s\n", False),
+]
+
+
+@pytest.mark.parametrize("command,expected", [(c.replace(" | ", " \\\n| "), e) for c, e in CONTINUATION_MATRIX])
+def test_backslash_newline_continuation_pipe(command, expected):
+    assert blocked(command) is expected

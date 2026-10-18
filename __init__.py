@@ -333,7 +333,7 @@ _RUNNER_XARGS_FLAGS = re.compile(r"xargs(?:\s+-\S+)*")
 def _composed_runner_levels(segment: str) -> Optional[set]:
     """Levels a runner-composed deletion would delete (`echo <home> | xargs
     rm -rf`), or `None` when this segment is not one. The runner chain
-    between the pipe and the verb (`sudo`, `env`, `nohup`, `nice`, `exec`,
+    (`sudo`, `env`, `nohup`, `nice`, `exec`,
     `time`, `parallel`, `xargs` with its flags) appends the piped-in
     operands to the verb, so the composed command's targets are the verb's
     own operands plus everything left of the last pipe. Semantics stay
@@ -359,7 +359,7 @@ def _composed_runner_levels(segment: str) -> Optional[set]:
     for token in reversed(tokens[:verb_index]):
         if token == "|":
             break
-        if token in _RUNNER_WORDS or (token.startswith("-") and token != "--") or _RUNNER_XARGS_FLAGS.fullmatch(token):
+        if token in _RUNNER_WORDS or token == "--" or (token.startswith("-") and token != "--") or _RUNNER_XARGS_FLAGS.fullmatch(token):
             runner_seen = True
             continue
         if verb_index + 1 < len(tokens) and tokens[verb_index + 1].startswith("-"):
@@ -436,11 +436,12 @@ def hermes_home_violations(command: str) -> list[str]:
     while double-quoted content expands and stays visible."""
     found = []
     blanked = _strip_heredocs(command)
-    for phrase in _python_delete_phrases(command, blanked):
+    jointed = blanked.replace("\\\n", "")
+    for phrase in _python_delete_phrases(command, jointed):
         if _python_rmtree_protected(phrase):
             found.append(_HERMES_HOME_DELETE_MESSAGE)
             return found
-    for segment in _SEGMENT_END.split(blanked):
+    for segment in _SEGMENT_END.split(jointed):
         composed = _composed_runner_levels(segment)
         if _RECURSIVE_RM.search(segment):
             levels = set(_segment_operand_levels(segment))
