@@ -300,3 +300,29 @@ def test_below_and_prose_allowed(command):
 @pytest.mark.parametrize("command,expected", FIND_DELETE_MATRIX + RSYNC_MATRIX + PYTHON_MATRIX)
 def test_qualifying_token_and_direction_matrix(command, expected):
     assert blocked(command) is expected
+
+
+XARGAS_RUNNERS = ["xargs", "env xargs", "sudo xargs"]
+
+XARGS_BLOCKED = [
+    "echo /Users/u/.hermes | xargs rm -rf",
+    'printf "%s" /home/u/.hermes | xargs rm -rf',
+    "xargs rm -rf /Users/u/.hermes < list",
+    "find /home/u/.hermes | xargs rm -rf",
+    'find /home/u/.hermes -name "*.db" -print0 | xargs -0 rm -rf',
+    "find /Users/v -maxdepth 1 -print0 | xargs -0 rm -rf",
+    "ls $(find /home/u/.hermes) | xargs rm -rf",
+]
+XARGS_ALLOWED = [
+    "echo /Users/u/.hermes | xargs printf %s\\n",
+    "find /Users/v/projects -name '*.pyc' | xargs rm -f",
+    "find /Users/v/projects -name '*.pyc' -delete",
+    "cat list | xargs rm /Users/v/.hermesA",
+]
+
+
+@pytest.mark.parametrize("runner", XARGAS_RUNNERS)
+@pytest.mark.parametrize("command,expected", [(c, True) for c in XARGS_BLOCKED] + [(c, False) for c in XARGS_ALLOWED])
+def test_xargs_home_guard_matrix(command, runner, expected):
+    command = command.replace("xargs ", runner + " ")
+    assert blocked(command) is expected
