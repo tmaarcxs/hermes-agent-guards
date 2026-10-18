@@ -9,6 +9,14 @@ Blocks (terminal, foreground or background as noted):
 - ``gh pr merge`` without ``--match-head-commit``: merges must pin the verified head;
 - ``osascript``: desktop automation goes through ego-browser;
 - ``git push --force``/``-f`` without ``--force-with-lease``;
+- recursive deletion of a live Hermes home (``hermes_home_guard``): ``rm -r``,
+  ``find … -delete`` or a ``--delete`` sync whose target is ``$HERMES_HOME`` /
+  ``~/.hermes`` / ``$HOME/.hermes`` (trailing slash optional), ``~/.hermes/profiles``
+  or any ``~/.hermes/profiles/<name>``, or the same paths literally absolute; targets
+  nested deeper (``~/.hermes/cache/scratch/x``) stay allowed, quoted mention in a
+  grep pass and heredoc prose passes too; the fix: create test homes with
+  ``mktemp -d`` inside the scratch workspace and pass them via
+  ``env HERMES_HOME=<path> <cmd>`` only, delete them by literal path;
 - in a worker process (``github_contact``): commands that contact people on GitHub —
   review requests, issue assignees and comments whose body ``@mentions`` a user or
   org/team; for a CODEOWNERS-only gap the message names the setup's documented merge
@@ -139,6 +147,31 @@ _MERGE = re.compile(_START + r"gh\s+pr\s+merge\b")
 _OSASCRIPT = re.compile(_START + r"osascript\b")
 _PUSH = re.compile(_START + r"git\s+push\b")
 _BARE_FORCE = re.compile(r"\s(?:--force|-f)(?=\s|$)")
+_RECURSIVE_RM = re.compile(_START + r"rm\b(?=[^;&|\n]*\s-[a-zA-Z]*r[a-zA-Z]*\b)")
+_HERMES_HOME_TOKENS = (
+    r"\$\{?HERMES_HOME\}?",
+    r"~/?\.hermes",
+    r"\$\{?HOME\}?/\.hermes",
+    r"/home/u/\.hermes",
+    r"/Users/u/\.hermes",
+    r"/root/\.hermes",
+)
+_HERMES_HOME_PATH = re.compile(
+    r"(?:" + "|".join(_HERMES_HOME_TOKENS) + r")(?:/profiles(?:/[A-Za-z0-9_.-]+)?|/)?(?=\s|$|['\";)&|])"
+)
+_FIND_DELETE = re.compile(_START + r"find\b")
+_RSYNC_DELETE = re.compile(_START + r"rsync\b")
+_PYTH_DELETE = re.compile(
+    r"(?:shut(?:il)?\.)?rmtree\s*\(\s*(?:['\"])?(?:os\.environ(?:\.get)?\[?\s*['\"]HERMES_HOME|HERMES_HOME)"
+)
+_PYTH_ABS_DELETE = re.compile(
+    r"rmtree\s*\(\s*['\"][^'\"]*(?:\.hermes(?:/profiles(?:/[A-Za-z0-9_.-]+)?)?/?)['\"]"
+)
+_HERMES_HOME_DELETE_MESSAGE = (
+    "hermes_home_guard: this would recursively delete a live Hermes home. For tests, create a throwaway "
+    "home with `mktemp -d` inside the scratch workspace and run the command as `env HERMES_HOME=<path> <cmd>` "
+    "only; delete such directories by their literal path."
+)
 _UNIT_SECONDS = {"": 1, "s": 1, "m": 60, "h": 3600}
 _MAX_FOREGROUND_SLEEP = 30
 _MAX_LOOP_SLEEP = 15
@@ -192,10 +225,34 @@ def _strip_heredocs(command: str) -> str:
     return "\n".join(kept)
 
 
+def hermes_home_violations(command: str) -> list[str]:
+    """Recursive deletion of the live Hermes home: `$HERMES_HOME`, `~/.hermes`
+    (`$HOME/.hermes`, literal absolute forms) and its `profiles` subtree itself,
+    not nests below them. `rm`/`find -delete`/`rsync --delete` plus `shutil.rmtree`
+    inside `python -c`/heredocs; single-quoted mention and heredoc prose are
+    exempt, while double-quoted content expands and stays visible."""
+    found = []
+    stripped = _strip_heredocs(command)
+    stripped = re.compile(r"'[^']*'").sub("''", stripped)
+    for segment in _SEGMENT_END.split(stripped):
+        if (_RECURSIVE_RM.search(segment) or _FIND_DELETE.search(segment)) and _HERMES_HOME_PATH.search(segment):
+            found.append(_HERMES_HOME_DELETE_MESSAGE)
+            continue
+        if _RSYNC_DELETE.search(segment) and "--delete" in segment and _HERMES_HOME_PATH.search(segment):
+            found.append(_HERMES_HOME_DELETE_MESSAGE)
+            continue
+    if _PYTH_DELETE.search(command) or _PYTH_ABS_DELETE.search(command):
+        found.append(_HERMES_HOME_DELETE_MESSAGE)
+    return found
+
+
 def terminal_violations(command: str, background: bool) -> list[str]:
+    found = []
+    home = hermes_home_violations(command)
+    if home:
+        found.extend(home)
     command = _strip_heredocs(command)
     command = _QUOTED.sub("''", command)
-    found = []
     if not background:
         for match in _SLEEP.finditer(command):
             seconds = float(match.group(1)) * _UNIT_SECONDS[match.group(2)]
