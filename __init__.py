@@ -79,7 +79,9 @@ Modules:
   and that first admission is 15 min old — once per run, quoting the wait — so the owner
   decides: intervene, take the card over, or have the worker block it (same setting);
 - ``review_loop`` wakes the same chats when an open card reaches 3, 6, 9... review rounds
-  with changes requested (same injection setting);
+  with changes requested, with a four-item decision menu: narrow the contract (the
+  integrity-only convergence contract rides verbatim), continue over the real defects,
+  split the card, or take it over (same injection setting);
 - ``churn_wake`` warns the same chats when a non-archived, non-done card reaches 10/20/40
   worker runs or 5/10/20 change-requests — warning only, nothing is blocked — so the lead
   splits, narrows or confirms the card (same injection setting);
