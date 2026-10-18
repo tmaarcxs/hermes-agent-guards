@@ -23,7 +23,7 @@ def pre(tool, **args):
 
 
 def blocked(result):
-    return bool(result) and result.get("action") == "block" and "skill_size" not in result["message"]
+    return bool(result) and result.get("action") == "block" and result.get("message", "").startswith("agent-guards blocked")
 
 
 def test_skill_manage_patch_over_limit_blocked(root):
