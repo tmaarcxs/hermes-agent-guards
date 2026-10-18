@@ -115,7 +115,18 @@ Modules:
 
 import re
 from typing import Any, Optional
-from . import approval_wait_gate, background_notify_gate, backup_copy_gate, checkpoint_gate, churn_wake, completion_gate, github_contact, handoff_gate, inventory_rule, kanban_policy, lead_delegation, notification_reconcile, paas_promote_gate, pr_acceptance_gate, pr_comment_gate, published_head_gate, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake, stop_gate, waiting_wake, workspace_scope_gate
+
+try:
+    from . import approval_wait_gate, background_notify_gate, backup_copy_gate, checkpoint_gate, churn_wake, completion_gate, github_contact, handoff_gate, inventory_rule, kanban_policy, lead_delegation, notification_reconcile, paas_promote_gate, pr_acceptance_gate, pr_comment_gate, published_head_gate, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake, stop_gate, waiting_wake, workspace_scope_gate
+except ImportError:
+    if __name__ != "__init__":
+        raise
+    """Bare ``pytest`` (no test path, at the repo root) forms Package nodes from
+    ``__init__.py`` files and imports this file as the top-level module ``__init__``,
+    where the relative import above has no parent package. In that synthetic shape the
+    package body is dead weight — tests always go through the conftest-loaded real
+    package — so the ImportError is swallowed only there and re-raised everywhere else,
+    keeping genuine load failures noisy in the host."""
 
 
 _START = r"(?:^|[;&|\n(`{]|\$\(|\bthen\b|\bdo\b|\belse\b)\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:sudo\s+|command\s+)?"
