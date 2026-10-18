@@ -16,7 +16,8 @@ def board():
         create table tasks (id text, status text, title text);
         create table task_events (id integer primary key, task_id text, kind text, payload text, created_at integer);
         create table kanban_notify_subs (task_id text, platform text, chat_id text, thread_id text,
-            chat_type text, user_id text, user_id_alt text, notifier_profile text, last_ping_event_id integer);
+            chat_type text, user_id text, user_id_alt text, notifier_profile text, last_ping_event_id integer,
+            last_event_id integer);
         """
     )
     return conn
@@ -40,10 +41,10 @@ def event(conn, tid, kind, payload=None, event_id=None, age=OLD):
     return event_id
 
 
-def sub(conn, tid, last_ping_event_id=0):
+def sub(conn, tid, last_ping_event_id=0, last_event_id=0):
     conn.execute(
-        "insert into kanban_notify_subs values (?, 'telegram', '407617100', '', 'dm', '407617100', null, 'default', ?)",
-        (tid, last_ping_event_id),
+        "insert into kanban_notify_subs values (?, 'telegram', '407617100', '', 'dm', '407617100', null, 'default', ?, ?)",
+        (tid, last_ping_event_id, last_event_id),
     )
 
 
@@ -175,6 +176,40 @@ def test_remembered_origin_receives_the_notice_after_the_drop():
     assert conn.execute("select count(*) from kanban_notify_subs").fetchone()[0] == 0
 
 
+
+
+def test_wake_path_delivery_covers_the_event():
+    """A notify+wake sub never gets last_ping_event_id written, but its claim
+    cursor (`last_event_id`) advancing past the event proves the wake self-post
+    carried that event to the chat."""
+    conn = board()
+    card(conn, "t_w1")
+    event(conn, "t_w1", "review_requested")
+    sub(conn, "t_w1", last_ping_event_id=0, last_event_id=4)
+    rec = Recorder()
+    assert reconcile.sweep(conn, {}, rec, NOW) == {}
+    assert rec.calls == []
+
+
+def test_claim_cursor_below_the_event_keeps_the_pending_state_recordable():
+    conn = board()
+    card(conn, "t_w2")
+    event(conn, "t_w2", "review_requested")
+    sub(conn, "t_w2", last_ping_event_id=0, last_event_id=0)
+    rec = Recorder()
+    state = reconcile.sweep(conn, {}, rec, NOW)
+    assert rec.calls == []
+    assert state["t_w2"]["pending"] is True
+
+
+def test_claim_cursor_equal_to_the_event_covers_it():
+    conn = board()
+    card(conn, "t_w3")
+    event(conn, "t_w3", "completed")
+    sub(conn, "t_w3", last_ping_event_id=0, last_event_id=1)
+    rec = Recorder()
+    assert reconcile.sweep(conn, {}, rec, NOW) == {}
+    assert rec.calls == []
 
 
 def test_delivered_state_never_notifies_nor_records():
