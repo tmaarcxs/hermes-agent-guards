@@ -17,7 +17,10 @@ a quoted string is never a command word, so grep patterns and commit messages pa
   and ``@me``/``@copilot`` are exempt (not people); for the assignee flags only, the
   authenticated login is also exempt (self-assignment contacts nobody — resolved once
   per process via ``gh api user --jq .login`` and cached; if resolution fails, a value
-  that is not ``@me`` still blocks, fail closed);
+  that is not ``@me`` still blocks, fail closed). A matching flag whose value cannot
+  be pinned to a token — trailing flag, a following option-like token — also blocks
+  (fail-closed; older builds crashed here and the host harness then executed the
+  contact unblocked);
 - ``gh api`` POST to ``.../requested_reviewers`` (GET stays allowed);
 - ``gh pr comment`` / ``gh issue comment`` and ``gh api`` POST to ``.../comments`` whose
   body — inline via ``-b/--body`` or ``-f/-F body=...``, or via ``--body-file`` /
@@ -191,7 +194,15 @@ def _unprefixed(tokens: list[tuple[str, bool]]) -> list[tuple[str, bool]]:
 
 
 def _flags(parts: list[tuple[str, bool]], names: dict[str, str]) -> dict[str, list[str]]:
-    """Values of the named flags: inline after ``=``, else the next token; repeats collected."""
+    """Values of the named flags: inline after ``=``, else the next token; repeats collected.
+
+    Every matching flag ends up in the result, even when the value cannot be
+    pinned to a token: a trailing flag, a following option-like token or an
+    absent value each record an empty string, so ``_contacts`` still sees the
+    flag and blocks (fail-closed) — pre-17b80b5 these shapes crashed here with
+    an IndexError, which the host hook harness swallowed into a silent pass
+    (the contact shipped unblocked; the t_ebe70bcb audit's GC-1 / change #2).
+    """
     found: dict[str, list[str]] = {}
     i = 0
     while i < len(parts):
@@ -201,10 +212,7 @@ def _flags(parts: list[tuple[str, bool]], names: dict[str, str]) -> dict[str, li
             if name in names:
                 if eq:
                     found.setdefault(name, []).append(inline)
-                elif (
-                    i + 1 < len(parts)
-                    and parts[i + 1][1] is False or (not parts[i + 1][0].startswith("-") and len(parts[i + 1][0]) > 1)
-                ):
+                elif i + 1 < len(parts) and (parts[i + 1][1] is False and parts[i + 1][0]):
                     found.setdefault(name, []).append(parts[i + 1][0])
                     i += 1
                 else:
