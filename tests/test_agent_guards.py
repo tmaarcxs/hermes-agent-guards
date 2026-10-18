@@ -326,3 +326,46 @@ XARGS_ALLOWED = [
 def test_xargs_home_guard_matrix(command, runner, expected):
     command = command.replace("xargs ", runner + " ")
     assert blocked(command) is expected
+
+
+RUNNERS = ["xargs", "xargs -0", "xargs -I{}", "parallel", "env", "sudo", "nice", "nohup", "command", "exec", "time"]
+RUNNER_VERBS = ["rm -r", "rm -rf", "rm -R", "find -maxdepth 0 -delete", "rsync --delete -a /tmp/seed/"]
+RUNNER_PROTECTED = ["/Users/u/.hermes", "/home/u/.hermes/profiles/w", "$HERMES_HOME", "~/.hermes", "$HOME/.hermes", "~", "$HOME", "/Users/u", "/"]
+RUNNER_BELOW = ["~/.hermes/cache/scratch/x", "~/projects/x"]
+
+
+@pytest.mark.parametrize("runner", RUNNERS)
+@pytest.mark.parametrize("verb", RUNNER_VERBS)
+@pytest.mark.parametrize("target", RUNNER_PROTECTED)
+def test_runner_pipe_home_guard_matrix(runner, verb, target):
+    assert blocked("echo %s | %s %s" % (target, runner, verb))
+
+
+@pytest.mark.parametrize("runner", RUNNERS)
+@pytest.mark.parametrize("verb", RUNNER_VERBS)
+@pytest.mark.parametrize("target", RUNNER_BELOW)
+def test_runner_pipe_below_guard_matrix(runner, verb, target):
+    assert not blocked("echo %s | %s %s" % (target, runner, verb))
+
+
+@pytest.mark.parametrize("runner", RUNNERS)
+def test_runner_pipe_filtered_find_matrix(runner):
+    assert not blocked("echo /Users/u | %s find -name '*.db' -delete" % runner)
+    assert not blocked("echo / | %s find -name '*.db' -delete" % runner)
+    assert blocked("echo /Users/u | %s find -delete" % runner)
+    assert blocked("echo /Users/u/.hermes | %s find -name '*.db' -delete" % runner)
+    assert blocked("echo /Users/u/.hermes | %s find -exec rm -rf {} +" % runner)
+
+
+QUOTED_PROSE_PIPE_MATRIX = [
+    ("echo 'rm -rf /Users/u/.hermes' | xargs rm -rf /tmp/x", False),
+    ("echo '/Users/u/.hermes live' | grep -c hermes", False),
+    ("grep 'xargs rm -rf' logs | tail -1", False),
+    ('echo "$HOME/.hermes" | xargs rm -rf', True),
+    ('printf "%s" /home/u/.hermes | xargs rm -rf', True),
+]
+
+
+@pytest.mark.parametrize("command,expected", QUOTED_PROSE_PIPE_MATRIX)
+def test_quoted_prose_pipe_matrix(command, expected):
+    assert blocked(command) is expected
