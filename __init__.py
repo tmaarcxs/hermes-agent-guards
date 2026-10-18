@@ -149,6 +149,7 @@ _OSASCRIPT = re.compile(_START + r"osascript\b")
 _PUSH = re.compile(_START + r"git\s+push\b")
 _BARE_FORCE = re.compile(r"\s(?:--force|-f)(?=\s|$)")
 _RECURSIVE_RM_FLAGS = re.compile(r"(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\b")
+_RUNNER_RM = re.compile(_START + r"(?:(?:sudo|command|env)\s+)*xargs\b(?:\s+-\S+)*\s+(?:(?:sudo|command)\s+)?rm\b(?=[^;&|\n]*" + _RECURSIVE_RM_FLAGS.pattern + r")")
 _RECURSIVE_RM = re.compile(_START + r"rm\b(?=[^;&|\n]*" + _RECURSIVE_RM_FLAGS.pattern + r")")
 _FIND_DELETE = re.compile(_START + r"find\b")
 _FIND_DELETE_FLAGS = re.compile(r"\s-delete\b")
@@ -298,6 +299,21 @@ def _segment_operand_levels(segment: str) -> list[str]:
     return [level for token in tokens for level in (_path_level(token),) if level != "none"]
 
 
+def _pipe_left_operands(segment: str) -> list[str]:
+    """Operand tokens piped into this segment's deletion verb from an earlier
+    pipe stage of the same segment (`echo <path> | xargs rm -rf`): the home
+    never appears on the `xargs` side, so command-word matching alone
+    under-blocks composed deletion."""
+    if "|" not in segment:
+        return []
+    tail = segment.rsplit("|", 1)[0].replace("$(", " ").replace(")", " ")
+    try:
+        tokens = [token for token in shlex.split(tail) if not token.startswith("-")]
+    except ValueError:
+        tokens = [token for token in tail.split() if not token.startswith("-")]
+    return [token for token in tokens if not token.startswith("$(") and token.rstrip(")")]
+
+
 def _rsync_delete_target_protected(segment: str) -> bool:
     """True when the `--delete` sync's DESTINATION (last non-option operand,
     the side that loses files) is a protected target; a home as SOURCE syncs
@@ -334,9 +350,15 @@ def hermes_home_violations(command: str) -> list[str]:
             found.append(_HERMES_HOME_DELETE_MESSAGE)
             return found
     for segment in _SEGMENT_END.split(blanked):
-        if _RECURSIVE_RM.search(segment) and any(
-            level in _PROTECTED_LEVELS for level in _segment_operand_levels(segment)
-        ):
+        left = _pipe_left_operands(segment)
+        levels = set(_segment_operand_levels(segment)) | set(
+            level for token in left for level in (_path_level(token),) if level != "none"
+        )
+        protected = [level for level in levels if level in _PROTECTED_LEVELS]
+        if _RECURSIVE_RM.search(segment) and protected:
+            found.append(_HERMES_HOME_DELETE_MESSAGE)
+            continue
+        if _RUNNER_RM.search(segment) and protected:
             found.append(_HERMES_HOME_DELETE_MESSAGE)
             continue
         if _FIND_DELETE.search(segment) and _find_delete_activates(segment):
