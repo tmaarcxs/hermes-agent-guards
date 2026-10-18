@@ -116,6 +116,18 @@ def test_instruction_mentions_inventory_purpose_and_no_number():
     assert not re.search(r"\b(10|[2-9]\d)\b", text), "no fixed card floor/cap in the rule"
 
 
+def test_instruction_carries_acceptance_range_and_premise_bound():
+    text = inventory_rule.INSTRUCTION.lower()
+    assert "input range" in text
+    assert "final verification surface" in text
+
+
+def test_instruction_carries_no_widening_rule():
+    text = inventory_rule.INSTRUCTION.lower()
+    assert "a running card is never widened" in text
+    assert "dependency edge" in text
+
+
 def test_1_card_turn_for_multi_part_request_still_fires():
     """SPEC acceptance: the mechanism fires on a 1-card turn for a multi-part request."""
     assert _fire("sess-1", "turn-1", "Add feature A, fix bug B and update docs C") is not None
