@@ -71,6 +71,30 @@ def test_normal_handoff_passes():
 
 
 @pytest.mark.parametrize("summary", [
+    "LANE A parity verified: render consumes the same snapshot, so parity holds by construction",
+    "and zero backup/rollback/snapshot artifacts left anywhere after cleanup",
+    "No `.bak`/backup/snapshot copies of live config exist; removes excluded.",
+    "Deleted 53 backup/rollback/pristine/before-candidate artifacts from the board.",
+    "The owner forbids backup/rollback/snapshot artifacts of prior state anywhere; honored.",
+    "Memory review done: 'snapshot kept nowhere', stores unchanged.",
+    "Verified against the deployed snapshot (no changes made).",
+    "Removed the backup directory; nothing retained anywhere.",
+])
+def test_false_positive_regressions_pass(summary):
+    assert check(summary) is None
+
+
+@pytest.mark.parametrize("summary", [
+    "rollback at .task/deployment-backup/installed-before-compact.",
+    "with /tmp pre-install backups retained;",
+    "keep /tmp pre-install backups;",
+    "Snapshot kept at overview.py.bak for comparison.",
+])
+def test_path_and_location_keep_claims_still_block(summary):
+    assert check(summary) and "Rollback is git" in check(summary)
+
+
+@pytest.mark.parametrize("summary", [
     "No backup copies were kept; prior state remains recoverable via git history.",
     "Fixed the regression; rolled back only the failed patch via git checkout.",
     "Rollback is git: no rollback copy remains.",
@@ -86,6 +110,25 @@ def test_negated_and_git_rollback_wording_passes(summary):
 def test_mentioning_a_backup_without_a_keep_claim_passes():
     assert check("Restored from the backup made earlier by the lead; no copy retained.") is None
 
+
+
+@pytest.mark.parametrize("summary", [
+    "Backup preserved for a comparison pass tonight.",
+    "The auditor reviewed the tree but left the pristine copy in place at /tmp/x.",
+    "Verified against the deployed snapshot and kept the original artifacts under /tmp/compare.",
+    "Preview checks kept a backup of the index in case a release fails.",
+])
+def test_keep_claims_near_review_and_parity_vocabulary_block(summary):
+    message = check(summary)
+    assert message and "Rollback is git" in message
+
+
+@pytest.mark.parametrize("summary", [
+    "Snapshot saved to /tmp/snap; will delete after the sign-off arrives.",
+    "Snapshot saved to /tmp/snap; deleted after the sign-off arrived.",
+])
+def test_later_or_planned_removal_does_not_erase_a_keep_claim(summary):
+    assert check(summary) and "Rollback is git" in check(summary)
 
 
 def test_other_tools_pass_through():
