@@ -118,6 +118,13 @@ Modules:
   (``kanban_notify_subs`` platform/chat_id/thread_id): other chats' cards are hidden,
   ``count`` follows and ``hidden_foreign`` reports how many were hidden; worker processes
   and origin-less calls (CLI, cron, TUI) pass through unchanged.
+- ``kanban_show_slim_gate`` (lead process only) deterministically slims a lead
+  ``kanban_show`` result: ``worker_context`` (a byte-duplicate of the structured fields)
+  is removed and fixed text-free event kinds (heartbeat and dispatcher bookkeeping)
+  are dropped; ``runs`` and every other text-bearing field stay byte-identical, so
+  summaries, review verdicts and errors are preserved; the result adverts
+  ``removed_fields``/``dropped_event_rows``; worker processes and non-``kanban_show``
+  results pass through unchanged.
 """
 
 
@@ -126,7 +133,7 @@ import shlex
 from typing import Any, Optional
 
 try:
-    from . import approval_wait_gate, background_notify_gate, backup_copy_gate, checkpoint_gate, churn_wake, completion_gate, github_contact, handoff_gate, inventory_rule, kanban_policy, lead_delegation, notification_reconcile, paas_promote_gate, pr_acceptance_gate, pr_comment_gate, published_head_gate, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake, stop_gate, waiting_wake, workspace_scope_gate
+    from . import approval_wait_gate, background_notify_gate, backup_copy_gate, checkpoint_gate, churn_wake, completion_gate, github_contact, handoff_gate, inventory_rule, kanban_policy, kanban_show_slim_gate, lead_delegation, notification_reconcile, paas_promote_gate, pr_acceptance_gate, pr_comment_gate, published_head_gate, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake, stop_gate, waiting_wake, workspace_scope_gate
 except ImportError:
     if __name__ != "__init__":
         raise
@@ -618,7 +625,14 @@ def _transform_tool_result(**kwargs) -> Optional[str]:
     except Exception:
         pass
     try:
-        return workspace_scope_gate.transform(
+        scoped = workspace_scope_gate.transform(
+            kwargs.get("tool_name") or "", kwargs.get("args"), kwargs.get("result"))
+        if scoped is not None:
+            return scoped
+    except Exception:
+        pass
+    try:
+        return kanban_show_slim_gate.transform(
             kwargs.get("tool_name") or "", kwargs.get("args"), kwargs.get("result"))
     except Exception:
         return None
