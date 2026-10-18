@@ -61,7 +61,14 @@ def test_wakes_open_card_at_third_round_with_latest_reason():
     state = loop.sweep(conn, {}, rec)
     assert woken(rec) == ["t_loop"]
     text, origin = rec.calls[0]
-    assert "3 review rounds" in text and "fix 3" in text and "reaches 6 rounds" in text
+    assert "3 review rounds" in text and "fix 3" in text and "every 3 review rounds" in text
+    assert "(1) narrow the contract" in text
+    assert "every numeric sentence names the script and output that print it, or is removed" in text
+    assert "the reviewer re-executes the scripts, checks that mapping and the named lines" in text
+    assert "opens no new analyses (a new analysis goes to a new card)" in text
+    assert "(2) continue over the real defects" in text and "new or repeats of earlier ones" in text
+    assert "successor card" in text
+    assert "(3) split the card" in text and "(4) take it over" in text
     assert origin["chat_id"] == "555000100" and origin["thread_id"] == "900332"
     assert state == {"t_loop": 3}
 

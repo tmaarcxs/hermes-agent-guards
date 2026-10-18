@@ -57,10 +57,17 @@ def wake_text(card: dict, reason: str) -> str:
         f"[Kanban review loop] {card['id']} has had {card['rounds']} review rounds with changes requested "
         f"({card['status']}): {card['title'][:120]}\n"
         f"Latest requested change: {reason or '(none recorded)'}\n"
-        "Implementer and reviewer are not converging. Decide here instead of letting it loop: narrow the "
-        "acceptance criteria, split the card, correct the contract or inputs, or take the remaining work "
-        "over. Record the decision as a comment on the card. "
-        f"You will be woken again only if it reaches {card['rounds'] // EVERY * EVERY + EVERY} rounds."
+        "Implementer and reviewer are not converging. Decide it here with one of:\n"
+        "(1) narrow the contract and send the card back — if the recent findings are sentence or number "
+        "integrity only, record this convergence contract on the card: every numeric sentence names the "
+        "script and output that print it, or is removed; the reviewer re-executes the scripts, checks "
+        "that mapping and the named lines, and opens no new analyses (a new analysis goes to a new card);\n"
+        "(2) continue over the real defects — check whether they are new or repeats of earlier ones and "
+        "whether a successor card is needed once they are fixed;\n"
+        "(3) split the card — close it and hand the remaining, still-tractable parts to fresh cards;\n"
+        "(4) take it over — finish the remaining work yourself, or archive the card with a comment on "
+        "where the outcome lives.\n"
+        f"The wake repeats at the next threshold (every {EVERY} review rounds)."
     )
 
 
