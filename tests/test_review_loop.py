@@ -61,7 +61,7 @@ def test_wakes_open_card_at_third_round_with_latest_reason():
     state = loop.sweep(conn, {}, rec)
     assert woken(rec) == ["t_loop"]
     text, origin = rec.calls[0]
-    assert "3 review rounds" in text and "fix 3" in text and "reaches 6 rounds" in text
+    assert "3 review rounds" in text and "fix 3" in text and "every 3 review rounds" in text
     assert origin["chat_id"] == "555000100" and origin["thread_id"] == "900332"
     assert state == {"t_loop": 3}
 
