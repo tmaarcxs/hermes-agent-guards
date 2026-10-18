@@ -127,5 +127,6 @@ def test_any_garbage_fails_open():
 
 def test_dispatch_entry_point_blocks_the_incident_and_passes_the_fix():
     incident = guards._pre_tool_call("terminal", {"command": INCIDENT})
-    assert incident == {"action": "block", "message": check(INCIDENT)}
+    assert incident["action"] == "block" and check(INCIDENT).split(": ", 1)[1] in incident["message"]
+    assert "[paas_promote_gate]" in incident["message"]
     assert guards._pre_tool_call("terminal", {"command": CORRECTED}) is None

@@ -139,7 +139,7 @@ def test_register_wires_every_hook():
 
 def test_large_inline_attach_blocked():
     result = guards._pre_tool_call(tool_name="kanban_attach", args={"filename": "r.json", "content_base64": "QUJD" * 65})
-    assert result["action"] == "block" and "hermes kanban attach" in result["message"]
+    assert result["action"] == "block" and "attach by path" in result["message"]
 
 
 def test_small_inline_attach_allowed():
