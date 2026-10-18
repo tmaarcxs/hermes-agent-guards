@@ -5,8 +5,11 @@ open card. When a card reaches 3, 6, 9, ... rounds it starts one agent turn in e
 subscribed to the card, so the lead decides whether to narrow the scope, split the card,
 fix the contract or take over, instead of letting implementer and reviewer loop.
 
-Each threshold wakes once: the last woken round count is recorded per card. Shares the
-gateway injection of ``stale_wake``.
+Each threshold wakes once: the last woken round count is written to the durable
+state before the injection runs, so a gateway restart between the two cannot replay a
+threshold that may have already woken a lead, at the cost of dropping a threshold's
+wake if the gateway dies inside the smaller marker-to-inject window (the next
+threshold re-arms it). Shares the gateway injection of ``stale_wake``.
 
 The sweep is event-driven (``board_watch.tick``): it runs on the first tick
 after any new ``changes_requested`` event, a card status change, or a successful
@@ -28,6 +31,7 @@ from . import stale_wake
 logger = logging.getLogger(__name__)
 
 EVERY = 3
+STATE_NAME = "kanban-review-loop.json"
 _OPEN = ("todo", "ready", "running", "review", "blocked")
 
 
@@ -71,19 +75,50 @@ def wake_text(card: dict, reason: str) -> str:
     )
 
 
-def sweep(conn: sqlite3.Connection, state: dict, inject) -> dict:
-    """Wake each looping card once per threshold. Returns the new state."""
+def sweep(conn: sqlite3.Connection, state: dict, inject, persist=None) -> dict:
+    """Wake each looping card once per threshold. Returns the new state.
+
+    Durable-write-before-send: the woken thresholds of this sweep are flushed to
+    the state file *before* the first ``inject`` call, so a gateway restart that
+    lands between record and send cannot replay the same threshold's wake into a
+    lead's chat (the duplicate at t_23a8c303 after the 10-14/10-15 restarts).
+    The trade is at-most-once: a death inside the smaller marker-to-inject
+    window drops that wake, and the next threshold re-arms it. Each injection
+    outcome rewrites the file with the live record: a delivery marks that
+    card's threshold, a failed delivery drops only that card's entry — every
+    other card's flushed marker stays, so the failed card retries on the next
+    tick and a delivered sibling's marker is never erased.
+    ``persist``
+    replaces the state file for tests; production passes nothing and the write
+    goes to ``board_watch.write_state``.
+    """
+    def _write(new_state: dict) -> None:
+        if persist is not None:
+            persist(new_state)
+        else:
+            board_watch.write_state(STATE_NAME, new_state)
+
     cards = {card["id"]: card for card in looping_cards(conn)}
     kept = {tid: n for tid, n in state.items() if tid in cards}
+    flush = []
     for tid, card in cards.items():
         threshold = card["rounds"] // EVERY * EVERY
         if kept.get(tid, 0) >= threshold:
             continue
-        text = wake_text(card, last_reason(conn, tid))
-        origins = stale_wake.subscribers(conn, tid)
-        if any(inject(text, {k: v for k, v in origin.items() if v is not None}) for origin in origins):
-            kept[tid] = threshold
-    return kept
+        flush.append((tid, threshold, card))
+    durable = dict(kept)
+    if flush:
+        durable.update({tid: threshold for tid, threshold, _card in flush})
+        _write(durable)
+        for tid, threshold, card in flush:
+            text = wake_text(card, last_reason(conn, tid))
+            origins = stale_wake.subscribers(conn, tid)
+            if any(inject(text, {k: v for k, v in origin.items() if v is not None}) for origin in origins):
+                durable[tid] = threshold
+            else:
+                durable.pop(tid, None)
+            _write(durable)
+    return durable
 
 
 _WAKE_KINDS = ("changes_requested", "status", "promoted", "promoted_manual", "completed", "archived")
@@ -112,7 +147,7 @@ def on_tick(board: Optional[str] = None, dry_run: bool = False, **_: Any) -> Non
         db = kanban_db.kanban_db_path(board=board)
         conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
         try:
-            board_watch.tick(conn, "kanban-review-loop.json", _sweep_for(board), kinds=_WAKE_KINDS)
+            board_watch.tick(conn, STATE_NAME, _sweep_for(board), kinds=_WAKE_KINDS)
         finally:
             conn.close()
     except Exception:
