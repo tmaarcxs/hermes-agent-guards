@@ -1,4 +1,5 @@
 import json
+import pytest
 import sqlite3
 import time
 import sys
@@ -46,6 +47,29 @@ class Recorder:
     def __call__(self, text, origin):
         self.calls.append((text, origin))
         return self.ok
+
+
+class FakeFile:
+    """The durable state file, in memory.
+
+    ``sweep`` writes through the ``persist`` hook, so the tests model the
+    restart timeline — what the file holds at each crash point — without
+    touching disk. ``fail_first`` drops the first write, the crash before
+    the marker lands (board_watch's atomic replace never leaves a partial
+    file behind).
+    """
+
+    def __init__(self, fail_first=False):
+        self.data, self.fail_first = {}, fail_first
+
+    def __call__(self, state):
+        if self.fail_first:
+            self.fail_first = False
+            raise RuntimeError("gateway restarted mid-write")
+        self.data = dict(state)
+
+    def load(self):
+        return dict(self.data)
 
 
 def woken(rec):
@@ -105,6 +129,120 @@ def test_closed_cards_are_forgotten():
     state = loop.sweep(conn, {}, Recorder())
     conn.execute("update tasks set status = 'done' where id = 't_loop'")
     assert loop.sweep(conn, state, Recorder()) == {}
+
+
+def test_wake_text_is_byte_identical():
+    """The merged 3-round decision menu must not drift with this change."""
+    conn = board()
+    card(conn, "t_abc123", "review", 6)
+    rec = Recorder()
+    loop.sweep(conn, {}, rec)
+    assert rec.calls[0][0] == (
+        "[Kanban review loop] t_abc123 has had 6 review rounds with changes requested (review):"
+        " title t_abc123\n"
+        "Latest requested change: fix 6\n"
+        "Implementer and reviewer are not converging. Decide it here with one of:\n"
+        "(1) narrow the contract and send the card back — if the recent findings are sentence or number "
+        "integrity only, record this convergence contract on the card: every numeric sentence names the "
+        "script and output that print it, or is removed; the reviewer re-executes the scripts, checks "
+        "that mapping and the named lines, and opens no new analyses (a new analysis goes to a new card);\n"
+        "(2) continue over the real defects — check whether they are new or repeats of earlier ones and "
+        "whether a successor card is needed once they are fixed;\n"
+        "(3) split the card — close it and hand the remaining, still-tractable parts to fresh cards;\n"
+        "(4) take it over — finish the remaining work yourself, or archive the card with a comment on "
+        "where the outcome lives.\n"
+        "The wake repeats at the next threshold (every 3 review rounds)."
+    )
+
+
+@pytest.mark.parametrize("rounds", [3, 6, 9])
+def test_exactly_one_wake_per_threshold_across_restarts(rounds):
+    """No crash point can turn one threshold into two lead wakes.
+
+    Crash points, each followed by a fresh sweep on the same board state —
+    the replay board_watch.tick runs after the gateway reappears (it
+    swallows the sweep's exception; the state file survives the restart):
+
+    - before the marker: the file stays empty, the sweep is owed and wakes
+      exactly once on the next tick;
+    - between the marker and the inject: the file already holds the
+      threshold, so the replay sweep is silent and the wake is dropped
+      (at-most-once), re-arming at the next threshold;
+    - after the inject: identical to the previous point — the marker covers
+      the delivered wake, so the replay is silent.
+
+    The next threshold still wakes. The injected text is byte-identical to
+    the pre-change menu (test_wake_text_is_byte_identical).
+    """
+    conn = board()
+    card(conn, "t_loop", "review", rounds)
+    threshold = rounds // 3 * 3
+    next_threshold = threshold + 3
+
+    file = FakeFile(fail_first=False)
+
+    class Restart:
+        def __call__(self, text, origin):
+            raise RuntimeError("gateway restarted mid-sweep")
+
+    with pytest.raises(RuntimeError):
+        loop.sweep(conn, {}, Restart(), file)
+    assert file.load() == {"t_loop": threshold}
+
+    rec = Recorder()
+    assert loop.sweep(conn, file.load(), rec, file) == {"t_loop": threshold}
+    assert rec.calls == []
+
+    file = FakeFile(fail_first=True)
+    with pytest.raises(RuntimeError):
+        loop.sweep(conn, {}, Restart(), file)
+    assert file.load() == {}
+
+    rec = Recorder()
+    assert loop.sweep(conn, file.load(), rec, file) == {"t_loop": threshold}
+    assert woken(rec) == ["t_loop"]
+
+    for n in range(rounds, next_threshold + 1):
+        changes(conn, "t_loop", f"fix {n + 1}")
+    rec = Recorder()
+    state = loop.sweep(conn, file.load(), rec, file)
+    assert woken(rec) == ["t_loop"] and state["t_loop"] == next_threshold
+    assert len(rec.calls) == 1
+
+
+def test_threshold_is_flushed_before_the_first_injection():
+    """The marker is durable before the wake is sent, not after it returns."""
+    conn = board()
+    card(conn, "t_loop", "ready", 3)
+    order = []
+    file = FakeFile()
+
+    class Inject:
+        def __call__(self, text, origin):
+            order.append(("inject", dict(file.data)))
+            return True
+
+    loop.sweep(conn, {}, Inject(), file)
+    assert order == [("inject", {"t_loop": 3})]
+    assert file.load() == {"t_loop": 3}
+
+
+def test_production_write_path_flushes_the_marker_before_the_inject(monkeypatch, tmp_path):
+    """The production entry point (board_watch.write_state on disk) has the
+    marker down before the first injection runs, not after it returns."""
+    monkeypatch.setattr(board_watch, "state_path", lambda name: tmp_path / name)
+    conn = board()
+    card(conn, "t_loop", "review", 3)
+    on_disk_at_inject = []
+
+    class Inject:
+        def __call__(self, text, origin):
+            on_disk_at_inject.append((tmp_path / "kanban-review-loop.json").exists())
+            return True
+
+    state = loop.sweep(conn, {}, Inject())
+    assert on_disk_at_inject == [True]
+    assert state == {"t_loop": 3}
 
 
 def test_board_needs_relevant_events(monkeypatch, tmp_path):
