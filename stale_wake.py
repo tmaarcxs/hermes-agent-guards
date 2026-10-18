@@ -25,6 +25,17 @@ again, otherwise each wake makes the woken agent touch the card and the next
 crossing wakes it once more. The episode ends when the card runs, closes, or is
 woken in another state.
 
+A blocked or triage card in a park state whose stale wake cannot help is not
+woken at all: a ``blocked`` card with ``block_kind = capability`` (a wall no
+lead message lifts) and any ``triage`` card (a block_loop escalation waiting
+on a human decision the board event already surfaced). Their park's own
+automatic task-status message reached the subscribed chats within minutes
+(47 of 46 blocked events notified ≤5 min in the 10-13..10-18 sample), so the
++5-minute wake only restated it, and once-per-park keying re-arms it on every
+re-block. ``needs_input``/``transient`` parks keep the wake; so does every
+unparked card, even with a lingering block_kind (the field deliberately
+survives an unblock), and plain parks without a record.
+
 The same module also provides the stall wake, registered as its own unthrottled
 hook (every tick): a todo or ready card whose last 30 task_events are all
 ``respawn_guarded`` events with ``reason=active_pr`` is being held out of the
@@ -240,6 +251,42 @@ def stall_sweep(conn: sqlite3.Connection, state: dict, inject, now: float) -> di
     return kept
 
 
+_PARK_REASONS = ("needs_input", "capability", "transient")
+
+
+def _suppressed_park(card: dict) -> bool:
+    """True when the card's stale wake would repeat an already-sent notice.
+
+    The park's own automatic task-status message carries a ``blocked`` state
+    to the subscribed chats within minutes (47 of the 46 blocked events in
+    the 10-12..10-18 sample were notified within five minutes, 44 of 47
+    within two), so the stale wake's +5-minute restatement adds nothing
+    there. What it suppresses is therefore only the park states whose
+    unblocking is outside the lead's reach: a ``capability`` wall on a
+    blocked card and a triage escalation (its block_loop event already
+    surfaced the human decision the card waits on). The first transition
+    still appears once — through that park notification — and a lost
+    delivery is covered by the notification_reconcile sweep, so the card is
+    never silently dropped; repeats of the unchanged parked state are what
+    go.
+
+    The keep classes keep their wake: a blocked card whose block_kind is
+    ``needs_input`` or ``transient`` stays actionable for the lead (the
+    reason addresses the lead), as does every open card — block_kind
+    deliberately survives an unblock (kanban_db keeps it to bound unblock
+    loops), so the gate reads the parked status, not a residue. A park
+    without a record (block_kind NULL or a foreign value) keeps the legacy
+    wake too: nobody was told about it.
+    """
+    if card["status"] not in PARKED_STATUSES:
+        return False
+    if card["block_kind"] not in _PARK_REASONS:
+        return False
+    if card["block_kind"] == "capability":
+        return True
+    return card["status"] == "triage"
+
+
 def _wake_key(card: dict):
     return PARKED if card["status"] in PARKED_STATUSES else card["event_id"]
 
@@ -253,7 +300,7 @@ def _open_statuses(conn: sqlite3.Connection) -> dict:
 
 def sweep(conn: sqlite3.Connection, state: dict, inject, now: float) -> dict:
     """Wake each stale card once per state, and once per blocked/triage episode. Returns the new state."""
-    stale = {card["id"]: card for card in stale_cards(conn, now)}
+    stale = {card["id"]: card for card in stale_cards(conn, now) if not _suppressed_park(card)}
     open_status = _open_statuses(conn)
     kept = {tid: key for tid, key in state.items() if tid in open_status}
     for tid, card in stale.items():
