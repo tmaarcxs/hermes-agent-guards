@@ -160,6 +160,17 @@ def test_register_wires_the_pre_llm_call_hook():
     assert ("pre_llm_call", inventory_rule.hook) in hooks
 
 
+def test_instruction_creation_timing_is_plan_first_compatible():
+    """The card clause swap: cards may be created now or at plan approval."""
+    text = inventory_rule.INSTRUCTION
+    assert (
+        "either in this turn or at the moment the plan covering that unit is approved"
+        in text
+    )
+    assert "whichever the workflow prescribes" in text
+    assert "in the same turn" not in text
+
+
 def test_lead_kanban_create_without_inventory_block_passes(monkeypatch):
     monkeypatch.delenv("HERMES_KANBAN_TASK", raising=False)
     result = guard._pre_tool_call(
