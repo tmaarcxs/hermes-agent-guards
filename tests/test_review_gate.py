@@ -225,3 +225,41 @@ def test_block_record_is_bounded():
         todo(items_with_open_count(2), session=f"r{i}")
         assert review(f"r{i}")["action"] == "block"
     assert len(gate._blocked) == gate._MAX_SESSIONS
+
+
+@pytest.mark.parametrize("size", range(2, 8))
+def test_smaller_set_that_gains_a_new_check_reblocks(size):
+    todo(items_with_open(EIGHT[:size]), session="gain")
+    assert review("gain")["action"] == "block"
+    todo(items_with_open([EIGHT[size]] + list(EIGHT[:size - 2])), session="gain")
+    assert review("gain")["action"] == "block"
+    todo(items_with_open(EIGHT[:size - 2]), session="gain")
+    assert review("gain") is None
+
+
+@pytest.mark.parametrize("size", range(2, 5))
+def test_disjoint_smaller_set_reblocks(size):
+    todo(items_with_open(EIGHT[:size]), session="disj")
+    assert review("disj")["action"] == "block"
+    todo(items_with_open(EIGHT[size:2 * size - 1]), session="disj")
+    assert review("disj")["action"] == "block"
+    todo(items_with_open(EIGHT[size:2 * size - 2]), session="disj")
+    assert review("disj") is None
+
+
+def test_single_check_swapped_for_another_reblocks():
+    todo(items_with_open([EIGHT[0]]), session="one")
+    assert review("one")["action"] == "block"
+    todo(items_with_open([EIGHT[1]]), session="one")
+    assert review("one")["action"] == "block"
+    todo(items_with_open([]), session="one")
+    assert review("one") is None
+
+
+def test_full_baseline_regrows_after_a_pass_and_reblocks():
+    todo(items_with_open(EIGHT), session="full")
+    assert review("full")["action"] == "block"
+    todo(items_with_open(EIGHT[:7]), session="full")
+    assert review("full") is None
+    todo(items_with_open(EIGHT), session="full")
+    assert review("full")["action"] == "block"

@@ -9,12 +9,13 @@ with a receipt (a receipt path, file reference, hash, exit code or count — any
 survives the session, unlike a bare "done"), or cancelled with ``N/A: <reason>`` in its
 text. A bare completed item like ``Contract coverage`` with no receipt does not pass.
 
-Monotone-progress credit: while the session's open-check set is strictly smaller than at
-its last blocked request, a request passes without recording a new block (the baseline
-stays at the last blocked size); an equal or larger open set blocks again and re-arms the
-baseline. This mirrors handoff_gate's one-bounce escape — the first request per state
-change still pays its block, but the gate stops charging re-tries that are visibly
-converging instead of looping on the same set.
+Monotone-progress credit: while the session's open-check set is a proper subset of the
+open-check set blocked at its last request, a request passes without recording a new
+block (the baseline keeps the last blocked set); any set that is not a proper subset —
+equal, larger, or disjoint, i.e. one that gains a check the baseline didn't have —
+blocks again and re-arms the baseline. This mirrors handoff_gate's one-bounce escape —
+the first request per state change still pays its block, but the gate stops charging
+re-tries that demonstrably converge on the last blocked set instead of wandering.
 """
 
 import json
@@ -40,7 +41,7 @@ RECEIPT = re.compile(
 _MAX_SESSIONS = 200
 
 _todos: "OrderedDict[str, list[dict[str, Any]]]" = OrderedDict()
-_blocked: "OrderedDict[str, tuple[int, int]]" = OrderedDict()
+_blocked: "OrderedDict[str, frozenset[str]]" = OrderedDict()
 
 
 def _session(kwargs: dict) -> str:
@@ -79,17 +80,14 @@ def check(tool_name: str, **kwargs) -> Optional[str]:
         if not any(check_name.lower() in str(item.get("content", "")).lower() and _closed(item) for item in todos)
     ]
     if not open_checks:
-        blocked = _blocked.get(session)
-        if blocked is not None and blocked[1]:
-            _blocked[session] = (blocked[0], 0)
+        _blocked.pop(session, None)
         return None
     blocked = _blocked.get(session)
-    if blocked is not None:
-        blocked_at, last_seen = blocked
-        if len(open_checks) < blocked_at and len(open_checks) <= last_seen:
-            _blocked[session] = (blocked_at, len(open_checks))
-            return None
-    _blocked[session] = (len(open_checks), len(open_checks))
+    blocked_set = blocked if blocked is not None else frozenset()
+    open_set = frozenset(open_checks)
+    if open_set < blocked_set:
+        return None
+    _blocked[session] = open_set
     _blocked.move_to_end(session)
     while len(_blocked) > _MAX_SESSIONS:
         _blocked.popitem(last=False)
