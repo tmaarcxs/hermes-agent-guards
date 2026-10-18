@@ -133,7 +133,7 @@ import shlex
 from typing import Any, Optional
 
 try:
-    from . import approval_wait_gate, background_notify_gate, backup_copy_gate, checkpoint_gate, churn_wake, completion_gate, github_contact, handoff_gate, inventory_rule, kanban_policy, kanban_show_slim_gate, lead_delegation, notification_reconcile, paas_promote_gate, pr_acceptance_gate, pr_comment_gate, published_head_gate, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake, stop_gate, waiting_wake, workspace_scope_gate
+    from . import approval_wait_gate, background_notify_gate, backup_copy_gate, checkpoint_gate, churn_wake, completion_gate, github_contact, handoff_gate, inventory_rule, kanban_policy, kanban_show_slim_gate, lead_delegation, notification_reconcile, paas_promote_gate, pr_acceptance_gate, pr_comment_gate, published_head_gate, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake, stop_gate, waiting_wake, workspace_scope_gate, workspace_write_gate
 except ImportError:
     if __name__ != "__init__":
         raise
@@ -647,6 +647,7 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
     for check, name in (
         (lambda: repeat_guard.check(tool_name, args, **kwargs), "repeat_guard"),
         (lambda: checkpoint_gate.check(tool_name, args, **kwargs), "checkpoint_gate"),
+        (lambda: workspace_write_gate.check(tool_name, args), "workspace_write_gate"),
         (lambda: kanban_policy.check(tool_name, args), "kanban_policy"),
         (lambda: lead_delegation.check(tool_name, args), "lead_delegation"),
         (lambda: github_contact.check(tool_name, args), "github_contact"),

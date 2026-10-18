@@ -1,0 +1,158 @@
+{
+ "scanned": 10533,
+ "unique_blocked": 19,
+ "rows": [
+  {
+   "ts": "2026-10-18T18:36:06.715113",
+   "fp": "0376219dc5c2",
+   "tool": "terminal",
+   "attributed_task": "t_74cbf0f9",
+   "text_head": "env -i HOME=\"$HOME\" PATH=/usr/bin:/bin HERMES_KANBAN_TASK=t_fenced HERMES_DELEGATED_CHILD_CONTEXT=1 /Users/marcos.sanchez/.hermes/hermes-agent/venv/bin/python -B -c \"\nimport sqlite3, pathlib, os\np = p",
+   "class": "by-design-probe (clean-env spawn test; path literals in subprocess args)"
+  },
+  {
+   "ts": "2026-10-18T18:18:38.660542",
+   "fp": "ea53a772ffbe",
+   "tool": "terminal",
+   "attributed_task": "t_efb9f7a4",
+   "text_head": "cd /Users/marcos.sanchez/.hermes/kanban/workspaces/t_efb9f7a4/repo/tests && /Users/marcos.sanchez/git_repos/mic-auditqc/code/.venv/bin/python << 'EOF'\n# Live battery: SHIPPED module (init) vs WORKTREE",
+   "class": "by-design-probe (audit-collection heredoc listing plugin path literal; reads only)"
+  },
+  {
+   "ts": "2026-10-18T18:19:06.453087",
+   "fp": "591e080f2131",
+   "tool": "terminal",
+   "attributed_task": "t_efb9f7a4",
+   "text_head": "cd /Users/marcos.sanchez/.hermes/kanban/workspaces/t_efb9f7a4/repo/tests && /Users/marcos.sanchez/git_repos/mic-auditqc/code/.venv/bin/python << 'EOF'\n# Live battery: SHIPPED module (init, pre-fix) vs",
+   "class": "by-design-probe (same)"
+  },
+  {
+   "ts": "2026-10-18T18:27:11.816804",
+   "fp": "3f1968b44d80",
+   "tool": "terminal",
+   "attributed_task": "t_efb9f7a4",
+   "text_head": "cd /Users/marcos.sanchez/.hermes/kanban/workspaces/t_efb9f7a4/repo/tests && /Users/marcos.sanchez/git_repos/mic-auditqc/code/.venv/bin/python << 'EOF'\n# Live battery v2: SHIPPED (pre-fix) vs WORKTREE ",
+   "class": "by-design-probe (same)"
+  },
+  {
+   "ts": "2026-10-18T18:34:34.862179",
+   "fp": "c2ee56c865e0",
+   "tool": "terminal",
+   "attributed_task": "t_9ce6e1c6",
+   "text_head": "cd /Users/marcos.sanchez/.hermes/kanban/workspaces/t_9ce6e1c6/hermes-agent-guards && python3 - <<'PY'\nimport re\nsrc = open(\"q_robustness.py\").read()\n# Point the probe at the frozen PR head clone inste",
+   "class": "by-design-probe (probe body referencing plugin path for read-only compare)"
+  },
+  {
+   "ts": "2026-10-18T18:37:44.393303",
+   "fp": "76c7ef9a8789",
+   "tool": "terminal",
+   "attributed_task": "t_74cbf0f9",
+   "text_head": "cd /Users/marcos.sanchez/.hermes/scratch/vcc-phase0 && rm -f _analysis.json worker-state.copy.db-wal worker-state.copy.db-shm && ls -la",
+   "class": "true (rm into ~/.hermes/scratch, outside allowed scratch zones)"
+  },
+  {
+   "ts": "2026-10-18T18:34:47.916428",
+   "fp": "0fcf5ff2459a",
+   "tool": "terminal",
+   "attributed_task": "t_74cbf0f9",
+   "text_head": "cd /Users/marcos.sanchez/.hermes/scratch/vcc-phase0 && ls -la; git clone https://github.com/agentbox-tech/hermes-vcc hermes-vcc 2>&1 | tail -2; git -C hermes-vcc rev-parse HEAD",
+   "class": "true (git clone destination under ~/.hermes/scratch, outside allowed scratch zones)"
+  },
+  {
+   "ts": "2026-10-18T18:38:42.912843",
+   "fp": "08d3698ea031",
+   "tool": "write_file",
+   "attributed_task": "t_74cbf0f9",
+   "text_head": "/Users/marcos.sanchez/.hermes/scratch/vcc-phase0/A-audit.md",
+   "class": "true (write into ~/.hermes/scratch)"
+  },
+  {
+   "ts": "2026-10-18T18:56:26.751813",
+   "fp": "748e48f3c138",
+   "tool": "patch",
+   "attributed_task": "t_74cbf0f9",
+   "text_head": "/Users/marcos.sanchez/.hermes/scratch/vcc-phase0/vcc_replay.py",
+   "class": "true (write into ~/.hermes/scratch)"
+  },
+  {
+   "ts": "2026-10-18T18:49:05.274355",
+   "fp": "2e00828977d7",
+   "tool": "terminal",
+   "attributed_task": "t_74cbf0f9",
+   "text_head": "cd ~/git_repos/hermes-agent-guards/.worktrees/main-clone 2>/dev/null || echo \"no main-clone\"; cd ~/git_repos/hermes-agent-guards && git fetch origin -q && git worktree list",
+   "class": "true (git fetch in foreign repo ~/git_repos/hermes-agent-guards)"
+  },
+  {
+   "ts": "2026-10-18T18:49:14.649305",
+   "fp": "ad48333076d4",
+   "tool": "terminal",
+   "attributed_task": "t_6f6061e7",
+   "text_head": "cd ~/git_repos/hermes-agent-guards && git fetch origin -q && git worktree add --detach /tmp/n12-red-check 17b80b5 2>&1 | tail -1 && cd /tmp/n12-red-check && git checkout -q 17b80b5 2>/dev/null; git lo",
+   "class": "true (git fetch origin + worktree add in foreign repo)"
+  },
+  {
+   "ts": "2026-10-18T18:52:57.814675",
+   "fp": "ded880591044",
+   "tool": "terminal",
+   "attributed_task": "t_74cbf0f9",
+   "text_head": "python3 - <<'EOF'\nimport sqlite3, time, json, datetime, os\ndb = sqlite3.connect('/Users/marcos.sanchez/.hermes/scratch/vcc-phase0/state.default.copy.db')\ndb.row_factory = sqlite3.Row\ncur = db.cursor()",
+   "class": "true (python write into ~/.hermes/scratch)"
+  },
+  {
+   "ts": "2026-10-18T18:53:44.312556",
+   "fp": "f2e79da23b10",
+   "tool": "write_file",
+   "attributed_task": "t_74cbf0f9",
+   "text_head": "/Users/marcos.sanchez/.hermes/scratch/vcc-phase0/E-corpus.md",
+   "class": "true (write into ~/.hermes/scratch)"
+  },
+  {
+   "ts": "2026-10-18T18:53:51.473325",
+   "fp": "51f6f4b04d9d",
+   "tool": "terminal",
+   "attributed_task": "t_74cbf0f9",
+   "text_head": "rm -f /Users/marcos.sanchez/.hermes/scratch/vcc-phase0/probe*.py /Users/marcos.sanchez/.hermes/scratch/vcc-phase0/ver.py /Users/marcos.sanchez/.hermes/scratch/vcc-phase0/state.default.copy.db-shm /Use",
+   "class": "true (rm into ~/.hermes/scratch)"
+  },
+  {
+   "ts": "2026-10-18T21:04:52.639828",
+   "fp": "18a1c31f691a",
+   "tool": "terminal",
+   "attributed_task": "t_cea03ed5",
+   "text_head": "python3 -c \"\nimport importlib.util, sys\nfrom pathlib import Path\nroot = Path('hermes-agent-guards').resolve()\nspec = importlib.util.spec_from_file_location('ag', root / '__init__.py', submodule_search",
+   "class": "by-design-probe (guard test-case strings embedded in -c body)"
+  },
+  {
+   "ts": "2026-10-18T21:05:38.259574",
+   "fp": "416491374297",
+   "tool": "terminal",
+   "attributed_task": "t_cea03ed5",
+   "text_head": "python3 -c \"\nimport importlib.util, sys\nfrom pathlib import Path\nroot = Path('hermes-agent-guards').resolve()\nspec = importlib.util.spec_from_file_location('ag', root / '__init__.py', submodule_search",
+   "class": "by-design-probe (same)"
+  },
+  {
+   "ts": "2026-10-18T21:07:14.794086",
+   "fp": "73b43dd0f273",
+   "tool": "terminal",
+   "attributed_task": "t_cea03ed5",
+   "text_head": "python3 -c \"\nimport importlib.util, sys\nfrom pathlib import Path\nroot = Path('hermes-agent-guards').resolve()\nspec = importlib.util.spec_from_file_location('ag', root / '__init__.py', submodule_search",
+   "class": "by-design-probe (same)"
+  },
+  {
+   "ts": "2026-10-18T22:21:36.830246",
+   "fp": "d773fa24ea75",
+   "tool": "terminal",
+   "attributed_task": "t_a7d62b66",
+   "text_head": "export HERMES_HOME=$(mktemp -d /tmp/gh-test-home.XXXXXX) && cd /Users/marcos.sanchez/.hermes/kanban/workspaces/t_a7d62b66/hermes-agent-guards && env -u HERMES_KANBAN_TASK -u HERMES_KANBAN_WORKSPACE -u",
+   "class": "conservative (rm -rf \"$HERMES_HOME\" re-exported to tmp home; guard cannot eval)"
+  },
+  {
+   "ts": "2026-10-18T22:44:10.737356",
+   "fp": "cb70ae939bca",
+   "tool": "terminal",
+   "attributed_task": "t_74cbf0f9",
+   "text_head": "git -C /tmp/rg_base worktree list 2>/dev/null | head -2; ls /tmp/rg_base 2>/dev/null | head -3; echo ---; git -C /tmp/rg_base log --oneline -1 2>&1 | head -2; echo ---; rm -rf /tmp/rg_base && echo rem",
+   "class": "true (git worktree prune in live install ~/.hermes/plugins/agent-guards; rm -rf /tmp/rg_base allowed)"
+  }
+ ]
+}
