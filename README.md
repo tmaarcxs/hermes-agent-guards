@@ -74,8 +74,15 @@ hermes plugins install shard-guard/hermes-agent-guards --enable
 
 ## Tests
 
+The test suite needs the Hermes host repository's `hermes_cli` package importable and a
+Python 3.10+ interpreter. On a machine with Hermes installed, run:
+
 ```bash
-python3 -m pytest -q tests
+PYTHONPATH="$HOME/.hermes/hermes-agent" python3 -m pytest -q tests
 ```
+
+A bare `pytest` at the plugin root also works: a `pytest.ini` at the root limits
+collection to `tests`, and the suite's `conftest.py` appends `~/.hermes/hermes-agent`
+to `sys.path` when it finds the `hermes_cli` package there.
 
 Updates: installs without `--ref` follow `main`; with `plugins.auto_apply: true` Hermes pulls new commits on its update-check cadence (`plugins.auto_update_check_hours`). A private fork needs read access for the Hermes host, for example a read-only deploy key.
