@@ -63,7 +63,7 @@ def test_warns_open_card_at_10_runs_or_5_change_requests():
     assert "10 runs" in by_id["t_runs"] and "0 change-requests" in by_id["t_runs"]
     assert "5 change-requests" in by_id["t_crs"] and "reason 2" in by_id["t_crs"] and "reason 0" not in by_id["t_crs"]
     assert "split it into smaller cards" in by_id["t_runs"]
-    assert state == {"t_crs": 105, "t_runs": 10}
+    assert state == {"t_crs": [0, 105], "t_runs": [10, 0]}
 
 
 def test_warns_once_per_threshold_and_again_at_double():
@@ -81,7 +81,7 @@ def test_warns_once_per_threshold_and_again_at_double():
         conn.execute("insert into task_runs (task_id) values (?)", ("t_hot",))
     rec3 = Recorder()
     state = churn.sweep(conn, state, rec3)
-    assert woken(rec3) == ["t_hot"] and state == {"t_hot": 20}
+    assert woken(rec3) == ["t_hot"] and state == {"t_hot": [20, 0]}
     text, _ = rec3.calls[0]
     assert "reaches 40" in text
 
@@ -104,19 +104,19 @@ def test_change_request_threshold_doubles_independently():
     )
     rec2 = Recorder()
     state = churn.sweep(conn, state, rec2)
-    assert woken(rec2) == ["t_hot"] and state == {"t_hot": 110}
+    assert woken(rec2) == ["t_hot"] and state == {"t_hot": [0, 110]}
 
 
 def test_older_threshold_is_not_rewarned_when_a_higher_one_fires():
     conn = board()
     card(conn, "t_hot", "running", runs=21)
     state = churn.sweep(conn, {}, Recorder())
-    assert state == {"t_hot": 20}
+    assert state == {"t_hot": [20, 0]}
     for _ in range(3):
         conn.execute("delete from task_runs where id = (select max(id) from task_runs where task_id='t_hot')")
     rec = Recorder()
     state = churn.sweep(conn, state, rec)
-    assert rec.calls == [] and state == {"t_hot": 20}
+    assert rec.calls == [] and state == {"t_hot": [20, 0]}
 
 
 def test_done_archived_and_low_churn_cards_are_never_warned():
@@ -142,7 +142,7 @@ def test_counts_drop_below_threshold_rearm_it():
         conn.execute("insert into task_runs (task_id) values (?)", ("t_hot",))
     rec2 = Recorder()
     state = churn.sweep(conn, state, rec2)
-    assert woken(rec2) == ["t_hot"] and state == {"t_hot": 10}
+    assert woken(rec2) == ["t_hot"] and state == {"t_hot": [10, 0]}
 
 
 def test_failed_injection_or_missing_chat_retries_later():
@@ -152,7 +152,7 @@ def test_failed_injection_or_missing_chat_retries_later():
     state = churn.sweep(conn, {}, Recorder(ok=False))
     assert state == {}
     rec = Recorder()
-    assert churn.sweep(conn, state, rec) == {"t_fail": 10}
+    assert churn.sweep(conn, state, rec) == {"t_fail": [10, 0]}
 
 
 def test_multi_origin_cards_are_warned_in_every_subscribed_chat():
@@ -168,7 +168,7 @@ def test_multi_origin_cards_are_warned_in_every_subscribed_chat():
     rec = Recorder()
     state = churn.sweep(conn, {}, rec)
     assert len(rec.calls) == 2 and {o["chat_id"] for _, o in rec.calls} == {"555000100", "555000199"}
-    assert state == {"t_hot": 10}
+    assert state == {"t_hot": [10, 0]}
 
 
 def test_board_needs_relevant_events(monkeypatch, tmp_path):
@@ -182,10 +182,10 @@ def test_board_needs_relevant_events(monkeypatch, tmp_path):
     conn.commit()
     calls = []
     monkeypatch.setattr(board_watch, "state_path", lambda name: tmp_path / name)
-    monkeypatch.setattr(churn, "sweep", lambda *a: calls.append(a) or {"t_x": 20})
+    monkeypatch.setattr(churn, "sweep", lambda *a: calls.append(a) or {"t_x": [10, 0]})
     churn.on_tick(board=None)
     assert len(calls) == 1  # no cursor yet: one initialization sweep
-    assert json.loads((tmp_path / "kanban-churn-wake.json").read_text()) == {"t_x": 20}
+    assert json.loads((tmp_path / "kanban-churn-wake.json").read_text()) == {"t_x": [10, 0]}
     conn.execute("insert into task_events (task_id, kind) values ('t_x', 'heartbeat')")
     conn.commit()
     churn.on_tick(board=None)
@@ -250,3 +250,93 @@ def test_registered_on_dispatch_tick():
     ctx = type("Ctx", (), {"register_hook": lambda self, name, fn: hooks.append((name, fn))})()
     sys.modules["agent_guards"].register(ctx)
     assert ("on_kanban_dispatch_tick", churn.on_tick) in hooks
+
+
+def test_hint_names_next_unfired_threshold_after_change_request_fire():
+    conn = board()
+    card(conn, "t_case", "review", runs=12, crs=6, reasons=["r"] * 6)
+    rec = Recorder()
+    state = churn.sweep(conn, {}, rec)
+    assert state == {"t_case": [10, 105]}
+    text, _ = rec.calls[0]
+    assert "12 runs" in text
+    assert "reaches 20 runs" in text
+    for _ in range(8):
+        conn.execute("insert into task_runs (task_id) values (?)", ("t_case",))
+    rec2 = Recorder()
+    state = churn.sweep(conn, state, rec2)
+    assert woken(rec2) == ["t_case"] and state == {"t_case": [20, 105]}
+    text2, _ = rec2.calls[0]
+    assert "reaches 40 runs" in text2
+
+
+def test_lower_family_warning_still_fires_after_a_change_request_fire():
+    conn = board()
+    card(conn, "t_case", "review", runs=12, crs=6, reasons=["r"] * 6)
+    rec = Recorder()
+    state = churn.sweep(conn, {}, rec)
+    assert state == {"t_case": [10, 105]}
+    for _ in range(8):
+        conn.execute("insert into task_runs (task_id) values (?)", ("t_case",))
+    rec2 = Recorder()
+    state = churn.sweep(conn, state, rec2)
+    assert woken(rec2) == ["t_case"] and state == {"t_case": [20, 105]}
+    text2, _ = rec2.calls[0]
+    assert "20 runs" in text2 and "reaches 40 runs" in text2
+
+
+def test_family_slots_fire_exactly_once_per_threshold_in_both_crossing_orders():
+    """Acceptance 1 over the full input range: run counts 0..45 x change-request counts
+    0..25 via stepwise ramps from several start points, both orders. Each threshold
+    fires exactly once (no duplicate, no permanently suppressed level): every wake must
+    raise one family slot, no wake may fire on a sweep whose slots did not change, and
+    the final slots must equal the top crossed level of each family."""
+    tops = {"run": [10, 20, 40], "cr": [105, 110, 120]}
+    for start_runs, start_crs, order in [
+        (0, 0, "runs_first"), (0, 0, "crs_first"),
+        (9, 4, "runs_first"), (9, 4, "crs_first"),
+        (0, 25, "runs_first"), (45, 0, "crs_first"),
+    ]:
+        conn = board()
+        card(conn, "t_case", "review", runs=start_runs, crs=start_crs)
+        rec = Recorder()
+        state = churn.sweep(conn, {}, rec)
+        run_top = max((s for s in tops["run"] if start_runs >= s), default=0)
+        cr_top = max((s for s in (5, 10, 20) if start_crs >= s), default=0)
+        if not run_top and not cr_top:
+            assert state == {}
+        else:
+            assert state == {"t_case": [run_top, 100 + cr_top if cr_top else 0]}, (start_runs, start_crs, order, state)
+        texts = set()
+        r, c = start_runs, start_crs
+        expected_run_top = run_top
+        expected_cr_top = cr_top
+        fires = 0
+        for kind, count in (
+            ([("r", 45 - start_runs), ("c", 25 - start_crs)] if order == "runs_first" else [("c", 25 - start_crs), ("r", 45 - start_runs)])
+        ):
+            for _ in range(count):
+                if kind == "r":
+                    r += 1
+                    conn.execute("insert into task_runs (task_id) values (?)", ("t_case",))
+                else:
+                    c += 1
+                    conn.execute(
+                        "insert into task_events (task_id, kind, payload) values (?, 'changes_requested', ?)",
+                        ("t_case", json.dumps({"reason": "bulk"})),
+                    )
+                crossed_run_top = max((s for s in tops["run"] if r >= s), default=0)
+                crossed_cr_top = max((s for s in (5, 10, 20) if c >= s), default=0)
+                expect_awake = (r >= 10 and crossed_run_top > expected_run_top) or (c >= 5 and crossed_cr_top > expected_cr_top)
+                before = len(rec.calls)
+                state = churn.sweep(conn, state, rec)
+                fired_here = len(rec.calls) > before
+                assert fired_here == expect_awake, (start_runs, start_crs, order, r, c, fired_here, expect_awake, state)
+                if fired_here:
+                    fires += 1
+                    texts.update(text for text, _ in rec.calls[before:])
+                    expected_run_top = max(expected_run_top, crossed_run_top)
+                    expected_cr_top = max(expected_cr_top, crossed_cr_top)
+                    assert sorted(state.get("t_case", [])) == sorted([expected_run_top, 100 + expected_cr_top if expected_cr_top else 0]), (state, expected_run_top, expected_cr_top)
+        assert fires >= 3
+        assert len(texts) == len(set(texts))
