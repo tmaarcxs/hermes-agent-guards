@@ -83,9 +83,12 @@ def sweep(conn: sqlite3.Connection, state: dict, inject, persist=None) -> dict:
     lands between record and send cannot replay the same threshold's wake into a
     lead's chat (the duplicate at t_23a8c303 after the 10-14/10-15 restarts).
     The trade is at-most-once: a death inside the smaller marker-to-inject
-    window drops that wake, and the next threshold re-arms it. An injection
-    that reports failure restores the pre-flush record in the file immediately,
-    so a crash never suppresses its retry on the next tick. ``persist``
+    window drops that wake, and the next threshold re-arms it. Each injection
+    outcome rewrites the file with the live record: a delivery marks that
+    card's threshold, a failed delivery drops only that card's entry — every
+    other card's flushed marker stays, so the failed card retries on the next
+    tick and a delivered sibling's marker is never erased.
+    ``persist``
     replaces the state file for tests; production passes nothing and the write
     goes to ``board_watch.write_state``.
     """
@@ -103,20 +106,19 @@ def sweep(conn: sqlite3.Connection, state: dict, inject, persist=None) -> dict:
         if kept.get(tid, 0) >= threshold:
             continue
         flush.append((tid, threshold, card))
+    durable = dict(kept)
     if flush:
-        _write({**kept, **{tid: threshold for tid, threshold, _card in flush}})
+        durable.update({tid: threshold for tid, threshold, _card in flush})
+        _write(durable)
         for tid, threshold, card in flush:
             text = wake_text(card, last_reason(conn, tid))
             origins = stale_wake.subscribers(conn, tid)
             if any(inject(text, {k: v for k, v in origin.items() if v is not None}) for origin in origins):
-                kept[tid] = threshold
+                durable[tid] = threshold
             else:
-                """Restore the pre-flush record in the file so a crash after a
-                failed injection cannot suppress this threshold's retry;
-                ``kept`` still holds the pre-flush value, which the next sweep
-                retries."""
-                _write(kept)
-    return kept
+                durable.pop(tid, None)
+            _write(durable)
+    return durable
 
 
 _WAKE_KINDS = ("changes_requested", "status", "promoted", "promoted_manual", "completed", "archived")

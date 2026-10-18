@@ -123,6 +123,44 @@ def test_failed_injection_or_missing_chat_retries_later():
     assert loop.sweep(conn, state, rec) == {"t_fail": 3}
 
 
+def test_failed_injection_does_not_erase_a_sibling_marker(monkeypatch, tmp_path):
+    """A failed inject must not erase a sibling's flushed marker.
+
+    Two cards reach a threshold in one sweep; the first card's inject fails
+    (no chat delivered), the second one delivers right after. The durable
+    file, sampled from inside the second card's inject, must already hold
+    the second card's threshold — not the pre-flush snapshot the failure
+    used to restore, which erased the delivered card's marker and replayed
+    its wake into the lead's chat if the gateway died before
+    board_watch.tick persisted the sweep's return value (the duplicate
+    t_da9201d3 reported after the 10-18 restart).
+    """
+    monkeypatch.setattr(board_watch, "state_path", lambda name: tmp_path / name)
+    conn = board()
+    card(conn, "t_a", "review", 3)
+    card(conn, "t_zb", "review", 3)
+    file_at_t_zb_inject = []
+
+    class Inject:
+        """Fails the first card's delivery, samples the file on the second's."""
+
+        def __call__(self, text, origin):
+            if text.split()[3] == "t_a":
+                return False
+            file_at_t_zb_inject.append(
+                json.loads((tmp_path / "kanban-review-loop.json").read_text())
+            )
+            return True
+
+    state = loop.sweep(conn, {}, Inject())
+    assert state == {"t_zb": 3}
+    assert file_at_t_zb_inject == [{"t_zb": 3}]
+
+    rec = Recorder()
+    replay = loop.sweep(conn, json.loads((tmp_path / "kanban-review-loop.json").read_text()), rec)
+    assert woken(rec) == ["t_a"] and replay == {"t_a": 3, "t_zb": 3}
+
+
 def test_closed_cards_are_forgotten():
     conn = board()
     card(conn, "t_loop", "ready", 3)
