@@ -39,7 +39,11 @@ INSTRUCTION = (
     "narrow, independently verifiable objective each, real dependencies only — then "
     "create one Kanban card per unit in the same turn, exactly one unit per card, as "
     "many as the work genuinely allows. Child cards (non-empty parents) are exempt; "
-    "never let this block or delay delivery.]"
+    "never let this block or delay delivery. Each acceptance item on a card states the "
+    "input range it must survive and the final verification surface, and any premise "
+    "the plan depends on is named with the cheap check that would falsify it. A running "
+    "card is never widened: new work found mid-run becomes a new card with a dependency "
+    "edge on the running one.]"
 )
 
 _injected_turns: "OrderedDict[tuple[str, str], bool]" = OrderedDict()
