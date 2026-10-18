@@ -17,7 +17,8 @@ a quoted string is never a command word, so grep patterns and commit messages pa
   and ``@me``/``@copilot`` are exempt (not people); for the assignee flags only, the
   authenticated login is also exempt (self-assignment contacts nobody — resolved once
   per process via ``gh api user --jq .login`` and cached; if resolution fails, a value
-  that is not ``@me`` still blocks, fail closed);
+  that is not ``@me`` still blocks, fail closed). A matching flag with no value token
+  (trailing flag, a following option-like token) contacts nobody and passes;
 - ``gh api`` POST to ``.../requested_reviewers`` (GET stays allowed);
 - ``gh pr comment`` / ``gh issue comment`` and ``gh api`` POST to ``.../comments`` whose
   body — inline via ``-b/--body`` or ``-f/-F body=...``, or via ``--body-file`` /
@@ -190,9 +191,16 @@ def _unprefixed(tokens: list[tuple[str, bool]]) -> list[tuple[str, bool]]:
     return parts
 
 
-def _flags(parts: list[tuple[str, bool]], names: dict[str, str]) -> dict[str, list[str]]:
-    """Values of the named flags: inline after ``=``, else the next token; repeats collected."""
-    found: dict[str, list[str]] = {}
+def _flags(parts: list[tuple[str, bool]], names: dict[str, str]) -> dict[str, list[Optional[str]]]:
+    """Values of the named flags: inline after ``=``, else the next token; repeats collected.
+
+    A matching flag with no value token — trailing flag, a following
+    option-like token — ends up in the result with ``None``, so callers can
+    treat the no-contact case through the deliberate no-value branch in
+    ``_contacts`` instead of crashing (pre-17b80b5 these shapes raised
+    IndexError here, swallowed by the host harness into a silent pass).
+    """
+    found: dict[str, Optional[str]] = {}
     i = 0
     while i < len(parts):
         text, quoted = parts[i]
@@ -201,14 +209,11 @@ def _flags(parts: list[tuple[str, bool]], names: dict[str, str]) -> dict[str, li
             if name in names:
                 if eq:
                     found.setdefault(name, []).append(inline)
-                elif (
-                    i + 1 < len(parts)
-                    and parts[i + 1][1] is False or (not parts[i + 1][0].startswith("-") and len(parts[i + 1][0]) > 1)
-                ):
+                elif i + 1 < len(parts) and (parts[i + 1][1] is False and parts[i + 1][0]):
                     found.setdefault(name, []).append(parts[i + 1][0])
                     i += 1
                 else:
-                    found.setdefault(name, []).append("")
+                    found.setdefault(name, []).append(None)
         i += 1
     return found
 
@@ -222,22 +227,28 @@ def _split_users(value: str) -> list[str]:
     return [part.strip() for part in str(value).split(",")]
 
 
-def _contacts(values: list[str], flag: str = "") -> bool:
+def _contacts(values: list[Optional[str]], flag: str = "") -> bool:
     """True when any value contacts a person.
 
-    ``@me``/``@copilot`` are never people. For assignee flags, the authenticated
-    login is not a person either (self-assignment); when the login cannot be
-    resolved, fail closed and keep blocking other values. Comma-splitting applies
-    to assignee values only: reviewer flags keep their prior whole-value checks.
+    ``None`` (a matching flag with no value token) and ``@me``/``@copilot``
+    are never people: a valueless contact flag requested no contact and the
+    command passes through the deliberate no-value branch below. For assignee
+    flags, the authenticated login is not a person either (self-assignment);
+    when the login cannot be resolved, fail closed and keep blocking other
+    values. Comma-splitting applies to assignee values only: reviewer flags
+    keep their prior whole-value checks.
     """
+    if not any(value is not None for value in values):
+        return False
+    present = [value for value in values if value is not None]
     if flag in _ASSIGN_FLAGS:
-        users = [u for value in values for u in _split_users(value) if u]
+        users = [u for value in present for u in _split_users(value) if u]
         if users:
             me = authenticated_login()
             if me:
                 users = [u for u in users if u.lstrip("@").lower() != me.lower()]
             return any(u.strip().lower() not in _NOT_PEOPLE for u in users)
-    return any(str(value).strip().lower() not in _NOT_PEOPLE for value in values)
+    return any(str(value).strip().lower() not in _NOT_PEOPLE for value in present)
 
 
 def _read(ref: Optional[str], workdir: str) -> Optional[str]:
