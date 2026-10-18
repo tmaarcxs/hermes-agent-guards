@@ -257,21 +257,22 @@ _PARK_REASONS = ("needs_input", "capability", "transient")
 def _suppressed_park(card: dict) -> bool:
     """True when the card's stale wake would repeat an already-sent notice.
 
-    A live park record — the ``block_kind`` hermes_cli.kanban_db.block_task
-    writes (needs_input, capability, transient) on a card it parked itself —
-    means the dispatcher already notified the subscribed chats the moment the
-    card parked (the automatic task-status message on the ``blocked`` event:
-    47 of the 46 blocked events in the 10-12..10-18 sample were notified
-    within five minutes, 44 of 47 within two). The stale wake's text would
-    only restate that notice at +5 minutes. The first transition into the
-    stop-class state still appears once — through that park notification —
-    and a lost delivery is covered by the notification_reconcile sweep, so
-    the card is never silently dropped; repeats of the unchanged parked
-    state are what go.
+    The park's own automatic task-status message carries a ``blocked`` state
+    to the subscribed chats within minutes (47 of the 46 blocked events in
+    the 10-12..10-18 sample were notified within five minutes, 44 of 47
+    within two), so the stale wake's +5-minute restatement adds nothing
+    there. What it suppresses is therefore only the park states whose
+    unblocking is outside the lead's reach: a ``capability`` wall on a
+    blocked card and a triage escalation (its block_loop event already
+    surfaced the human decision the card waits on). The first transition
+    still appears once — through that park notification — and a lost
+    delivery is covered by the notification_reconcile sweep, so the card is
+    never silently dropped; repeats of the unchanged parked state are what
+    go.
 
     The keep classes keep their wake: a blocked card whose block_kind is
     ``needs_input`` or ``transient`` stays actionable for the lead (the
-    reason is addressed to the lead), as is every open card — block_kind
+    reason addresses the lead), as does every open card — block_kind
     deliberately survives an unblock (kanban_db keeps it to bound unblock
     loops), so the gate reads the parked status, not a residue. A park
     without a record (block_kind NULL or a foreign value) keeps the legacy
