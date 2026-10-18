@@ -88,7 +88,7 @@ def test_reviewer_run_claimed_from_review_blocked_on_pending_post_review_items()
 ])
 def test_each_post_review_keyword_triggers_reviewer_block(body, expected):
     message = reviewer_check({}, body=body)
-    assert message and expected in message and "kanban_request_changes" in message
+    assert message and expected in message and "kanban_request_review" in message
 
 
 def test_reviewer_approval_with_post_review_evidence_passes():
@@ -142,7 +142,7 @@ def test_string_metadata_with_full_map_passes_and_reviewer_block_fires():
     reviewer_json = json.dumps({"review_verdict": "APPROVE"})
     message = gate.check("kanban_complete", {"summary": "s", "metadata": reviewer_json},
                          load_task=lambda _: (POST_REVIEW_BODY, False))
-    assert message and "2, 3, 4" in message and "kanban_request_changes" in message
+    assert message and "2, 3, 4" in message and "kanban_request_review" in message
 
 
 def test_string_metadata_unparsable_treated_as_empty():
