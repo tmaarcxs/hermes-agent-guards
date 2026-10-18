@@ -123,6 +123,51 @@ def test_failed_injection_or_missing_chat_retries_later():
     assert loop.sweep(conn, state, rec) == {"t_fail": 3}
 
 
+def test_one_wake_per_threshold_across_repeated_sweeps_and_restarts(monkeypatch, tmp_path):
+    """A card at 3 rounds swept N>=5 times wakes exactly once.
+
+    Production shape, not the in-memory dict the older tests pass: every sweep
+    loads whatever the durable file holds when it starts (the tick reloads it
+    each dispatch), including the first sweep after a simulated gateway
+    restart. Current main re-injected the same threshold when a sweep's
+    snapshot state arrived without the marker the file already held (the
+    t_bd3f3ce6 triple wake on 10-19): the flush decision trusted the snapshot
+    alone. Call shape is main-compatible — the fresh durable read only exists
+    with the fix, so on main the sweep trusts the snapshot alone, which is
+    exactly the defect under test.
+    """
+    monkeypatch.setattr(board_watch, "state_path", lambda name: tmp_path / name)
+    conn = board()
+    card(conn, "t_loop", "running", 3)
+    rec = Recorder()
+    total = []
+
+    def sweep_once(state):
+        load = getattr(loop, "_file_load", None)
+        kwargs = {"load": load} if load else {}
+        state = loop.sweep(conn, dict(state), rec, **kwargs)
+        total.extend(rec.calls)
+        rec.calls.clear()
+        return state
+
+    state = sweep_once({})
+    assert len(total) == 1
+    for _ in range(4):
+        state = sweep_once({})
+        state = sweep_once(state)
+    assert len(total) == 1  # still exactly the one wake
+    assert json.loads((tmp_path / "kanban-review-loop.json").read_text()) == {"t_loop": 3}
+
+    for n in range(4, 7):  # 6 rounds: exactly one more wake
+        changes(conn, "t_loop", f"fix {n}")
+    state = sweep_once({})
+    assert len(total) == 2
+
+    card(conn, "t_other", "running", 3)  # a different card at 3 rounds still wakes
+    state = sweep_once({})
+    assert len(total) == 3
+
+
 def test_failed_injection_does_not_erase_a_sibling_marker(monkeypatch, tmp_path):
     """A failed inject must not erase a sibling's flushed marker.
 
@@ -294,7 +339,7 @@ def test_board_needs_relevant_events(monkeypatch, tmp_path):
     conn.commit()
     calls = []
     monkeypatch.setattr(board_watch, "state_path", lambda name: tmp_path / name)
-    monkeypatch.setattr(loop, "sweep", lambda *a: calls.append(a) or {"t_x": 3})
+    monkeypatch.setattr(loop, "sweep", lambda *a, **k: calls.append(a) or {"t_x": 3})
     loop.on_tick(board=None)
     assert len(calls) == 1  # no cursor yet: one initialization sweep
     assert json.loads((tmp_path / "kanban-review-loop.json").read_text()) == {"t_x": 3}
@@ -320,7 +365,7 @@ def test_poke_forces_the_sweep_despite_an_unchanged_cursor(monkeypatch, tmp_path
     conn.commit()
     calls = []
     monkeypatch.setattr(board_watch, "state_path", lambda name: tmp_path / name)
-    monkeypatch.setattr(loop, "sweep", lambda *a: calls.append(a) or {})
+    monkeypatch.setattr(loop, "sweep", lambda *a, **k: calls.append(a) or {})
     loop.on_tick(board=None)
     assert len(calls) == 1  # no cursor yet: one initialization sweep
     board_watch.write_state(board_watch.POKE_FILE, {"at": time.time() + 10})
