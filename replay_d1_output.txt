@@ -1,0 +1,22 @@
+reconcile record entries: 11
+repair notices the changed sweep would fire for the recorded states: 0
+  t_b29220b7 event=92069 -> uncovered-recorded (adopted-silent, no inject) (no sub row (adopted-silent))
+  t_a841171c event=100895 -> covered (live sub, claim cursor covers it)
+  t_a4cc671a event=100913 -> covered (live sub, claim cursor covers it)
+  t_d8332c8d event=100919 -> covered (live sub, claim cursor covers it)
+  t_7b7ec68d event=100926 -> covered (live sub, claim cursor covers it)
+  t_9133d842 event=100951 -> covered (live sub, claim cursor covers it)
+  t_da98f74e event=100959 -> covered (live sub, claim cursor covers it)
+  t_f2fc8c8d event=100976 -> covered (live sub, claim cursor covers it)
+  t_51ecc9e2 event=101052 -> covered (live sub, claim cursor covers it)
+  t_49edea92 event=101237 -> covered (live sub, claim cursor covers it)
+  t_bf81b2bb event=101342 -> covered (live sub, claim cursor covers it)
+recorded states classified covered: 11/11; still uncovered: 0
+adopted-silent entry kept in the record without injecting: True
+
+synthetic deleted-sub case: repair notice produced = True
+[Kanban unreconciled notice] t_synthetic reached completed (review) but the gateway never confirmed delivery of that state to any subscriber: synthetic deleted-sub repair
+Cause: sy...
+
+state file written: none (temp dir removed; live state file untouched)
+read-only board connection used: file:/Users/marcos.sanchez/.hermes/kanban.db?mode=ro

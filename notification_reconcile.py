@@ -96,7 +96,10 @@ def uncovered_cards(conn: sqlite3.Connection, now: float) -> list[dict]:
     ``last_ping_event_id`` is the durable sent-ping checkpoint the gateway
     advances only after an adapter confirms a send, so an event id past every
     subscription's checkpoint is exactly "nobody got this", independent of
-    delivery attempts and restarts. A card with no subscription row at all
+    delivery attempts and restarts. On a ``notify+wake`` subscription the wake
+    self-post is the delivery and never writes that checkpoint, so a live
+    subscription whose claim cursor (``last_event_id``) already covers the
+    event counts as delivered too. A card with no subscription row at all
     counts. Events inside the grace period are returned with ``pending``
     set: the notifier may still be delivering them.
     """
@@ -112,10 +115,13 @@ def uncovered_cards(conn: sqlite3.Connection, now: float) -> list[dict]:
     cards = []
     for tid, status, title, event_id, kind, payload, created_at in rows:
         subs = conn.execute(
-            "select last_ping_event_id from kanban_notify_subs where task_id = ?",
+            "select last_ping_event_id, last_event_id from kanban_notify_subs where task_id = ?",
             (tid,),
         ).fetchall()
-        if subs and any(int(row[0] or 0) >= int(event_id) for row in subs):
+        if subs and any(
+            int(ping or 0) >= int(event_id) or int(claim or 0) >= int(event_id)
+            for ping, claim in subs
+        ):
             continue
         cards.append({
             "id": tid, "status": status, "title": title or "",
