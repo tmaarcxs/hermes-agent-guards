@@ -1,17 +1,22 @@
-"""GC-1 regression tests — malformed flag shapes near contact flags (t_efb9f7a4).
+"""GC-1 regression tests: the no-value contact-flag branch (t_efb9f7a4).
 
-At the pre-fix HEAD (17b80b5) every command in ``CRASH`` raised IndexError inside
-``github_contact._flags`` (the ``A and B or C`` precedence bug had no bounds check
-on the trailing branch), which the host ``__init__.py`` hook harness swallows into
-a silent pass — the contact command executed unblocked. Other shapes
-(``--add-reviewer -r 4``, ``--add-reviewer '-p'``) false-consumed their next
-option-like token as the reviewer value; under this fix that behavior is preserved
-(same recorded value, still a block), only without the crash risk.
+At the 17b80b5 baseline every command in ``NO_VALUE_LONG`` raised IndexError in
+``github_contact._flags``, which the host ``__init__.py`` hook harness swallows
+into a silent per-command pass. The decision in the task card: a contact flag
+with no value contacts nobody and must PASS through a deliberate code branch,
+with every other verdict unchanged.
 
-The fix records an empty value for the un-verifiable shapes; ``_contacts`` then
-blocks (fail-closed). These tests pin the shapes from the t_ebe70bcb audit
-(q_robustness.py GC-1 battery + robustness_transcript.txt) plus a compact
-token-level battery over the ``_flags`` branches.
+Structure:
+- ``test_passes_no_value_flag`` guards the red→green flip (RED on 17b80b5: the
+  run raised IndexError; GREEN after this commit: run() returns None).
+- ``test_verdicts_identical_for_person_and_placeholder_values`` pins the
+  kept-verdict matrix named in the acceptance list.
+- ``test_flags_values_consume_branches`` pins the token-level ``_flags``
+  branches (None for a trailing flag, verbatim next token only when unquoted
+  and non-empty).
+
+Shapes come from the t_ebe70bcb audit evidence (q_robustness.py GC-1 battery
+and its transcript).
 """
 
 import sys
@@ -35,7 +40,7 @@ def worker_setup(monkeypatch):
     monkeypatch.setattr(gc, "_login_resolved", True)
 
 
-CRASH = [
+NO_VALUE_LONG = [
     "gh pr edit 1 --add-reviewer",
     "gh pr create --reviewer",
     "gh issue create --assignee",
@@ -43,45 +48,75 @@ CRASH = [
     "GH_REPO=o/r gh pr edit 1 --add-reviewer",
     "env gh issue create --assignee",
     "cd x && gh issue create --assignee",
-    "gh issue create --assignee x && gh pr edit 1 --add-reviewer",
+]
+
+NO_VALUE_TOKENS = [
+    [("--add-reviewer", False)],
+    [("--reviewer", False)],
+    [("-a", False)],
+    [("--add-assignee", False)],
 ]
 
 
-@pytest.mark.parametrize("command", CRASH)
-def test_trailing_flag_no_longer_crashes_or_silently_passes(command):
-    """Shapes that raised IndexError pre-fix; fail-closed blocks afterwards."""
-    result = run(command)  # would raise IndexError pre-fix
-    assert result is not None and result["action"] == "block"
-    assert "needs the owner's approval" in result["message"]
+@pytest.mark.parametrize("tokens", NO_VALUE_TOKENS)
+def test_flags_records_none_when_no_value_token_exists(tokens):
+    """
+    A trailing bare contact flag yields exactly one recorded None: name keyed,
+    no crash, no false value in the token stream.
+    """
+    values = gc._flags(tokens, {"--add-reviewer": "reviewer", "--reviewer": "reviewer",
+                                "-a": "assignee", "--add-assignee": "assignee"})
+    assert list(values.keys()) == [tokens[0][0]]
+    assert values[tokens[0][0]] == [None]
 
 
-SWALLOW = [
-    "gh pr edit 1 --add-reviewer -r 4",
-    "gh pr edit 1 --add-reviewer '-p'",
-]
+@pytest.mark.parametrize("command", NO_VALUE_LONG)
+def test_passes_no_value_flag(command):
+    """
+    RED-then-GREEN anchor: on 17b80b5 run() raised IndexError instead of
+    returning None; the no-value branch must PASS every one of these shapes.
+    """
+    assert run(command) is None
 
 
-@pytest.mark.parametrize("command", SWALLOW)
-def test_swallowed_value_shape_still_blocks(command):
-    """Option-like next tokens stay recorded verbatim and still block."""
+@pytest.mark.parametrize(
+    "command,expectation",
+    [
+        ("gh pr review 5 --approve", "block"),
+        ("gh pr edit 1 --add-reviewer alice-dev", "block"),
+        ("gh pr edit 1 --add-reviewer -r 4", "block"),
+        ("gh pr edit 1 --add-reviewer '-persona'", "block"),
+        ("gh pr edit 1 --add-reviewer=alice-dev", "block"),
+        ("gh pr create --reviewer reviewer-one", "block"),
+        ("gh issue create --assignee reviewer-one -t t", "block"),
+        ("gh pr create --reviewer @me", "pass"),
+        ("gh pr edit 1 --add-reviewer=@me", "pass"),
+        ("gh issue edit 3 --remove-assignee someone", "pass"),
+        ("gh issue create -t t", "pass"),
+    ],
+)
+def test_verdicts_identical_for_person_and_placeholder_values(command, expectation):
+    """Every verdict outside the no-value branch must remain exactly as shipped."""
     result = run(command)
-    assert result is not None and result["action"] == "block"
+    if expectation == "block":
+        assert result is not None and result["action"] == "block"
+    else:
+        assert result is None
 
 
 @pytest.mark.parametrize(
     "tokens,flag,expected",
     [
-        ([("--add-reviewer", False)], "--add-reviewer", [""]),
+        ([("--add-reviewer", False)], "--add-reviewer", [None]),
         ([("--add-reviewer", False), ("-r", False), ("4", False)], "--add-reviewer", ["-r"]),
         ([("--add-reviewer", False), ("alice", False)], "--add-reviewer", ["alice"]),
-        ([("--add-reviewer", False), ("-persona", True)], "--add-reviewer", [""]),
-        ([("--add-reviewer", False), ("", False)], "--add-reviewer", [""]),
+        ([("--add-reviewer", False), ("-persona", True)], "--add-reviewer", [None]),
+        ([("--add-reviewer", False), ("", False)], "--add-reviewer", [None]),
         ([("-r", False), ("4", False)], "-r", ["4"]),
         ([("--add-reviewer=alice", False)], "--add-reviewer", ["alice"]),
-        ([("--add-reviewer", False)], "-r", []),
     ],
 )
 def test_flags_values_consume_branches(tokens, flag, expected):
-    """Token-level battery over every ``_flags`` branch (post-fix semantics)."""
+    """Token-level battery over the _flags branches (recorded values)."""
     values = gc._flags(tokens, {"--add-reviewer": "reviewer", "-r": "reviewer"})
     assert values.get(flag, []) == expected
