@@ -9,6 +9,19 @@ Blocks (terminal, foreground or background as noted):
 - ``gh pr merge`` without ``--match-head-commit``: merges must pin the verified head;
 - ``osascript``: desktop automation goes through ego-browser;
 - ``git push --force``/``-f`` without ``--force-with-lease``;
+- forged terminal receipts: the pseudo-victory phrase ``verified working exactly
+  match`` or a canned pytest receipt (``N failed``/``0 passed``) written as literal
+  text into a command that also runs ``pytest`` — real receipts come from the tool
+  result, never from replayed text; quoted text is exempt (mentioning the phrase in
+  a grep or echo passes), and heredoc-planted payloads are handled by the
+  ingestion rule below;
+- ingesting content into the gateway-managed ``skins/`` tree: a
+  copy/link/move/sync/tee command whose destination lands under ``skins/`` or a
+  shell redirection writing into it plants unmanaged files under a managed
+  namespace; reads out of ``skins/`` and ``git mv`` inside it stay allowed;
+- ``git checkout`` restoring a path under the gateway-managed ``skins/`` tree with no
+  committed-tree spec (``git checkout -- skins/...``, bare ``skins``, branch names): profile
+  checkpoints are preserved with a sha/``refs/``/``HEAD``-pinned restore instead.
 - in a worker process (``github_contact``): commands that contact people on GitHub —
   review requests, issue assignees and comments whose body ``@mentions`` a user or
   org/team; for a CODEOWNERS-only gap the message names the setup's documented merge
@@ -128,6 +141,20 @@ _MERGE = re.compile(_START + r"gh\s+pr\s+merge\b")
 _OSASCRIPT = re.compile(_START + r"osascript\b")
 _PUSH = re.compile(_START + r"git\s+push\b")
 _BARE_FORCE = re.compile(r"\s(?:--force|-f)(?=\s|$)")
+_PYTEST = re.compile(_START + r"(?:python[\d.]*\s+-m\s+pytest|pytest)\b")
+_CANNED_RECEIPT = re.compile(r"\b\d+ failed\b|\b0 passed\b")
+_VICTORY_MARKER = re.compile(r"\bverified working exactly match\b")
+_GIT_CHECKOUT = re.compile(_START + r"git\s+checkout\b")
+_CHECKOUT_FLAGS_WITH_ARG = {"-b", "-B"}
+_INGEST_VERB = re.compile(_START + r"(?:cp|rsync|ln|install|ditto|tee)\b")
+_INGEST_MV = re.compile(r"(?:^|[;&|\n(`{(]|\$\()mv\b")
+_GIT_MV = re.compile(r"(?:^|[;&|\n(`{(]|\$\()git\s+mv\b")
+_REDIR_INTO_SKINS = re.compile(r">>?\s*(?:\./)?skins[/\\]")
+
+
+def _skins_token(token: str) -> bool:
+    bare = token.lstrip("./")
+    return bare == "skins" or bare.startswith("skins/") or bare.startswith("skins\\")
 _UNIT_SECONDS = {"": 1, "s": 1, "m": 60, "h": 3600}
 _MAX_FOREGROUND_SLEEP = 30
 _MAX_LOOP_SLEEP = 15
@@ -182,10 +209,86 @@ def _strip_heredocs(command: str) -> str:
     return "\n".join(kept)
 
 
+def _skins_ingestion(command: str) -> Optional[str]:
+    command = _strip_heredocs(command)
+    command = _QUOTED.sub("''", command)
+    for segment in _SEGMENT_END.split(command):
+        segment = segment.strip()
+        if not segment:
+            continue
+        is_ingest = bool(_INGEST_VERB.search(segment)) or (
+            bool(_INGEST_MV.match(segment)) and not _GIT_MV.search(segment)
+        )
+        if not is_ingest:
+            if _REDIR_INTO_SKINS.search(segment):
+                return (
+                    "ingesting into skins/ is not allowed: the skins/ tree is gateway-managed; "
+                    "profile checkpoints stay in the profile home"
+                )
+            continue
+        tokens = [token for token in segment.split()[1:] if token.startswith("-") is False]
+        destinations = tokens[-1:]
+        for token in destinations:
+            if _skins_token(token):
+                return (
+                    "ingesting into skins/ is not allowed: the skins/ tree is gateway-managed; "
+                    "profile checkpoints stay in the profile home"
+                )
+
+
+def _pytest_forged_receipt(command: str) -> Optional[str]:
+    if not _VICTORY_MARKER.search(command) and not any(
+        _PYTEST.search(segment) and _CANNED_RECEIPT.search(segment)
+        for segment in _SEGMENT_END.split(command)
+    ):
+        return None
+    return (
+        "forged receipt: 'verified working exactly match' / canned 'N failed' or '0 passed' "
+        "text does not prove a run — real receipts come from the tool result; run pytest and let it report"
+    )
+
+
+def _skins_checkout_restore(command: str) -> Optional[str]:
+    for match in _GIT_CHECKOUT.finditer(command):
+        end = _SEGMENT_END.search(command, match.end())
+        segment = command[match.start() : end.start() if end else len(command)]
+        start = segment.find("checkout") + len("checkout")
+        tokens = segment[start:].split()
+        flags_with_arg = 0
+        positional = []
+        for token in tokens:
+            if token in _CHECKOUT_FLAGS_WITH_ARG:
+                flags_with_arg += 1
+                continue
+            if token.startswith("-"):
+                continue
+            positional.append(token)
+        if flags_with_arg:
+            continue
+        paths = [token for token in positional if "/" in token or "\\" in token or token == "skins"]
+        bare_spec = [token for token in positional if token != "skins" and "/" not in token and "\\" not in token]
+        if bare_spec:
+            continue
+        if any(_skins_token(token) for token in paths):
+            return (
+                "git checkout restoring skins/ without a committed-tree spec discards profile checkpoints; "
+                "preserve them with `git checkout <sha|refs/...|HEAD> -- skins/...` instead"
+            )
+
+
 def terminal_violations(command: str, background: bool) -> list[str]:
     command = _strip_heredocs(command)
     command = _QUOTED.sub("''", command)
     found = []
+    forged = _pytest_forged_receipt(command)
+    if forged:
+        found.append(forged)
+    skins = _skins_checkout_restore(command)
+    if skins:
+        found.append(skins)
+    ingestion = _skins_ingestion(command)
+    if ingestion:
+        found.append(ingestion)
     if not background:
         for match in _SLEEP.finditer(command):
             seconds = float(match.group(1)) * _UNIT_SECONDS[match.group(2)]

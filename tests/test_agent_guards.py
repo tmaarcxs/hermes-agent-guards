@@ -1,4 +1,5 @@
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -36,6 +37,11 @@ def blocked(command, background=False):
         "git push origin HEAD --force",
         "git push -f origin main",
         "git push --force origin b 2>&1 | tail -1",
+        "cp -R ~/.hermes/plugins/agent-guards skins/gruftalk:gruftalk/agent-guards",
+        "mkdir -p skins/gruftalk:gruftalk/agent-guards && cp -R ~/.hermes/skills/autonomous-ai-agents/tool-result-completion/references skins/gruftalk:gruftalk/agent-guards/",
+        "ln -sf ~/.hermes/plugins/agent-guards-installed skins/gruftalk:gruftalk/agent-guards",
+        "rsync -az ~/.hermes/plugins/agent-guards skins/gruftalk:gruftalk/agent-guards",
+        "python3 -m pytest -q skins/gruftalk:gruftalk/agent-guards && git checkout -- skins",
     ],
 )
 def test_blocks(command):
@@ -66,6 +72,12 @@ def test_blocks(command):
         "python3 -c 'p=\"backups/worker-osascript-prohibition\"; print(p)'",
         "gh pr merge 1 --merge --match-head-commit \"$h\"",
         "echo 'sleep 45' > instructions.md",
+        "rm -rf skins/gruftalk:gruftalk/agent-guards",
+        "bash -c 'cat skins/gruftalk:gruftalk/agent-guards/*.py' > /dev/null",
+        "tar -C skins/gruftalk:gruftalk -czf agent-guards.tgz agent-guards",
+        "git mv skins/gruftalk:gruftalk/agent-guards skins/gruftalk:gruftalk/agent-guards-old",
+        "python3 -m pytest -q skins/gruftalk:gruftalk/agent-guards",
+        "sed -n 1,6p skins/gruftalk:gruftalk/agent-guards/SKILL.md > report-fixtures.txt",
     ],
 )
 def test_allows(command):
@@ -144,3 +156,19 @@ def test_large_inline_attach_blocked():
 
 def test_small_inline_attach_allowed():
     assert guards._pre_tool_call(tool_name="kanban_attach", args={"filename": "r.txt", "content_base64": "QUJD" * 64}) is None
+
+
+def _gcolony(command="cat tests/fixtures/claims_anchored.txt"):
+    return guards.terminal_violations(command, False) == []
+
+
+def test_gcolony_profile_terminal_traffic_passthrough():
+    """Terminal traffic shaped like the gColony profile's legit commands passes."""
+    assert _gcolony("pytest -q tests/test_agent_guards.py")
+    assert _gcolony("git status --porcelain && git diff --stat")
+    assert _gcolony("wc -l tests/fixtures/*.txt; awk length==0 blocks=false tests/fixtures/*")
+
+
+def test_gcolony_fixture_ingestion_block_on_destroy():
+    fixture = (Path(__file__).parent / "fixtures" / "gcolony_fixture_ingestion.txt").read_text(encoding="utf-8")
+    assert guards.terminal_violations(fixture, False), "fixture must still be blocked"
