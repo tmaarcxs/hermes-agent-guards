@@ -6,7 +6,10 @@ heartbeats-are-noise cursors stay untouched) it reads each ``running`` card's
 ``claimed`` event. A note that admits waiting on something outside the worker's
 control (a merge bot, an approval, a deploy or rollout, a CI run, a promotion)
 is evidence only the card's owner can act on: the worker cannot merge itself,
-approve itself or speed up a pipeline, and heartbeat notes reach nobody.
+approve itself or speed up a pipeline, and heartbeat notes reach nobody. The
+actor match is kept inside the wait phrase's own clause (``_LOOK_AHEAD``), so
+an independent later sentence ("While waiting, drafting ...") is not read as
+the gate.
 
 The wake keys on the run's wait STREAK: the consecutive wait-admitting
 heartbeat notes counted back from the newest non-empty heartbeat note (empty
@@ -22,6 +25,12 @@ count; a note merely discussing waits (an analysis of waiting buckets) can
 still slip through, and the bound for that is one short injected turn per run
 with the note quoted for the owner to judge. Upgrading the wording table to a
 learned classifier is the path when the bound stops being acceptable.
+``_LOOK_AHEAD`` bounds the actor search to the wait phrase's own clause: real
+false positives matched an actor only across a clause boundary ("... While
+waiting, drafting ..." or "... fix-merge-date verification ..."), while the
+grounded wait notes in the incident record name their actor 20-40 chars out
+and on 14 days of real heartbeat notes the only two matches beyond 80 chars
+were cross-clause.
 
 It wakes once per run: the recorded marker is the newest spawned/claimed event
 id at wake time, so the same run is never woken twice while a new run re-arms
@@ -48,7 +57,7 @@ logger = logging.getLogger(__name__)
 STATE_NAME = "kanban-waiting-wake.json"
 WAIT_AFTER = 900.0
 _BOUNDARY_KINDS = ("spawned", "claimed")
-_LOOK_AHEAD = 200
+_LOOK_AHEAD = 80
 
 _WAIT = re.compile(r"(?is)\b(?:still\s+)?(?:waiting|awaiting)\b(?:\s+(?:on|for|out|to))?")
 _ACTOR = re.compile(

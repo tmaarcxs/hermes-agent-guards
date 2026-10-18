@@ -93,6 +93,41 @@ def a_run_with_one_wait_note(conn, tid="t_w", first_age_s=1000.0):
     heart(conn, tid, INCIDENT, age_s=first_age_s)
 
 
+CROSS_CLAUSE_FP = (
+    "Waiting for the local sweep to finish before writing the summary: fires counted, dedup applied "
+    "across the mirrored sessions, timestamps pinned to the merge of the stall-episode fix."
+)
+NEXT_CLAUSE_FP = (
+    "While waiting, drafting the reconciliation sections that are patch-independent: the shared-register "
+    "pass (evidence complete), the decision kernels (title-equality, ordering, wiring), and the merge-order notes."
+)
+DISCUSSION_FP = (
+    "Premise checks done Tuesday: producer clean, state persisted, deliveries recoverable in full. "
+    "Awaiting the changelog reconciliation, appendix numbering reads, and the paperwork round-trip "
+    "for the merge-window choice."
+)
+
+
+def test_an_actor_in_a_later_clause_is_not_the_external_gate():
+    """The observed live false-positive shapes on real heartbeat notes: the
+    waiter word sits in a label, a tail mention or an independent sentence about
+    separate work, and the only actor match inside the old 200-char window
+    belongs to a different clause than a wait admission, so none of the notes
+    admits waiting on an external gate."""
+    conn = board()
+    card(conn, "t_w")
+    spawn(conn, "t_w")
+    for note in (CROSS_CLAUSE_FP, NEXT_CLAUSE_FP, DISCUSSION_FP):
+        assert wake._WAIT.search(note)
+        window = note[wake._WAIT.search(note).end(): wake._WAIT.search(note).end() + 200]
+        assert wake._ACTOR.search(window)  # the OLD window matched all three
+        heart(conn, "t_w", note, age_s=WAIT_AFTER + 600)
+    assert waiting(conn) == []
+    rec = Recorder()
+    assert wake.sweep(conn, {}, rec, NOW) == {}
+    assert rec.calls == []
+
+
 def test_a_wait_note_sixteen_minutes_old_wakes_the_card_exactly_once_with_the_incident_text():
     conn = board()
     a_run_with_one_wait_note(conn, first_age_s=16 * MIN)
@@ -222,6 +257,22 @@ def test_a_wait_phrase_without_an_external_actor_after_it_never_counts():
     heart(conn, "t_w", "Waiting for the local test suite to finish rebuilding the venv.", age_s=WAIT_AFTER + 600)
     heart(conn, "t_w", "Waited out the rate cooldown; resuming the sweep now.", age_s=WAIT_AFTER + 300)
     assert waiting(conn) == []
+
+
+def test_the_actor_must_sit_within_the_wait_notes_own_clause():
+    """A distant 'PR' beyond the clause boundary at 80 chars is not a gate;
+    the same actor within 80 chars still counts as the external gate."""
+    conn = board()
+    card(conn, "t_w")
+    spawn(conn, "t_w")
+    tail = " on the downstream gate. " + "x" * 70 + " pr"
+    heart(conn, "t_w", "still waiting" + tail, age_s=WAIT_AFTER + 600)
+    assert waiting(conn) == []
+    conn2 = board()
+    card(conn2, "t_w")
+    spawn(conn2, "t_w")
+    heart(conn2, "t_w", "still waiting on the " + "a" * 40 + " pr", age_s=WAIT_AFTER + 600)
+    assert waiting(conn2) == ["t_w"]
 
 
 def test_a_heartbeat_without_a_note_is_never_admission():
