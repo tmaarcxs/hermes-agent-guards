@@ -72,7 +72,11 @@ def last_reasons(conn: sqlite3.Connection, task_id: str, limit: int = 3) -> list
 
 
 def wake_text(card: dict, reasons: list[str]) -> str:
-    steps = [s for s in RUN_STEPS + CR_STEPS if s > (card["step"] if card["step"] < 100 else card["step"] - 100)]
+    """Render the churn wake, naming the next threshold strictly above the encoded
+    step this wake fired at — the sweep stores card["step"], so dedup and the hint
+    must agree on the same arithmetic (defeats the old bare-arithmetic hint that
+    promised a threshold the dedup can never fire)."""
+    steps = [s for s in RUN_STEPS if s > card["step"]] + [100 + s for s in CR_STEPS if 100 + s > card["step"]]
     next_step = min(steps) if steps else None
     lines = [
         f"[Kanban churn warning] {card['id']} is at {card['runs']} runs and {card['crs']} change-requests "
@@ -83,7 +87,16 @@ def wake_text(card: dict, reasons: list[str]) -> str:
     lines.append(
         "The card is grinding on. Decide here: split it into smaller cards, narrow the acceptance criteria, "
         "or confirm continue. Record the decision as a comment on the card."
-        + (f" You will be warned again only if it reaches {next_step}." if next_step else "")
+        + (
+            f" You will be warned again only if it reaches {next_step} runs."
+            if next_step is not None and next_step < 100
+            else ""
+        )
+        + (
+            f" You will be warned again only if it reaches {next_step - 100} change-requests."
+            if next_step is not None and 100 <= next_step < 200
+            else ""
+        )
     )
     return "\n".join(lines)
 

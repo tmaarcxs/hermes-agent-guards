@@ -250,3 +250,26 @@ def test_registered_on_dispatch_tick():
     ctx = type("Ctx", (), {"register_hook": lambda self, name, fn: hooks.append((name, fn))})()
     sys.modules["agent_guards"].register(ctx)
     assert ("on_kanban_dispatch_tick", churn.on_tick) in hooks
+
+
+def test_hint_names_next_unfired_threshold_after_change_request_fire():
+    """A CR-family fire stores the encoded token {"t_case": 105} (Commit pins) and its
+    hint must name the NEXT UNFIRED threshold from the sweep's own step bookkeeping —
+    with the encoded comparison, not the old bare arithmetic that promised a threshold
+    the dedup arithmetic can never fire ("reaches 10" while 105 suppresses it forever).
+    The scalar dedup itself is unchanged: escalating to 20 runs after the CR fire
+    (kept=105 >= step=105) stays silent — byte-identical to the live spec proof — so
+    the hint must not promise the silenced run family either."""
+    conn = board()
+    card(conn, "t_case", "review", runs=12, crs=6, reasons=["r"] * 6)
+    rec = Recorder()
+    state = churn.sweep(conn, {}, rec)
+    assert len(rec.calls) == 1 and state == {"t_case": 105}
+    assert "reaches 10 change-requests" in rec.calls[0][0]
+    assert "reaches 20 runs" not in rec.calls[0][0]
+
+    for _ in range(8):
+        conn.execute("insert into task_runs (task_id) values (?)", ("t_case",))
+    rec2 = Recorder()
+    state = churn.sweep(conn, state, rec2)
+    assert rec2.calls == [] and state == {"t_case": 105}
