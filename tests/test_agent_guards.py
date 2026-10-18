@@ -176,3 +176,127 @@ def test_large_inline_attach_blocked():
 
 def test_small_inline_attach_allowed():
     assert guards._pre_tool_call(tool_name="kanban_attach", args={"filename": "r.txt", "content_base64": "QUJD" * 64}) is None
+
+
+RECURSIVE_RMS = ["-r", "-R", "-rf", "-fr", "-Rf", "--recursive"]
+DEPTH_TARGETS = [
+    ("protected", "/home/u/.hermes", True),
+    ("ancestor", "/Users/v", True),
+    ("below", "~/projects/x", False),
+    ("unrelated", "/tmp/build", False),
+]
+
+
+@pytest.mark.parametrize("flag", RECURSIVE_RMS)
+@pytest.mark.parametrize("target", DEPTH_TARGETS, ids=lambda target: target[0])
+def test_recursive_rm_matrix(flag, target):
+    name, path, expected = target
+    assert blocked("rm %s %s" % (flag, path)) is expected
+
+
+@pytest.mark.parametrize("target", DEPTH_TARGETS, ids=lambda target: target[0])
+def test_plain_rm_matrix(target):
+    name, path, expected = target
+    assert not blocked("rm -f %s" % path)
+
+
+ANCESTOR_BLOCKED_FORMS = [
+    "rm --recursive /Users/u/.hermes",
+    "rm --recursive $HERMES_HOME",
+    "rm --recursive /home/v/.hermes",
+    "rm -R ~/.hermes",
+    "rm -rf /Users/v/.hermes",
+    "rm -rf /home/v/.hermes/profiles/lead",
+    "rm -rf /root/.hermes",
+    "rm -rf ~",
+    "rm -rf ~/",
+    'rm -rf "$HOME"',
+    "rm -rf ${HOME}/",
+    'rm -rf "/Users/v/"',
+    "rm -rf /home/v/",
+    "rm -rf /root/",
+    "rm -rf /",
+    "rm -rf '/Users/v/'",
+    "find ~ -delete",
+    "find / -delete",
+    "find /Users/v -delete",
+    "find ~ -maxdepth 3 -delete",
+    "rsync -a --delete /tmp/seed/ /Users/v/",
+    "rsync -a --delete /tmp/seed/ /",
+    "rsync -a --delete /tmp/seed/ /home/v/.hermes",
+    'python3 -c "import shutil; shutil.rmtree(\'/Users/v\')"',
+    'python3 -c "import shutil; shutil.rmtree(\'/\')"',
+    'python3 -c "import shutil; shutil.rmtree(\'/root\')"',
+    "python3 - <<'PY'\nimport shutil\nshutil.rmtree(os.environ['HERMES_HOME'])\nPY",
+]
+
+BELOW_AND_PROSE_ALLOWED_FORMS = [
+    "rm -rf ~/projects/x",
+    "rm -rf /Users/v/projects/x",
+    "rm -rf /root/projects/x",
+    "rm -rf ~someone/projects/x",
+    "rm -rf /Users",
+    "rm -rf /home",
+    "rm -rf /tmp/build",
+    'rm -rf "/Users/v/.hermesA"',
+    "rm -rf /Users/v/.hermes-backup",
+    "find ~ -name '*.db' -delete",
+    "find /Users/v -name '*.pyc' -delete",
+    "find ~/projects/x -name '*.tmp' -delete",
+    "rsync -a --delete /Users/v/.hermes/ /tmp/backup/",
+    "rsync -a /tmp/seed/ /Users/v/.hermes/",
+    "rsync -a --delete /tmp/seed/ ~/projects/x/",
+    'python3 -c "import shutil; shutil.rmtree(\'~/projects/x\')"',
+    'python3 -c "import shutil; shutil.rmtree(\'/tmp/build\')"',
+    'python3 -c "import shutil; shutil.rmtree(\'/Users/v/projects/x\')"',
+    "cat > fragment.md <<'EOF'\nA shutil.rmtree('/Users/v/.hermes') here would delete notes.\nEOF\ncat fragment.md",
+    "grep 'shutil.rmtree(\"/Users/v/.hermes\")' notes.md",
+    "echo \"a shutil.rmtree('/Users/v/.hermes') b\"",
+    "grep 'rm -rf /Users/v' notes.md",
+]
+
+FIND_DELETE_MATRIX = [
+    ("find $HERMES_HOME -delete", True),
+    ("find /Users/v -delete", True),
+    ("find /home/u/.hermes -delete", True),
+    ("find / -delete", True),
+    ("find ~ -delete", True),
+    ("find ~ -name '*.db' -delete", False),
+    ("find /Users/v -name '*.pyc' -delete", False),
+    ("find / -maxdepth 2 -name '*.db'", False),
+    ("find ~/.hermes -maxdepth 2 -name '*.db'", False),
+    ("find $HERMES_HOME -name '*.db'", False),
+    ("find /home/u/.hermes -name '*.db' -exec rm -rf {} +", True),
+    ("find ~/projects -name '*.pyc' -exec rm -rf {} +", False),
+]
+
+RSYNC_MATRIX = [
+    ("rsync -a --delete /tmp/seed/ /home/u/.hermes/", True),
+    ("rsync -a --delete /Users/v/.hermes/ /tmp/backup/", False),
+    ("rsync -a /tmp/seed/ /home/u/.hermes/", False),
+    ("rsync -a --delete /tmp/seed/ ~/projects/x/", False),
+    ("rsync -a --delete /home/u/.hermes /Users/v", True),
+]
+
+PYTHON_MATRIX = [
+    ('python3 -c "import shutil; shutil.rmtree(os.environ[\'HERMES_HOME\'])"', True),
+    ('python3 -c "import shutil; shutil.rmtree(\'/home/u/.hermes/profiles/lead\')"', True),
+    ('python3 -c "import shutil; shutil.rmtree(\'/Users/v\')"', True),
+    ('python3 -c "import shutil; shutil.rmtree(\'~/projects/x\')"', False),
+    ('python3 -c "import shutil; shutil.rmtree(\'/Users/v/projects/x\')"', False),
+]
+
+
+@pytest.mark.parametrize("command", ANCESTOR_BLOCKED_FORMS)
+def test_ancestor_and_long_form_blocked(command):
+    assert blocked(command)
+
+
+@pytest.mark.parametrize("command", BELOW_AND_PROSE_ALLOWED_FORMS)
+def test_below_and_prose_allowed(command):
+    assert not blocked(command)
+
+
+@pytest.mark.parametrize("command,expected", FIND_DELETE_MATRIX + RSYNC_MATRIX + PYTHON_MATRIX)
+def test_qualifying_token_and_direction_matrix(command, expected):
+    assert blocked(command) is expected
