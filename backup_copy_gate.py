@@ -76,10 +76,20 @@ def keeps_backup_copy(text: str) -> bool:
         scan = 0
         in_paren = False
         frag_paren = False
-        for part in re.split(r"(?<=[;.\n])\s+|[()]", text):
+        for part in re.split(r"(?<=[;.\n])\s+|([()])", text):
+            if part is None:
+                continue
+            if part == "(":
+                in_paren = True
+                scan += len(part)
+                continue
+            if part == ")":
+                in_paren = False
+                scan += len(part)
+                continue
             stripped = part.strip()
             if stripped == sentence and (origin is None or scan <= origin):
-                origin = scan + part.index(sentence) if sentence in part else scan
+                origin = scan + (part.index(sentence) if sentence in part else 0)
                 frag_paren = in_paren
             scan += len(part)
         offset = origin if origin is not None else 0
