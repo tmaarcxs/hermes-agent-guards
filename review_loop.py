@@ -75,7 +75,13 @@ def wake_text(card: dict, reason: str) -> str:
     )
 
 
-def sweep(conn: sqlite3.Connection, state: dict, inject, persist=None) -> dict:
+def _file_load():
+    """A fresh read of the production marker file (what other writers see)."""
+    latest = board_watch.read_state(STATE_NAME)
+    return latest if isinstance(latest, dict) else {}
+
+
+def sweep(conn: sqlite3.Connection, state: dict, inject, persist=None, load=None) -> dict:
     """Wake each looping card once per threshold. Returns the new state.
 
     Durable-write-before-send: the woken thresholds of this sweep are flushed to
@@ -88,9 +94,15 @@ def sweep(conn: sqlite3.Connection, state: dict, inject, persist=None) -> dict:
     card's threshold, a failed delivery drops only that card's entry — every
     other card's flushed marker stays, so the failed card retries on the next
     tick and a delivered sibling's marker is never erased.
-    ``persist``
-    replaces the state file for tests; production passes nothing and the write
-    goes to ``board_watch.write_state``.
+
+    The tick hands the sweep its snapshot ``state``, but the flush decision
+    also consults ``load`` — production's fresh durable read — so a marker a
+    concurrent sweeper or a restarted gateway already wrote, one the snapshot
+    does not carry, still suppresses its wake (the triple wake of t_bd3f3ce6 on
+    10-19: three sweeps re-injected a threshold the file already held). Tests
+    that pass neither ``persist`` nor ``load`` keep the plain snapshot
+    semantics. ``persist`` replaces the state file for tests; production
+    passes nothing and the write goes to ``board_watch.write_state``.
     """
     def _write(new_state: dict) -> None:
         if persist is not None:
@@ -98,15 +110,15 @@ def sweep(conn: sqlite3.Connection, state: dict, inject, persist=None) -> dict:
         else:
             board_watch.write_state(STATE_NAME, new_state)
 
+    fresh = load() if load else {}
     cards = {card["id"]: card for card in looping_cards(conn)}
-    kept = {tid: n for tid, n in state.items() if tid in cards}
+    durable = {tid: n for tid, n in {**fresh, **state}.items() if tid in cards}
     flush = []
     for tid, card in cards.items():
         threshold = card["rounds"] // EVERY * EVERY
-        if kept.get(tid, 0) >= threshold:
+        if durable.get(tid, 0) >= threshold:
             continue
         flush.append((tid, threshold, card))
-    durable = dict(kept)
     if flush:
         durable.update({tid: threshold for tid, threshold, _card in flush})
         _write(durable)
@@ -131,7 +143,7 @@ def _sweep_for(board: Optional[str]):
         db = kanban_db.kanban_db_path(board=board)
         conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
         try:
-            return sweep(conn, state, stale_wake._inject)
+            return sweep(conn, state, stale_wake._inject, load=_file_load)
         finally:
             conn.close()
 
