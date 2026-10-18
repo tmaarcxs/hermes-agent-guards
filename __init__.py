@@ -9,6 +9,14 @@ Blocks (terminal, foreground or background as noted):
 - ``gh pr merge`` without ``--match-head-commit``: merges must pin the verified head;
 - ``osascript``: desktop automation goes through ego-browser;
 - ``git push --force``/``-f`` without ``--force-with-lease``;
+- recursive deletion of a live Hermes home (``hermes_home_guard``): ``rm -r``,
+  ``find … -delete`` or a ``--delete`` sync whose target is ``$HERMES_HOME`` /
+  ``~/.hermes`` / ``$HOME/.hermes`` (trailing slash optional), ``~/.hermes/profiles``
+  or any ``~/.hermes/profiles/<name>``, or the same paths literally absolute; targets
+  nested deeper (``~/.hermes/cache/scratch/x``) stay allowed, quoted mention in a
+  grep pass and heredoc prose passes too; the fix: create test homes with
+  ``mktemp -d`` inside the scratch workspace and pass them via
+  ``env HERMES_HOME=<path> <cmd>`` only, delete them by literal path;
 - in a worker process (``github_contact``): commands that contact people on GitHub —
   review requests, issue assignees and comments whose body ``@mentions`` a user or
   org/team; for a CODEOWNERS-only gap the message names the setup's documented merge
@@ -114,6 +122,7 @@ Modules:
 
 
 import re
+import shlex
 from typing import Any, Optional
 
 try:
@@ -139,6 +148,21 @@ _MERGE = re.compile(_START + r"gh\s+pr\s+merge\b")
 _OSASCRIPT = re.compile(_START + r"osascript\b")
 _PUSH = re.compile(_START + r"git\s+push\b")
 _BARE_FORCE = re.compile(r"\s(?:--force|-f)(?=\s|$)")
+_RECURSIVE_RM_FLAGS = re.compile(r"(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\b")
+_RECURSIVE_RM = re.compile(_START + r"rm\b(?=[^;&|\n]*" + _RECURSIVE_RM_FLAGS.pattern + r")")
+_FIND_DELETE = re.compile(_START + r"find\b")
+_FIND_DELETE_FLAGS = re.compile(r"\s-delete\b")
+_FIND_NAME_FILTER = re.compile(r"-name\b")
+_FIND_EXEC_RM = re.compile(r"-exec\s+(?:sudo\s+)?rm\s(?:[^;{}])*-[a-zA-Z]*r")
+_RMTREE_ARG = re.compile(r"rmtree\s*\(\s*([^),]+)")
+_RSYNC_DELETE = re.compile(_START + r"rsync\b")
+_RSYNC_DELETE_FLAG = re.compile(r"(?:^|[\s/])--delete(?=[\s'=\"]|$)")
+_PYTH_HERMES_ENV_RE = re.compile(r"os\.environ(?:\.get)?\[?\s*\(??\s*['\"]([^'\"]+)['\"]")
+_HERMES_HOME_DELETE_MESSAGE = (
+    "hermes_home_guard: this would recursively delete a live Hermes home. For tests, create a throwaway "
+    "home with `mktemp -d` inside the scratch workspace and run the command as `env HERMES_HOME=<path> <cmd>` "
+    "only; delete such directories by their literal path."
+)
 _UNIT_SECONDS = {"": 1, "s": 1, "m": 60, "h": 3600}
 _MAX_FOREGROUND_SLEEP = 30
 _MAX_LOOP_SLEEP = 15
@@ -192,10 +216,230 @@ def _strip_heredocs(command: str) -> str:
     return "\n".join(kept)
 
 
+_PROTECTED_LEVELS = ("home", "ancestor", "root")
+
+
+def _level_below_anchor(rest: str) -> str:
+    """Classify the path that follows an anchor (a home root or `HERMES_HOME`).
+
+    `.hermes` itself and `.hermes/profiles` (`/profile-name`) are the live
+    home; `profiles/<name>/cache/...` and any other child are nests below."""
+    if rest in ("", "/"):
+        return "home"
+    parts = rest.rstrip("/").split("/")
+    if parts[0] != ".hermes":
+        return "none"
+    if len(parts) == 1:
+        return "home"
+    if parts[1] == "profiles" and len(parts) in (2, 3):
+        return "home"
+    return "below"
+
+
+def _path_level(token: str) -> str:
+    """Map one shell/Python path token to its protection level (`home`,
+    `ancestor`, `root`, `below`, `none`). `~<user>` stays out of scope: `~u`
+    never maps onto `/home/u` without knowing the OS."""
+    t = token.strip().strip('"').strip("'")
+    if t.startswith("~"):
+        body = t[1:]
+        user = body.split("/", 1)[0]
+        if not user:
+            if body in ("", "/"):
+                return "ancestor"
+            return _level_below_anchor(body[1:] if body.startswith("/") else body)
+        return "none"
+    if t in ("$HOME", "${HOME}", "$HOME/", "${HOME}/"):
+        return "ancestor"
+    if t.startswith("$HOME"):
+        rest = t[len("$HOME"):]
+        if rest in ("", "/"):
+            return "ancestor"
+        if rest.startswith("/"):
+            return _level_below_anchor(rest[1:])
+        return "none"
+    if t in ("$HERMES_HOME", "${HERMES_HOME}", "$HERMES_HOME/", "${HERMES_HOME}/"):
+        return "home"
+    if t.startswith("$HERMES_HOME"):
+        rest = t[len("$HERMES_HOME"):]
+        if rest in ("", "/"):
+            return "home"
+        if rest.startswith("/"):
+            return _level_below_anchor(rest[1:])
+        return "none"
+    if t.startswith("/root"):
+        rest = t[5:]
+        if rest in ("", "/"):
+            return "ancestor"
+        if rest.startswith("/"):
+            return _level_below_anchor(rest[1:])
+        return "none"
+    for prefix in ("/home/", "/Users/"):
+        if t.startswith(prefix):
+            rest = t[len(prefix):]
+            user = rest.split("/", 1)[0]
+            if not user:
+                return "none"
+            rest = rest[len(user):]
+            if rest in ("", "/"):
+                return "ancestor"
+            return _level_below_anchor(rest[1:] if rest.startswith("/") else rest)
+    if t == "/":
+        return "root"
+    return "none"
+
+
+def _segment_operand_levels(segment: str) -> list[str]:
+    """Protection levels of the segment's operand tokens (shlex view)."""
+    try:
+        tokens = shlex.split(segment)
+    except ValueError:
+        tokens = segment.split()
+    return [level for token in tokens for level in (_path_level(token),) if level != "none"]
+
+
+def _rsync_delete_target_protected(segment: str) -> bool:
+    """True when the `--delete` sync's DESTINATION (last non-option operand,
+    the side that loses files) is a protected target; a home as SOURCE syncs
+    out to a safe copy and stays allowed."""
+    try:
+        tokens = shlex.split(segment)
+    except ValueError:
+        tokens = segment.split()
+    operands = []
+    for token in tokens[1:]:
+        if token.startswith("-"):
+            if token in ("--",):
+                continue
+            continue
+        operands.append(token)
+    if not operands:
+        return False
+    return _path_level(operands[-1]) in _PROTECTED_LEVELS
+
+
+def hermes_home_violations(command: str) -> list[str]:
+    """Recursive deletion of the live Hermes home: `$HERMES_HOME`, `~/.hermes`
+    (`$HOME/.hermes`, literal absolute forms for any user) and its `profiles`
+    subtree itself, an ancestor of it (`~`, `$HOME`, `/home/<user>`,
+    `/Users/<user>`, `/root`, `/`), not nests below an ancestor that do not
+    include the home. `rm -r/-R/--recursive`, `find -delete`,
+    `rsync --delete` (destination side only) plus `shutil.rmtree` inside
+    `python -c`/heredocs; single-quoted mention and heredoc prose are exempt,
+    while double-quoted content expands and stays visible."""
+    found = []
+    blanked = _strip_heredocs(command)
+    for phrase in _python_delete_phrases(command, blanked):
+        if _python_rmtree_protected(phrase):
+            found.append(_HERMES_HOME_DELETE_MESSAGE)
+            return found
+    for segment in _SEGMENT_END.split(blanked):
+        if _RECURSIVE_RM.search(segment) and any(
+            level in _PROTECTED_LEVELS for level in _segment_operand_levels(segment)
+        ):
+            found.append(_HERMES_HOME_DELETE_MESSAGE)
+            continue
+        if _FIND_DELETE.search(segment) and _find_delete_activates(segment):
+            found.append(_HERMES_HOME_DELETE_MESSAGE)
+            continue
+        if _RSYNC_DELETE.search(segment) and _RSYNC_DELETE_FLAG.search(segment):
+            if _rsync_delete_target_protected(segment):
+                found.append(_HERMES_HOME_DELETE_MESSAGE)
+    return found
+
+
+_PY_CODE_ARG = re.compile(r"(?:^|[;&|\n(`{]|\$\(|\bthen\b|\bdo\b|\belse\b)\s*python\d?(?:\d\.\d+)?\s+(?:-[^\s-]\S*\s+)*-c\s*")
+_PY_LOADER_LINE = re.compile(r"^\s*(?:sudo\s+)?(?:env\s+\S+=\S+\s+)*python\d?(?:\d\.\d+)?(?:\s|$)")
+
+
+def _python_delete_phrases(command: str, blanked: str) -> list[str]:
+    """`rmtree(...)` occurrences in real python execution contexts: the
+    `python -c <code>` payload captured THROUGH its closing quote, and the
+    body of a python heredoc read from the original command (the blanked
+    text no longer carries bodies). Prose in echo/grep arguments never
+    enters those contexts and is skipped."""
+    phrases = []
+    for match in _PY_CODE_ARG.finditer(blanked):
+        phrases.append(_capture_code_payload(blanked, match.end()))
+    if _HEREDOC.search(command):
+        body = _heredoc_python_body(command)
+        if body and _PY_LOADER_LINE.match(command.strip()):
+            phrases.append(body)
+    return phrases
+
+
+def _capture_code_payload(text: str, start: int) -> str:
+    if start < len(text):
+        quote = text[start] if text[start] in ("'", '"') else None
+        if quote:
+            end_quote = text.find(quote, start + 1)
+            while end_quote > 0 and quote == '"' and text[end_quote - 1] == "\\":
+                end_quote = text.find(quote, end_quote + 1)
+            if end_quote > 0:
+                return text[start + 1 : end_quote]
+            return text[start + 1 :]
+    end = _SEGMENT_END.search(text, start)
+    return text[start : end.start() if end else len(text)]
+
+
+def _heredoc_python_body(command: str) -> Optional[str]:
+    lines = command.split("\n")
+    delim = None
+    collecting = False
+    body = []
+    for line in lines:
+        if delim is not None:
+            if line.strip() == delim:
+                delim = None
+                collecting = False
+                continue
+            if collecting:
+                body.append(line)
+            continue
+        match = _HEREDOC.search(line)
+        if match:
+            delim = match.group(2)
+            collecting = True
+    return "\n".join(body) if body else None
+
+
+def _python_rmtree_protected(phrase: str) -> bool:
+    for match in _RMTREE_ARG.finditer(phrase):
+        raw = match.group(1).strip()
+        if "os.environ" in raw or "os.getenv" in raw:
+            literal = _PYTH_HERMES_ENV_RE.search(raw)
+            if literal and "HERMES_HOME" in literal.group(1):
+                return True
+            continue
+        literal = re.match(r"(['\"])(.*?)\1", raw)
+        token = literal.group(2) if literal else raw
+        if _path_level(token) in _PROTECTED_LEVELS:
+            return True
+    return False
+
+
+def _find_delete_activates(segment: str) -> bool:
+    """`find <operand>` deletes recursively with `-delete` or
+    `-exec rm -r...`; a home operand always blocks, an ancestor or root
+    operand only when no `-name` filter narrows the walk below it, a nest
+    below never blocks."""
+    levels = set(_segment_operand_levels(segment))
+    if not any(level in _PROTECTED_LEVELS for level in levels):
+        return False
+    if not (_FIND_DELETE_FLAGS.search(segment) or _FIND_EXEC_RM.search(segment)):
+        return False
+    if "home" in levels:
+        return True
+    return _FIND_NAME_FILTER.search(segment) is None
+
+
 def terminal_violations(command: str, background: bool) -> list[str]:
+    found = []
+    home = hermes_home_violations(command)
+    if home:
+        found.extend(home)
     command = _strip_heredocs(command)
     command = _QUOTED.sub("''", command)
-    found = []
     if not background:
         for match in _SLEEP.finditer(command):
             seconds = float(match.group(1)) * _UNIT_SECONDS[match.group(2)]
