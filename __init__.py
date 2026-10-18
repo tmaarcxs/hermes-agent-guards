@@ -135,9 +135,8 @@ _EMPTY_TO_ABSENT = {"kanban_list": ("assignee", "status", "tenant"), "kanban_cre
 _ENV_TASK_LITERAL = re.compile(r"^\s*\$?\{?HERMES_KANBAN_TASK\}?\s*$")
 _MAX_INLINE_ATTACH = 256
 _INLINE_ATTACH_MESSAGE = (
-    "agent-guards blocked kanban_attach: inline base64 over 256 characters is transcribed by the model "
-    "and arrives corrupted. Attach by path: kanban_complete/kanban_request_review artifacts=[absolute path], "
-    "or terminal `hermes kanban attach <task_id> <absolute path>`; then compare the stored file's sha256 with the source."
+    "agent-guards blocked kanban_attach: inline base64 over 256 characters arrives "
+    "corrupted; attach by path: artifacts=[absolute path], then sha256-compare the stored file."
 )
 
 
@@ -251,41 +250,46 @@ def _transform_tool_result(**kwargs) -> Optional[str]:
 
 
 def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -> Optional[dict]:
-    for check in (
-        lambda: repeat_guard.check(tool_name, args, **kwargs),
-        lambda: checkpoint_gate.check(tool_name, args, **kwargs),
-        lambda: kanban_policy.check(tool_name, args),
-        lambda: lead_delegation.check(tool_name, args),
-        lambda: github_contact.check(tool_name, args),
-        lambda: paas_promote_gate.check(tool_name, args),
-        lambda: pr_acceptance_gate.check(tool_name, args, **kwargs),
-        lambda: approval_wait_gate.check(tool_name, args, **kwargs),
-        lambda: review_gate.check(tool_name, **kwargs),
-        lambda: published_head_gate.check(tool_name, args),
-        lambda: pr_comment_gate.check(tool_name, args),
-        lambda: handoff_gate.check(tool_name, args, **kwargs),
-        lambda: completion_gate.check(tool_name, args),
-        lambda: backup_copy_gate.check(tool_name, args),
-        lambda: schedule_gate.check(tool_name, args),
-        lambda: skill_size.check(tool_name, args),
-        lambda: background_notify_gate.check(tool_name, args),
-        lambda: pr_comment_gate.check(tool_name, args),
+    def stamp(message: str, name: str) -> str:
+        marker = message.find(": ")
+        if not message.startswith("agent-guards blocked") or marker < 0:
+            return message
+        return message[: marker] + " [" + name + "]" + message[marker:]
+    for check, name in (
+        (lambda: repeat_guard.check(tool_name, args, **kwargs), "repeat_guard"),
+        (lambda: checkpoint_gate.check(tool_name, args, **kwargs), "checkpoint_gate"),
+        (lambda: kanban_policy.check(tool_name, args), "kanban_policy"),
+        (lambda: lead_delegation.check(tool_name, args), "lead_delegation"),
+        (lambda: github_contact.check(tool_name, args), "github_contact"),
+        (lambda: paas_promote_gate.check(tool_name, args), "paas_promote_gate"),
+        (lambda: pr_acceptance_gate.check(tool_name, args, **kwargs), "pr_acceptance_gate"),
+        (lambda: approval_wait_gate.check(tool_name, args, **kwargs), "approval_wait_gate"),
+        (lambda: review_gate.check(tool_name, **kwargs), "review_gate"),
+        (lambda: published_head_gate.check(tool_name, args), "published_head_gate"),
+        (lambda: pr_comment_gate.check(tool_name, args), "pr_comment_gate"),
+        (lambda: handoff_gate.check(tool_name, args, **kwargs), "handoff_gate"),
+        (lambda: completion_gate.check(tool_name, args), "completion_gate"),
+        (lambda: backup_copy_gate.check(tool_name, args), "backup_copy_gate"),
+        (lambda: schedule_gate.check(tool_name, args), "schedule_gate"),
+        (lambda: skill_size.check(tool_name, args), "skill_size"),
+        (lambda: background_notify_gate.check(tool_name, args), "background_notify_gate"),
+        (lambda: pr_comment_gate.check(tool_name, args), "pr_comment_gate"),
     ):
         try:
             blocked = check()
         except Exception:
             blocked = None
         if blocked:
-            return {"action": "block", "message": blocked}
+            return {"action": "block", "message": stamp(blocked, name)}
     try:
         args = args if isinstance(args, dict) else {}
         if tool_name == "terminal":
             found = terminal_violations(str(args.get("command") or ""), bool(args.get("background")))
             if found:
-                return {"action": "block", "message": "agent-guards blocked terminal: " + "; ".join(found) + "."}
+                return {"action": "block", "message": "agent-guards blocked terminal [__init__]: " + "; ".join(found) + "."}
             return None
         if tool_name == "kanban_attach" and len(str(args.get("content_base64") or "")) > _MAX_INLINE_ATTACH:
-            return {"action": "block", "message": _INLINE_ATTACH_MESSAGE}
+            return {"action": "block", "message": stamp(_INLINE_ATTACH_MESSAGE, "__init__")}
         changes = normalized_args(tool_name, args)
         return {"action": "modify", "args": changes} if changes else None
     except Exception:
