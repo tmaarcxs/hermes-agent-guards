@@ -122,3 +122,144 @@ def test_recently_updated_session_is_kept():
 def test_inactive_without_worker_setup(monkeypatch):
     monkeypatch.setattr(guards.kanban_policy, "configured_worker", lambda: "")
     assert review() is None
+
+
+def items_with_open(names):
+    names = set(names)
+    items = []
+    for item in ALL_DONE:
+        if item["content"].split(":")[0] in names:
+            items.append({"id": item["id"], "content": item["content"].split(":")[0], "status": "pending"})
+        else:
+            items.append(dict(item))
+    return items
+
+
+def items_with_open_count(count):
+    return items_with_open(EIGHT[:count])
+
+
+@pytest.mark.parametrize("start", range(1, 9))
+def test_strictly_shrinking_open_set_passes_after_first_block(start):
+    for count in range(start, -1, -1):
+        todo(items_with_open_count(count), session="shrink")
+        result = review("shrink")
+        if count == start:
+            assert result["action"] == "block", count
+        else:
+            assert result is None, count
+
+
+@pytest.mark.parametrize("repeats", range(1, 6))
+def test_identical_open_set_keeps_blocking(repeats):
+    todo(items_with_open_count(4))
+    for _ in range(repeats):
+        assert review()["action"] == "block"
+
+
+@pytest.mark.parametrize("requests", range(1, 6))
+def test_one_block_then_only_shrinking_requests_pass(requests):
+    open_count = 8
+    todo(items_with_open_count(open_count))
+    assert review()["action"] == "block"
+    for _ in range(requests - 1):
+        open_count -= 1
+        todo(items_with_open_count(open_count))
+        assert review() is None, open_count
+
+
+def test_new_open_check_blocks_again():
+    todo(items_with_open_count(2))
+    assert review()["action"] == "block"
+    todo(items_with_open_count(3))
+    assert review()["action"] == "block"
+
+
+def test_swapped_open_set_blocks_until_strictly_smaller():
+    todo(items_with_open(EIGHT[:2]))
+    assert review()["action"] == "block"
+    todo(items_with_open([EIGHT[0], EIGHT[2]]))
+    assert review()["action"] == "block"
+    todo(items_with_open([EIGHT[0]]))
+    assert review() is None
+
+
+def test_repeated_smaller_set_keeps_passing():
+    todo(items_with_open_count(3))
+    assert review()["action"] == "block"
+    todo(items_with_open_count(2))
+    assert review() is None
+    assert review() is None
+
+
+def test_growing_back_after_a_pass_blocks():
+    todo(items_with_open_count(3))
+    assert review()["action"] == "block"
+    todo(items_with_open_count(2))
+    assert review() is None
+    todo(items_with_open_count(3))
+    assert review()["action"] == "block"
+
+
+def test_reopened_check_after_deep_credit_reblocks():
+    todo(items_with_open_count(2))
+    assert review()["action"] == "block"
+    for count in range(1, -1, -1):
+        todo(items_with_open_count(count))
+        assert review() is None, count
+    todo(items_with_open_count(1))
+    assert review()["action"] == "block"
+
+
+def test_shrinking_credit_is_session_scoped():
+    todo(items_with_open_count(2), session="a")
+    todo(items_with_open_count(2), session="b")
+    assert review("a")["action"] == "block"
+    todo(items_with_open_count(1), session="a")
+    assert review("a") is None
+    assert review("b")["action"] == "block"
+
+
+def test_block_record_is_bounded():
+    for i in range(gate._MAX_SESSIONS + 5):
+        todo(items_with_open_count(2), session=f"r{i}")
+        assert review(f"r{i}")["action"] == "block"
+    assert len(gate._blocked) == gate._MAX_SESSIONS
+
+
+@pytest.mark.parametrize("size", range(2, 8))
+def test_smaller_set_that_gains_a_new_check_reblocks(size):
+    todo(items_with_open(EIGHT[:size]), session="gain")
+    assert review("gain")["action"] == "block"
+    todo(items_with_open([EIGHT[size]] + list(EIGHT[:size - 2])), session="gain")
+    assert review("gain")["action"] == "block"
+    todo(items_with_open(EIGHT[:size - 2]), session="gain")
+    assert review("gain") is None
+
+
+@pytest.mark.parametrize("size", range(2, 5))
+def test_disjoint_smaller_set_reblocks(size):
+    todo(items_with_open(EIGHT[:size]), session="disj")
+    assert review("disj")["action"] == "block"
+    todo(items_with_open(EIGHT[size:2 * size - 1]), session="disj")
+    assert review("disj")["action"] == "block"
+    todo(items_with_open(EIGHT[size:2 * size - 2]), session="disj")
+    assert review("disj") is None
+
+
+def test_single_check_swapped_for_another_reblocks():
+    todo(items_with_open([EIGHT[0]]), session="one")
+    assert review("one")["action"] == "block"
+    todo(items_with_open([EIGHT[1]]), session="one")
+    assert review("one")["action"] == "block"
+    todo(items_with_open([]), session="one")
+    assert review("one") is None
+
+
+def test_full_baseline_regrows_after_a_pass_and_reblocks():
+    todo(items_with_open(EIGHT), session="full")
+    assert review("full")["action"] == "block"
+    todo(items_with_open(EIGHT[:7]), session="full")
+    assert review("full") is None
+    todo(items_with_open(EIGHT), session="full")
+    assert review("full")["action"] == "block"
