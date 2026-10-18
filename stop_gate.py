@@ -32,13 +32,14 @@ from typing import Any, Optional
 
 from . import kanban_policy
 
-_TERMINAL_TOOLS = frozenset({
+TERMINAL_TOOLS = frozenset({
     "kanban_complete",
     "kanban_block",
     "kanban_schedule",
     "kanban_request_review",
     "kanban_request_changes",
 })
+ERROR_SNIPPET_LIMIT = 120
 _MAX_SESSIONS = 200
 
 MESSAGE = (
@@ -55,27 +56,40 @@ MESSAGE = (
     "never end the turn on a promise to call it later.]"
 )
 
+REJECTION_SUFFIX = (
+    "Your last lifecycle call {tool} was rejected: {error} — fix the named cause and retry "
+    "the call now."
+)
+
 _handed_off: "OrderedDict[str, bool]" = OrderedDict()
+_rejected: "OrderedDict[str, tuple[str, str]]" = OrderedDict()
 
 
 def reset() -> None:
     """Clear per-session state (used by the test suite)."""
     _handed_off.clear()
+    _rejected.clear()
 
 
 def record(tool_name: str = "", status: str = "", error_message: Optional[str] = None, **kwargs) -> None:
-    """``post_tool_call``: mark the session handed off only when a terminal Kanban call succeeded."""
-    if tool_name not in _TERMINAL_TOOLS:
-        return
-    if status != "ok":
-        return
+    """``post_tool_call``: remember per session whether a terminal Kanban call succeeded,
+    and when it did not, why the last one was rejected."""
     session = str(kwargs.get("session_id") or kwargs.get("task_id") or "")
     if not session:
         return
-    _handed_off[session] = True
-    _handed_off.move_to_end(session)
-    while len(_handed_off) > _MAX_SESSIONS:
-        _handed_off.popitem(last=False)
+    if tool_name in TERMINAL_TOOLS:
+        if status == "ok":
+            _rejected.pop(session, None)
+            _remember(_handed_off, session, True)
+        else:
+            _remember(_rejected, session, (tool_name, (error_message or "")[:ERROR_SNIPPET_LIMIT]))
+
+
+def _remember(store: OrderedDict, session: str, value) -> None:
+    store[session] = value
+    store.move_to_end(session)
+    while len(store) > _MAX_SESSIONS:
+        store.popitem(last=False)
 
 
 def check(**kwargs) -> Optional[dict[str, str]]:
@@ -85,7 +99,8 @@ def check(**kwargs) -> Optional[dict[str, str]]:
     The observed failure shape is a reply PROMISING a lifecycle call ("Building the todo list,
     then requesting review:"); any final reply while the handoff is still owed gets the nudge.
     Scope keeps this safe: worker process only, and the reply becomes an interim row on the
-    way to the real call.
+    way to the real call. When the last terminal call was rejected, the nudge names the tool
+    and error so the worker fixes the named cause instead of narrating a stop.
     """
     from os import getenv
 
@@ -96,7 +111,11 @@ def check(**kwargs) -> Optional[dict[str, str]]:
     session = str(kwargs.get("session_id") or kwargs.get("task_id") or "")
     if session and _handed_off.get(session):
         return None
-    return {"action": "continue", "message": MESSAGE}
+    message = MESSAGE
+    rejection = _rejected.get(session) if session else None
+    if rejection:
+        message += "\n\n" + REJECTION_SUFFIX.format(tool=rejection[0], error=rejection[1])
+    return {"action": "continue", "message": message}
 
 
 __all__ = ["MESSAGE", "check", "record", "reset"]
