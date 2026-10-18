@@ -149,6 +149,7 @@ _OSASCRIPT = re.compile(_START + r"osascript\b")
 _PUSH = re.compile(_START + r"git\s+push\b")
 _BARE_FORCE = re.compile(r"\s(?:--force|-f)(?=\s|$)")
 _RECURSIVE_RM_FLAGS = re.compile(r"(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\b")
+_RUNNER_RM = re.compile(_START + r"(?:(?:sudo|command|env)\s+)*xargs\b(?:\s+-\S+)*\s+(?:(?:sudo|command)\s+)?rm\b(?=[^;&|\n]*" + _RECURSIVE_RM_FLAGS.pattern + r")")
 _RECURSIVE_RM = re.compile(_START + r"rm\b(?=[^;&|\n]*" + _RECURSIVE_RM_FLAGS.pattern + r")")
 _FIND_DELETE = re.compile(_START + r"find\b")
 _FIND_DELETE_FLAGS = re.compile(r"\s-delete\b")
@@ -298,6 +299,112 @@ def _segment_operand_levels(segment: str) -> list[str]:
     return [level for token in tokens for level in (_path_level(token),) if level != "none"]
 
 
+def _segment_tokens(segment: str) -> list[str]:
+    """shlex token view of one segment with `punctuation_chars=True`: a pipe
+    comes back as its own token while quoted payloads stay whole, so a
+    quoted `|` can never split the operand side off a deletion verb.
+    Unbalanced quotes return no tokens instead of a word-split fallback —
+    a `str.split` rebuilds the very pipe/quote confusion (R1) this view
+    exists to avoid."""
+    lexer = shlex.shlex(segment, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    try:
+        return list(lexer)
+    except ValueError:
+        return []
+
+
+def _pipe_left_tokens(segment: str) -> list[str]:
+    """Operand tokens piped into a deletion verb from an earlier pipe stage
+    of the same segment (`echo <home> | xargs rm -rf`): every token before
+    the LAST `|` token (`||` parses as one token, so it never splits left
+    from right)."""
+    tokens = _segment_tokens(segment)
+    if "|" not in tokens:
+        return []
+    pipe_index = len(tokens) - 1 - tokens[::-1].index("|")
+    return tokens[:pipe_index]
+
+
+_RUNNER_WORDS = ("sudo", "command", "env", "nohup", "nice", "exec", "time", "parallel")
+_RUNNER_XARGS_FLAGS = re.compile(r"xargs(?:\s+-\S+)*")
+
+
+def _composed_runner_levels(segment: str) -> Optional[set]:
+    """Levels a runner-composed deletion would delete (`echo <home> | xargs
+    rm -rf`), or `None` when this segment is not one. The runner chain
+    (`sudo`, `env`, `nohup`, `nice`, `exec`,
+    `time`, `parallel`, `xargs` with its flags) appends the piped-in
+    operands to the verb, so the composed command's targets are the verb's
+    own operands plus everything left of the last pipe. Semantics stay
+    verb-local (a filtered `find` below an ancestor walks only matches; an
+    rsync deletes on its destination), mirroring the direct-shape checks."""
+    verbs = ("rm", "find", "rsync")
+    tokens = _segment_tokens(segment)
+    verb_index = None
+    for index in range(len(tokens) - 1, -1, -1):
+        if tokens[index] in verbs:
+            verb_index = index
+            break
+    if verb_index is None:
+        return None
+    if (
+        tokens[verb_index] == "rm"
+        and verb_index >= 2
+        and tokens[verb_index - 1] == "-exec"
+        and tokens[verb_index - 2] == "find"
+    ):
+        verb_index -= 2
+    runner_seen = False
+    for token in reversed(tokens[:verb_index]):
+        if token == "|":
+            break
+        if token in _RUNNER_WORDS or token == "--" or (token.startswith("-") and token != "--") or _RUNNER_XARGS_FLAGS.fullmatch(token):
+            runner_seen = True
+            continue
+        if verb_index + 1 < len(tokens) and tokens[verb_index + 1].startswith("-"):
+            break
+        if (
+            '"' in token or "'" in token or "=" in token
+            or token.endswith(",") or token.endswith("[") or token.endswith("]")
+        ):
+            break
+        return None
+    if not runner_seen:
+        return None
+    if verb_index + 1 >= len(tokens) or not tokens[verb_index + 1].startswith("-"):
+        return None
+    stage = tokens[verb_index:]
+    if any(('"' in token and token != '"') for token in stage[2:]):
+        return None
+    stage_text = " ".join(stage)
+    stage_levels = set(_segment_operand_levels(stage_text))
+    left_levels = set(
+        level for token in tokens[:verb_index] for level in (_path_level(token),) if level != "none"
+    )
+    levels = stage_levels | left_levels
+    if stage[0] == "find":
+        if not (_FIND_DELETE_FLAGS.search(stage_text) or _FIND_EXEC_RM.search(stage_text)):
+            return None
+        if "home" in (levels & set(_PROTECTED_LEVELS) | stage_levels):
+            return levels
+        if _FIND_NAME_FILTER.search(stage_text):
+            return None
+        return levels if levels & set(_PROTECTED_LEVELS) else None
+    if stage[0] == "rsync":
+        if not _RSYNC_DELETE_FLAG.search(stage_text):
+            return None
+        operands = [token for token in stage[1:] if not token.startswith("-")]
+        if operands and _path_level(operands[-1]) in _PROTECTED_LEVELS:
+            return levels
+        if left_levels & set(_PROTECTED_LEVELS):
+            return levels
+        return None
+    if not _RECURSIVE_RM_FLAGS.search(stage_text):
+        return None
+    return levels if levels & set(_PROTECTED_LEVELS) else None
+
+
 def _rsync_delete_target_protected(segment: str) -> bool:
     """True when the `--delete` sync's DESTINATION (last non-option operand,
     the side that loses files) is a protected target; a home as SOURCE syncs
@@ -329,17 +436,30 @@ def hermes_home_violations(command: str) -> list[str]:
     while double-quoted content expands and stays visible."""
     found = []
     blanked = _strip_heredocs(command)
-    for phrase in _python_delete_phrases(command, blanked):
+    jointed = blanked.replace("\\\n", "")
+    for phrase in _python_delete_phrases(command, jointed):
         if _python_rmtree_protected(phrase):
             found.append(_HERMES_HOME_DELETE_MESSAGE)
             return found
-    for segment in _SEGMENT_END.split(blanked):
-        if _RECURSIVE_RM.search(segment) and any(
-            level in _PROTECTED_LEVELS for level in _segment_operand_levels(segment)
-        ):
+    for segment in _SEGMENT_END.split(jointed):
+        composed = _composed_runner_levels(segment)
+        if _RECURSIVE_RM.search(segment):
+            levels = set(_segment_operand_levels(segment))
+        elif composed is not None:
+            levels = composed
+        else:
+            levels = set()
+        protected = bool(levels & set(_PROTECTED_LEVELS))
+        if _RECURSIVE_RM.search(segment) and protected:
             found.append(_HERMES_HOME_DELETE_MESSAGE)
             continue
-        if _FIND_DELETE.search(segment) and _find_delete_activates(segment):
+        if composed is not None:
+            found.append(_HERMES_HOME_DELETE_MESSAGE)
+            continue
+        left_levels = set(
+            level for token in _pipe_left_tokens(segment) for level in (_path_level(token),) if level != "none"
+        )
+        if _FIND_DELETE.search(segment) and _find_delete_activates(segment, left_levels):
             found.append(_HERMES_HOME_DELETE_MESSAGE)
             continue
         if _RSYNC_DELETE.search(segment) and _RSYNC_DELETE_FLAG.search(segment):
@@ -418,12 +538,12 @@ def _python_rmtree_protected(phrase: str) -> bool:
     return False
 
 
-def _find_delete_activates(segment: str) -> bool:
+def _find_delete_activates(segment: str, left_levels: Optional[set] = None) -> bool:
     """`find <operand>` deletes recursively with `-delete` or
     `-exec rm -r...`; a home operand always blocks, an ancestor or root
     operand only when no `-name` filter narrows the walk below it, a nest
     below never blocks."""
-    levels = set(_segment_operand_levels(segment))
+    levels = set(_segment_operand_levels(segment)) | set(left_levels or ())
     if not any(level in _PROTECTED_LEVELS for level in levels):
         return False
     if not (_FIND_DELETE_FLAGS.search(segment) or _FIND_EXEC_RM.search(segment)):
