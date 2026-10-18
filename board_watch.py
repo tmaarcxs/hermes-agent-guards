@@ -40,7 +40,6 @@ from typing import Callable, Optional, Tuple, Union
 logger = logging.getLogger(__name__)
 
 POKE_FILE = "kanban-wake-poke.json"
-_GRACE = 900.0
 
 _LOGIN_TOOLS = frozenset({"kanban_show", "kanban_list", "kanban_attachments", "kanban_heartbeat"})
 
