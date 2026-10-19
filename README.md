@@ -75,7 +75,10 @@ hermes plugins install shard-guard/hermes-agent-guards --enable
 ## Tests
 
 The test suite needs the Hermes host repository's `hermes_cli` package importable and a
-Python 3.10+ interpreter. On a machine with Hermes installed, run:
+Python 3.10+ interpreter (a `pytest_configure` guard in `tests/conftest.py` aborts the
+session with an explicit error on older interpreters: below 3.10 the host's PEP-604
+annotations fail at import, the worker gates silently turn inert and 100+ tests fail
+misleadingly). On a machine with Hermes installed, run:
 
 ```bash
 PYTHONPATH="$HOME/.hermes/hermes-agent" python3 -m pytest -q tests
