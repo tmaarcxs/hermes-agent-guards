@@ -97,14 +97,6 @@ Modules:
   stores the next card's 5 min crossing in its cursor and sweeps on the first
   tick at or past it, so a quiet board can no longer hold a wake past its age
   gate. Watermark and dedup semantics are unchanged.
-- ``inventory_rule`` (lead process only): one ``pre_llm_call`` hook that
-  injects the swarm-split instruction once per user turn at the lead's turn
-  prologue: before delegating anything, write the inventory of the request's
-  independent atomic units, then create one Kanban card per unit in the same
-  turn, exactly one unit per card, as many as the work genuinely allows; child
-  cards (non-empty ``parents``) are exempt. It never blocks — a worker-context
-  call (``HERMES_KANBAN_TASK`` set) returns ``None`` and the only return shape
-  is ``{"context": ...}``, which the host joins into the current user message.
 - ``workspace_scope_gate`` (lead process with a messaging session origin only) scopes a
   lead ``kanban_list`` result to the cards the calling chat thread is subscribed to
   (``kanban_notify_subs`` platform/chat_id/thread_id): other chats' cards are hidden,
@@ -125,7 +117,7 @@ import shlex
 from typing import Any, Optional
 
 try:
-    from . import approval_wait_gate, background_notify_gate, backup_copy_gate, checkpoint_gate, churn_wake, completion_gate, github_contact, handoff_gate, inventory_rule, kanban_policy, kanban_show_slim_gate, lead_delegation, notification_reconcile, paas_promote_gate, pr_acceptance_gate, review_gate, review_loop, schedule_gate, skill_size, stale_wake, stop_gate, waiting_wake, workspace_scope_gate, workspace_write_gate
+    from . import approval_wait_gate, background_notify_gate, backup_copy_gate, checkpoint_gate, churn_wake, completion_gate, github_contact, handoff_gate, kanban_policy, kanban_show_slim_gate, lead_delegation, notification_reconcile, paas_promote_gate, pr_acceptance_gate, review_gate, review_loop, schedule_gate, skill_size, stale_wake, stop_gate, waiting_wake, workspace_scope_gate, workspace_write_gate
 except ImportError:
     if __name__ != "__init__":
         raise
@@ -181,7 +173,6 @@ def register(ctx) -> None:
     ctx.register_hook("post_tool_call", _post_tool_call)
     ctx.register_hook("pre_verify", stop_gate.check)
     ctx.register_hook("transform_tool_result", _transform_tool_result)
-    ctx.register_hook("pre_llm_call", inventory_rule.hook)
     stale_wake.register(ctx)
     ctx.register_hook("on_kanban_dispatch_tick", stale_wake.stall_wake_on_tick)
     ctx.register_hook("on_kanban_dispatch_tick", waiting_wake.on_tick)
