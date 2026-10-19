@@ -37,8 +37,6 @@ Matches commands at command-word position outside quoted strings, so mentions in
 strings, grep patterns and python -c bodies pass. It catches slips, not deliberate evasion. Fails open.
 
 Modules:
-- ``repeat_guard`` blocks an identical call that already failed twice in the session with
-  nothing changed since;
 - ``checkpoint_gate`` (same condition, worker process only) forces the budget checkpoint: once a
   dispatcher-owned worker run passes 400 API calls (read from the ``api_request_id`` tail) without a
   successful post-call-1 Kanban comment (or review/complete/block), non-checkpoint tool calls are
@@ -133,7 +131,7 @@ import shlex
 from typing import Any, Optional
 
 try:
-    from . import approval_wait_gate, background_notify_gate, backup_copy_gate, checkpoint_gate, churn_wake, completion_gate, github_contact, handoff_gate, inventory_rule, kanban_policy, kanban_show_slim_gate, lead_delegation, notification_reconcile, paas_promote_gate, pr_acceptance_gate, pr_comment_gate, published_head_gate, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake, stop_gate, waiting_wake, workspace_scope_gate, workspace_write_gate
+    from . import approval_wait_gate, background_notify_gate, backup_copy_gate, checkpoint_gate, churn_wake, completion_gate, github_contact, handoff_gate, inventory_rule, kanban_policy, kanban_show_slim_gate, lead_delegation, notification_reconcile, paas_promote_gate, pr_acceptance_gate, pr_comment_gate, published_head_gate, review_gate, review_loop, schedule_gate, skill_size, stale_wake, stop_gate, waiting_wake, workspace_scope_gate, workspace_write_gate
 except ImportError:
     if __name__ != "__init__":
         raise
@@ -610,7 +608,7 @@ def normalized_args(tool_name: str, args: dict[str, Any]) -> Optional[dict[str, 
 
 
 def _post_tool_call(**kwargs) -> None:
-    for guard in (repeat_guard, review_gate, stop_gate, checkpoint_gate, pr_acceptance_gate):
+    for guard in (review_gate, stop_gate, checkpoint_gate, pr_acceptance_gate):
         try:
             guard.record(**kwargs)
         except Exception:
@@ -645,7 +643,6 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
             return message
         return message[: marker] + " [" + name + "]" + message[marker:]
     for check, name in (
-        (lambda: repeat_guard.check(tool_name, args, **kwargs), "repeat_guard"),
         (lambda: checkpoint_gate.check(tool_name, args, **kwargs), "checkpoint_gate"),
         (lambda: workspace_write_gate.check(tool_name, args), "workspace_write_gate"),
         (lambda: kanban_policy.check(tool_name, args), "kanban_policy"),
