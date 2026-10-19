@@ -20,7 +20,6 @@ def check(summary, metadata=None, result=None, tool="kanban_complete"):
     return gate.check(tool, args)
 
 
-
 @pytest.mark.parametrize("summary", [
     "Delivery complete. Pre-task rollback copy at /tmp/pre-work preserved for the lead.",
     "Implementation done; backup kept at ~/.hermes/state/nightly-old in case of regression.",
@@ -32,8 +31,7 @@ def test_original_phrasings_are_blocked(summary):
 
 
 @pytest.mark.parametrize("summary", [
-    "Review ready; before-worker-manifest.py preserved for safety.",
-    "Wiring checked; pristine tree retained at /tmp/x.",
+    "Review ready; pristine tree retained at /tmp/x.",
     "Done; rollback source left in place under ~/.hermes/state/old.",
     "Accepted; old version stored under state/nightly-x.",
     "Complete. Snapshot saved to /tmp/snap for recovery.",
@@ -51,7 +49,6 @@ def test_nested_metadata_is_checked():
     assert message and "Rollback is git" in message
 
 
-
 @pytest.mark.parametrize("summary", [
     "purged 77 entries (backup kept)",
     "all 77 fake-card entries purged (backup kept)",
@@ -63,7 +60,6 @@ def test_nested_metadata_is_checked():
 def test_paren_scoped_and_bare_keep_claims_are_blocked(summary):
     message = check(summary)
     assert message and "Rollback is git" in message
-
 
 
 def test_normal_handoff_passes():
@@ -111,7 +107,6 @@ def test_mentioning_a_backup_without_a_keep_claim_passes():
     assert check("Restored from the backup made earlier by the lead; no copy retained.") is None
 
 
-
 @pytest.mark.parametrize("summary", [
     "Backup preserved for a comparison pass tonight.",
     "The auditor reviewed the tree but left the pristine copy in place at /tmp/x.",
@@ -131,6 +126,52 @@ def test_later_or_planned_removal_does_not_erase_a_keep_claim(summary):
     assert check(summary) and "Rollback is git" in check(summary)
 
 
+@pytest.mark.parametrize("summary", [
+    "Kept 'a backup at /tmp/x.bak'",
+    "'backup kept'",
+    '"pre-task snapshot kept at /tmp/preview"',
+    "summary mentions 'snapshot kept at /tmp/p' in prose",
+])
+def test_quoting_a_real_claim_still_blocks(summary):
+    message = check(summary)
+    assert message and "Rollback is git" in message
+
+
+def test_quoted_fixture_sentence_keeps_blocking_as_accepted_trade_off():
+    message = check("'pre-task snapshot kept at /tmp/preview'")
+    assert message and "Rollback is git" in message
+
+
+def test_quoted_reviewer_fixture_keeps_blocking_as_accepted_trade_off():
+    message = check("'Backup kept for the reviewer.' still blocks")
+    assert message and "Rollback is git" in message
+
+
+@pytest.mark.parametrize("summary", [
+    "Review ready; before-worker-manifest.py preserved for safety.",
+    "Prior-state tree backed up before the handler rewrite.",
+])
+def test_overreach_family_alternates_no_longer_match(summary):
+    assert check(summary) is None
+
+
+@pytest.mark.parametrize("summary", [
+    "agent-guards required removal of a retained pre-task state backup. The card body itself mandates worker-state.copy.db as a durable artifact for later cards; it is a data-analysis input, not a safety rollback, and this is recorded in acceptance item 1. No other retained pre-task copy exists in the workspace.",
+    "No rollback/backup copies outside this card's scratch workspace; prior state is recoverable via git history.",
+])
+def test_recorded_production_false_positives_pass(summary):
+    assert check(summary) is None
+
+
+@pytest.mark.parametrize("summary", [
+    "Sorted 57 rows lexicographically; nothing copied; no retained pre-task state anywhere.",
+    "PR #50 opened: backup_copy_gate now skips keep-claim matches inside single-quoted spans, fixing the S3 residual FP",
+    "Copied worker state.db read-only (integrity_check ok), counted compaction events",
+])
+def test_replay_handoff_summaries_pass(summary):
+    assert check(summary) is None
+
+
 def test_other_tools_pass_through():
     assert gate.check("kanban_block", {"reason": "backup kept"}) is None
 
@@ -141,7 +182,7 @@ def test_inactive_without_default_assignee(monkeypatch):
 
 
 def test_request_review_is_also_gated():
-    message = check("Review ready; before-worker-manifest.py preserved for safety.", tool="kanban_request_review")
+    message = check("Review ready; pristine tree retained at /tmp/x for safety.", tool="kanban_request_review")
     assert message and "Rollback is git" in message
 
 
