@@ -95,6 +95,23 @@ def test_path_and_location_keep_claims_still_block(summary):
 
 
 @pytest.mark.parametrize("summary", [
+    "Quoting the fixture: 'pre-task snapshot kept at /tmp/preview'.",
+    'Echoing the fixture: "rollback at .task/deployment-backup/installed-before-compact."',
+    "The card body includes `Snapshot saved to /tmp/snap` verbatim.",
+])
+def test_quoted_fixture_text_passes(summary):
+    assert check(summary) is None
+
+
+@pytest.mark.parametrize("summary", [
+    "Pre-task snapshot preserved under /tmp/preview for the reviewer.",
+    "Left the old tree backed up at /tmp/tree-old while testing.",
+])
+def test_unquoted_real_claims_still_block(summary):
+    assert check(summary) is not None
+
+
+@pytest.mark.parametrize("summary", [
     "No backup copies were kept; prior state remains recoverable via git history.",
     "Fixed the regression; rolled back only the failed patch via git checkout.",
     "Rollback is git: no rollback copy remains.",

@@ -18,6 +18,40 @@ from typing import Any, Optional
 from . import kanban_policy
 from .kanban_policy import RETRY_INSTRUCTION
 
+_QUOTE_CHARS = "\"'`"
+
+
+def _quoted_spans(text: str) -> set[tuple[int, int]]:
+    spans = []
+    stack = []
+    for index, char in enumerate(text):
+        if char in _QUOTE_CHARS:
+            for open_index, open_char in stack:
+                if open_char == char:
+                    spans.append((open_index, index))
+                    stack.remove((open_index, open_char))
+                    break
+            else:
+                stack.append((index, char))
+    return set(spans)
+
+
+def _quoted_residual(sentence: str, quote_spans: list[tuple[int, int]], offset: int) -> list[str]:
+    residual = []
+    cursor = 0
+    for span_start, span_end in quote_spans:
+        begin = max(span_start, offset) - offset
+        finish = min(span_end + 1, offset + len(sentence)) - offset
+        if begin >= finish:
+            continue
+        if begin > cursor:
+            residual.append(sentence[cursor:begin])
+        cursor = max(cursor, finish)
+    if cursor < len(sentence):
+        residual.append(sentence[cursor:])
+    return residual
+
+
 _FAMILY = r"(?:backup|backups?|back-ups?|rollback|pre-task|pristine|snapshot|before[-_][\w.-]+|prior[-_]state)"
 _VERB = (
     r"(?:kept|keep|preserv\w+|retain\w*|sav(?:e|ed|es|ing)|stor(?:e|ed|es|ing|age)"
@@ -69,9 +103,6 @@ def keeps_backup_copy(text: str) -> bool:
     erases a live keep claim.
     """
     for sentence in _sentences(text):
-        match = _KEPT.search(sentence)
-        if not match:
-            continue
         origin = None
         scan = 0
         in_paren = False
@@ -92,7 +123,15 @@ def keeps_backup_copy(text: str) -> bool:
                 origin = scan + (part.index(sentence) if sentence in part else 0)
                 frag_paren = in_paren
             scan += len(part)
+        match = _KEPT.search(sentence)
+        if not match:
+            continue
         offset = origin if origin is not None else 0
+        quote_spans = sorted(_quoted_spans(text))
+        hit_in_quote = any(sp[0] < offset + match.end() and offset + match.start() < sp[1]
+                           for sp in quote_spans)
+        if hit_in_quote and not any(_KEPT.search(part) for part in _quoted_residual(sentence, quote_spans, offset)):
+            continue
         if re.search(rf"(?i)\b{_NEG}\b[^\n.;]{{0,60}}$", sentence[: match.start()]):
             continue
         if re.search(r"(?i)\b(?:removed?|deleted?|dropped|cleaned?|purged|erased|gone)\b", sentence[match.end():]):
