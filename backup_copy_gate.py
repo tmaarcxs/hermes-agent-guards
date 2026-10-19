@@ -4,8 +4,9 @@ The owner forbids backup/rollback/snapshot artifacts of prior state anywhere
 (rollback is git, registries or re-applying the prior value). This gate catches the handoff itself: a worker
 ``kanban_complete`` or
 ``kanban_request_review`` whose ``summary``, ``result`` or metadata values state
-that a backup, rollback, pristine or before-copy was kept or preserved is
-blocked with instructions to delete it.
+that a backup, rollback, pristine or pre-task copy was kept or preserved is
+blocked with instructions to delete it. Quoting the claim does not excuse it:
+a keep claim inside single or double quotes still blocks.
 
 Active only in worker setups (``kanban.default_assignee`` set; see
 ``kanban_policy``) and only in a worker process, mirroring ``completion_gate``.
@@ -18,16 +19,14 @@ from typing import Any, Optional
 from . import kanban_policy
 from .kanban_policy import RETRY_INSTRUCTION
 
-_FAMILY = r"(?:backup|backups?|back-ups?|rollback|pre-task|pristine|snapshot|before[-_][\w.-]+|prior[-_]state)"
+_FAMILY = r"(?:backup|backups?|back-ups?|rollback|pre-task|pristine|snapshot|before[-_][\w.-]+)"
 _VERB = (
     r"(?:kept|keep|preserv\w+|retain\w*|sav(?:e|ed|es|ing)|stor(?:e|ed|es|ing|age)"
-    r"|backed?[- ]?ups?|backup(?:ped)?|backs?\s?ups?|left(?:\s+in\s+place)?|maintain\w*|hold(?:s|ing)?|archiv\w*)"
+    r"|backed?[- ]?ups?|backup(?:ped)?|backs?\s?ups?|left(?:\s+in\s+place)?|maintain\w*|archiv\w*)"
 )
+_FAM_ALT = ("backup", "backups", "back-ups", "rollback", "pre-task", "pristine", "snapshot", "before[-_][\\w.-]+")
 _GENERIC = r"(?:versions?|copies?|artifacts?|files?|states?|trees?|manifests?|scripts?|source|baseline)"
 _QUALIFIER = r"(?:defective|old|prior|previous|failing|earlier|original)"
-
-_FAM_ALT = ("backup", "backups", "back-ups", "rollback", "pre-task", "pristine", "snapshot",
-            "before[-_][\\w.-]+", "prior[-_]state")
 
 _KEPT = re.compile(
     rf"(?is)"
@@ -39,10 +38,16 @@ _KEPT = re.compile(
 )
 
 _NEG = r"(?:no|not|never|none|zero|without)"
+_REMOVAL = r"(?:removed?|deleted?|dropped|purged|cleaned|erased|gone|removal)"
+_PRE_REMOVAL = re.compile(
+    rf"(?i)\b{_REMOVAL}\b"
+    rf"(?:\s+(?:of|and|a|the|any|all|this|that|its|old|prior|previous|stale|retained))*"
+    rf"\s*$"
+)
 
 _MESSAGE = (
     "agent-guards blocked the handoff: the summary or metadata keeps or preserves a backup/rollback/"
-    "pristine/before copy of prior state. Rollback is git: delete the copy and, if needed, recover the "
+    "pristine/pre-task copy of prior state. Rollback is git: delete the copy and, if needed, recover the "
     "prior state from git history (or the originating external system, e.g. the GitHub API), then re-run "
     "the handoff without the retained copy."
 )
@@ -56,105 +61,87 @@ def _sentences(text: str) -> list[str]:
 def keeps_backup_copy(text: str) -> bool:
     """Whether any sentence claims a kept/preserved backup of prior state.
 
-    Paren-split fragments keep their offset into the original text so a
-    removal verb landing outside an isolated fragment ('(backup kept) and
-    then deleted ...') still negates the bare keep claim.
-
-    Vetoes are scoped narrow: the snapshot consumption/parity/render/review
-    window veto applies only when the matched family word itself is
-    'snapshot' and no retention verb hugs it (a retention verb inside or
-    right after the snapshot token stays a real claim); the cross-fragment
-    removal and negation windows only apply when the match is itself a
-    paren fragment, so a removal promised or performed elsewhere never
-    erases a live keep claim.
+    A keep claim is a backup/rollback/pristine/pre-task family word adjacent to a retention verb inside one
+    clause or a bare two-word claim ("backup kept"); quoting does not excuse it. A family lexeme that lives
+    inside a path segment (adjacent to ``/`` or ```` ` ```, or starting the fragment like a filename) is
+    locator-gated: it counts only with a family-or-verb word followed by ``at/under/in/on/to`` — a
+    natural-language locator, not the path itself. A keep fragment isolated inside parentheses is negated by
+    a removal verb in the following 120 chars of the original text ("(backup kept) and then deleted").
+    Negation before the match, a removal elsewhere in the fragment, a removal named after a paren keep
+    fragment, or a keep scoped by "nowhere" vetoes the claim.
     """
     for sentence in _sentences(text):
         match = _KEPT.search(sentence)
-        if not match:
+        if match is None:
             continue
-        origin = None
-        scan = 0
-        in_paren = False
-        frag_paren = False
-        for part in re.split(r"(?<=[;.\n])\s+|([()])", text):
-            if part is None:
+        prefix = sentence[: match.start()]
+        if re.search(rf"(?i)\b{_NEG}\b[^\n.;]{{0,60}}$", prefix):
+            continue
+        if _PRE_REMOVAL.search(prefix):
+            continue
+        if re.search(rf"(?i)\b{_REMOVAL}\b", sentence[match.end():]):
+            continue
+        origin = _fragment_origin(text, sentence)
+        if origin is not None:
+            if re.search(
+                rf"(?i)\b{_REMOVAL}\b",
+                text[origin + match.end(): origin + match.end() + 120],
+            ):
                 continue
-            if part == "(":
-                in_paren = True
-                scan += len(part)
+            if re.search(
+                rf"(?i)\b{_NEG}\b[^\n.;]{{0,60}}?\b(?:backup|rollback|pristine|snapshot|cop(?:y|ies)|versions?|artifacts?)\b",
+                sentence,
+            ):
                 continue
-            if part == ")":
-                in_paren = False
-                scan += len(part)
-                continue
-            stripped = part.strip()
-            if stripped == sentence and (origin is None or scan <= origin):
-                origin = scan + (part.index(sentence) if sentence in part else 0)
-                frag_paren = in_paren
-            scan += len(part)
-        offset = origin if origin is not None else 0
-        if re.search(rf"(?i)\b{_NEG}\b[^\n.;]{{0,60}}$", sentence[: match.start()]):
-            continue
-        if re.search(r"(?i)\b(?:removed?|deleted?|dropped|cleaned?|purged|erased|gone)\b", sentence[match.end():]):
-            continue
-        if frag_paren and re.search(r"(?i)\b(?:removed?|deleted?|dropped|cleaned?|purged|erased|gone)\b", text[offset + match.end(): offset + match.end() + 120]):
-            continue
-        if frag_paren and re.search(
-            rf"(?i)\b{_NEG}\b[^\n.;]{{0,60}}?\b(?:backup|rollback|pristine|snapshot|cop(?:y|ies)|versions?|artifacts?)\b",
-            sentence,
-        ):
-            continue
-        span = sentence[max(0, match.start() - 40): match.end() + 40]
-        span_off = max(0, match.start() - 40)
-        token = match.group(0)
-        snapped = list(re.finditer(r"(?i)\bsnapshot\b", token))
-        family_snapshot = bool(snapped)
-        match_keeps = any(
-            re.search(
-                r"(?i)\b(?:kept|keep|preserv\w*|retain\w*|sav\w+|stor(?:e|ed|es|ing|age)|backed?[- ]?ups?|backup(?:ped)?|backs?\s?ups?|left(?:\s+in\s+place)?|maintain\w*|hold(?:s|ing)?|archiv\w*)\b",
-                snippet,
-            )
-            is not None
-            for snippet in (
-                token[max(0, s_.start() - 4): s_.end() + 10] for s_ in snapped
-            )
+        span = match.group(0)
+        locator = (
+            rf"(?i)\b(?:{'|'.join(_FAM_ALT)}|{_VERB})\b[^\n.;]{{0,16}}\b(?:at|under|in|on|to)\b"
         )
-        consumed = False
-        if family_snapshot and not match_keeps:
-            for word in re.finditer(r"(?i)\b(?:consum\w+|parity|render\w*|reviewed|verified against|replay\w*|preview)\b", span):
-                abs_pos = span_off + word.start()
-                word_before = sentence[max(0, abs_pos - 4): abs_pos]
-                if abs_pos > match.end() and re.search(r"(?i)(?:[/\\]|\bat\b|\bin\b|\bunder\b|\bto\b)\W{0,2}$", word_before):
-                    continue
-                consumed = True
-        if consumed:
+        path_like = _path_like(sentence, span, match.start()) or bool(
+            re.search(r"(?i)\bbefore[-_][\w.-]+", span)
+        )
+        if path_like and not re.search(locator, sentence):
             continue
-        start = match.start()
-        path_like = False
-        for fam in re.finditer(rf"(?i)(?:{'|'.join(_FAM_ALT)})", token):
-            absolute = start + fam.start()
-            after = token[fam.end(): fam.end() + 1]
-            j = absolute
-            while j > 0 and (sentence[j - 1].isalnum() or sentence[j - 1] in "_.-"):
-                j -= 1
-            seg_before = sentence[j - 1: j] if j > 0 else ""
-            seg_start = (j == 0) or seg_before in " \t/`"
-            adjacent = (j < absolute and seg_before in "/`") or (len(after) == 1 and after in "/`")
-            if seg_start and adjacent:
-                path_like = True
-        if path_like:
-            locator_runs = list(re.finditer(
-                rf"(?i)\b(?:{'|'.join(_FAM_ALT)}|{_VERB[3:-1]})\b[^\n.;]{{0,16}}\b(?:at|under|in|on|to)\b",
-                sentence))
-            if not locator_runs:
-                continue
-        if re.search(rf"(?i)^\W*{_NEG}\b[^\n.;]{{0,80}}\b{_FAMILY}\b", sentence):
+        if _dropped_head(prefix) and not re.search(locator, sentence):
             continue
-        if re.search(r"(?i)\b(?:kept|preserv\w+|retain\w+|stor\w+|sav\w+)\b[^\n.;]{0,20}\b(?:nowhere|nothing|nobody)\b", sentence):
-            continue
-        if re.search(rf"(?i)\b{_NEG}\b[^\n.;]{{0,12}}\b(?:kept|preserv\w+|retain\w+|stor\w+|sav\w+)\b", sentence):
+        if re.search(rf"(?i)\b{_VERB}\b[^\n.;]{{0,20}}\b(?:nowhere|nothing|nobody)\b", sentence):
             continue
         return True
+    return False
+
+
+def _fragment_origin(text: str, sentence: str) -> Optional[int]:
+    parts = re.split(r"([()])", text)
+    scan = 0
+    in_paren = False
+    for part in parts:
+        if part == "(":
+            in_paren = True
+        elif part == ")":
+            in_paren = False
+        elif sentence in part and in_paren:
+            return scan + part.index(sentence)
+        scan += len(part)
+    return None
+
+
+def _dropped_head(prefix: str) -> bool:
+    head = prefix.strip().rsplit(" ", 1)[-1].strip("'\"") if prefix.strip() else ""
+    return bool(re.fullmatch(r"(?i)prior[-_ ]?state|before[-_][\w.-]+", head))
+
+
+def _path_like(sentence: str, token: str, start: int) -> bool:
+    for fam in re.finditer(rf"(?i)(?:{'|'.join(_FAM_ALT)})", token):
+        absolute = start + fam.start()
+        after = token[fam.end(): fam.end() + 1]
+        j = absolute
+        while j > 0 and (sentence[j - 1].isalnum() or sentence[j - 1] in "_.-"):
+            j -= 1
+        seg_before = sentence[j - 1: j] if j > 0 else ""
+        seg_start = (j == 0) or seg_before in " \t/`"
+        adjacent = (j < absolute and seg_before in "/`") or (len(after) == 1 and after in "/`")
+        if (seg_start and adjacent):
+            return True
     return False
 
 
