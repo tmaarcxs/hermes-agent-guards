@@ -21,7 +21,6 @@ REGISTERED_GUARDS = [
     "approval_wait_gate",
     "review_gate",
     "published_head_gate",
-    "pr_comment_gate",
     "handoff_gate",
     "completion_gate",
     "backup_copy_gate",
