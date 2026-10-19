@@ -21,6 +21,15 @@ collect_ignore = [str(_root / "__init__.py")]
 def pytest_configure(config):
     import sys
 
+    if sys.version_info < (3, 10):
+        raise pytest.UsageError(
+            "agent-guards suite needs Python 3.10+ (found "
+            f"{sys.version.split()[0]}): on older interpreters the Hermes host's "
+            "PEP-604 annotations fail at import, the worker gates silently turn "
+            "inert and 100+ tests fail misleadingly. Use the Hermes venv interpreter "
+            "(~/.hermes/hermes-agent/venv/bin/python) or the tools python3.14."
+        )
+
     repo = os.path.expanduser("~/.hermes/hermes-agent")
     if repo not in sys.path and any((Path(repo) / "hermes_cli" / n).is_file() for n in ("config.py", "kanban_db.py")):
         sys.path.append(repo)
