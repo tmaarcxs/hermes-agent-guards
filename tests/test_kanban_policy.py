@@ -92,23 +92,23 @@ def test_configured_worker_reads_kanban_default_assignee(monkeypatch):
     assert policy.configured_worker() == ""
 
 
-@pytest.mark.parametrize("body", [
-    "spec without acceptance",
-    "Acceptance: everything works",
-    "## Acceptance\n- tests pass\n- docs updated",
-    "## Acceptance criteria\nTests pass and docs updated.",
-])
-def test_create_requires_numbered_acceptance_list(body):
-    assert "Acceptance" in blocked("kanban_create", {**VALID, "body": body})["message"]
+def test_create_numbered_acceptance_still_passes():
+    for body in ("Goal\n\nAcceptance:\n1. a\n2. b",
+                 "**Acceptance criteria**\n\n1) a",
+                 "## Acceptance\n  1. indented"):
+        assert blocked("kanban_create", {**VALID, "body": body}) is None
 
 
-@pytest.mark.parametrize("body", [
-    "Goal\n\nAcceptance:\n1. a\n2. b",
-    "**Acceptance criteria**\n\n1) a",
-    "## Acceptance\n  1. indented",
-])
-def test_create_accepts_numbered_acceptance_variants(body):
+def test_prose_acceptance_body_passes():
+    body = (
+        "Tighten the gateway timeout\n\n"
+        "## Acceptance\n"
+        "The client drops stalled connections after five seconds and the "
+        "integration suite demonstrates the drop against a stub server."
+    )
     assert blocked("kanban_create", {**VALID, "body": body}) is None
+    numbered = "## Acceptance\n1. `pytest -q` exits 0\n2. PR open"
+    assert blocked("kanban_create", {**VALID, "body": numbered}) is None
 
 
 def test_single_readback_passes():

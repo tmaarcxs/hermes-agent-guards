@@ -3,17 +3,14 @@
 Active only when ``kanban.default_assignee`` is set in the profile config; that value is
 the worker profile every delegated card must use. Then:
 - ``kanban_create`` must use that assignee, must not land in triage (reserved for
-  automatic escalation), must not override execution defaults and must carry an
-  ``Acceptance`` heading followed by a numbered list of checkable criteria;
+  automatic escalation) and must not override execution defaults;
 - ``kanban_request_review`` may only name that worker as reviewer.
 With no default assignee configured, nothing is enforced.
 """
 
-import re
 from typing import Any, Optional
 
 EXECUTION_OVERRIDES = ("model", "provider", "goal_mode", "goal_max_turns", "max_runtime_seconds")
-ACCEPTANCE_LIST = re.compile(r"(?im)^[#*\s]*acceptance\b[^\n]*\n(?:[ \t]*\n)*[ \t]*1[.)][ \t]+\S")
 
 RETRY_INSTRUCTION = (
     "Then retry the lifecycle call in this same response — do not end on a text-only reply: "
@@ -39,11 +36,6 @@ def violations(tool_name: str, args: dict[str, Any], worker: str) -> list[str]:
         if args.get("triage"):
             found.append("triage is reserved for automatic escalation; create the card in todo")
         found += [f"remove execution override '{key}'" for key in EXECUTION_OVERRIDES if key in args]
-        if not ACCEPTANCE_LIST.search(str(args.get("body") or "")):
-            found.append(
-                "body needs an 'Acceptance' heading followed by a numbered list (1., 2., ...) with one checkable "
-                "criterion per item, ending at the last step the worker can execute"
-            )
         return found
     if tool_name == "kanban_request_review" and args.get("reviewer") not in (None, worker):
         return [f"reviewer must be '{worker}' or omitted, got {args['reviewer']!r}"]
