@@ -1,6 +1,7 @@
 import sys
 
 import pytest
+import re
 
 guards = sys.modules["agent_guards"]
 
@@ -410,3 +411,22 @@ CONTINUATION_MATRIX = [
 @pytest.mark.parametrize("command,expected", [(c.replace(" | ", " \\\n| "), e) for c, e in CONTINUATION_MATRIX])
 def test_backslash_newline_continuation_pipe(command, expected):
     assert blocked(command) is expected
+
+
+def test_hermes_home_same_command_var_assignment_stays_blocked():
+    assert blocked('HERMES_HOME="$(mktemp -d /tmp/gh-test-home.XXXXXX)" && rm -rf "$HERMES_HOME"')
+    assert blocked("HERMES_HOME=$(mktemp -d /tmp/gh-test-home.XXXXXX); rm -rf $HERMES_HOME/")
+
+
+def test_hermes_home_block_message_recipe_allowed_by_guard():
+    from agent_guards import _HERMES_HOME_DELETE_MESSAGE
+    match = re.search(r'`env HERMES_HOME=.*?<test cmd>`', _HERMES_HOME_DELETE_MESSAGE)
+    assert match, _HERMES_HOME_DELETE_MESSAGE
+    recipe = match.group(0).strip("`")
+    assert run(recipe) is None
+
+
+def test_hermes_home_block_message_single_trailing_period():
+    from agent_guards import _HERMES_HOME_DELETE_MESSAGE
+    assert _HERMES_HOME_DELETE_MESSAGE.endswith(".")
+    assert not _HERMES_HOME_DELETE_MESSAGE.endswith("..")

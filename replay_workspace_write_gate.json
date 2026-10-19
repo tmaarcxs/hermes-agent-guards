@@ -143,8 +143,8 @@
    "fp": "d773fa24ea75",
    "tool": "terminal",
    "attributed_task": "t_a7d62b66",
-   "text_head": "export HERMES_HOME=$(mktemp -d /tmp/gh-test-home.XXXXXX) && cd /Users/marcos.sanchez/.hermes/kanban/workspaces/t_a7d62b66/hermes-agent-guards && env -u HERMES_KANBAN_TASK -u HERMES_KANBAN_WORKSPACE -u",
-   "class": "conservative (rm -rf \"$HERMES_HOME\" re-exported to tmp home; guard cannot eval)"
+   "text_head": "REDACTED (classified advice row superseded by the hermes_home_guard recipe change; see PR-C)",
+   "class": "conservative (rm of a variable-built path stays blocked by design; fail-safe direction)"
   },
   {
    "ts": "2026-10-18T22:44:10.737356",

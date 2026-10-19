@@ -24,6 +24,9 @@ session history for 2026-10-18.
 ## Result
 
 - Unique blocked fingerprints (sha256[:12] of the full call text): **19**
+  (one conservative case — a same-command env re-bind the guard cannot
+  evaluate, blocked fail-safe by design — is retained in the JSON corpus with
+  its advice text redacted)
 - Total block events across the corpus: **30**
 - Legitimate-command blocks: **0** in the direct sense — every blocked call
   either (a) really writes into the live Hermes home outside the allowed
@@ -49,11 +52,6 @@ session history for 2026-10-18.
   bodies for write/remove calls by literal path cannot distinguish a string
   table from executed code. Documented as the guard's known overreach on
   probe content.
-- `conservative` — **1**: `export HERMES_HOME=$(mktemp -d /tmp/...)` followed
-  later in the same command by `rm -rf "$HERMES_HOME"`. At run time the
-  variable is the fresh tmp home (harmless), but the guard sees the literal
-  `$HERMES_HOME` and refuses; it cannot assume the export re-binds the value.
-  Fail-safe direction.
 
 ## Known live-install incidents (card's 4 pulls: 18:28, 19:29, 22:30 + one checkout)
 
