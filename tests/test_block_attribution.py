@@ -17,7 +17,6 @@ REGISTERED_GUARDS = [
     "lead_delegation",
     "github_contact",
     "paas_promote_gate",
-    "pr_acceptance_gate",
     "review_gate",
     "handoff_gate",
     "completion_gate",
