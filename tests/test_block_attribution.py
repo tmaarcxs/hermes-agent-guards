@@ -12,7 +12,6 @@ import pytest
 guards = sys.modules["agent_guards"]
 
 REGISTERED_GUARDS = [
-    "repeat_guard",
     "checkpoint_gate",
     "kanban_policy",
     "lead_delegation",
@@ -55,24 +54,6 @@ def test_attach_cap_message_is_one_line_with_cap_and_remedy():
     assert len(message) <= 200
 
 
-def test_repeat_guard_block_names_guard():
-    guard = guards.repeat_guard
-    for _ in range(2):
-        guards._post_tool_call(
-            tool_name="read_file",
-            args={"path": "/missing.txt"},
-            result='{"error": "File not found: /missing.txt"}',
-            status="error",
-            error_message="File not found: /missing.txt",
-            session_id="s-attr-rg",
-        )
-    try:
-        message = block("read_file", {"path": "/missing.txt"}, session_id="s-attr-rg")
-    finally:
-        guard.reset()
-    assert "[repeat_guard]" in message
-
-
 @pytest.mark.parametrize("worker_process", [False, True])
 def test_kanban_policy_block_names_guard_in_both_contexts(monkeypatch, worker_process):
     monkeypatch.setattr(guards.kanban_policy, "configured_worker", lambda: "kworker")
@@ -108,5 +89,5 @@ def test_raising_guard_stays_fail_open(monkeypatch):
     def boom(*a, **k):
         raise RuntimeError("probe crash")
 
-    monkeypatch.setattr(guards.repeat_guard, "check", boom)
+    monkeypatch.setattr(guards.checkpoint_gate, "check", boom)
     assert guards._pre_tool_call(tool_name="x", args={}, session_id="s-attr-raise") is None

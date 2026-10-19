@@ -82,30 +82,3 @@ def test_schedule_gate_block_carries_retry_instruction(monkeypatch):
     assert result["action"] == "block"
     assert_retry_instruction(result["message"])
 
-
-def test_repeat_guard_ledger_block_of_lifecycle_call_carries_retry_instruction():
-    guard = guards.repeat_guard
-    args = {"task_id": "t_x", "summary": "s"}
-    for _ in range(2):
-        guards._post_tool_call(tool_name="kanban_request_review", args=args,
-                               result='{"error": "agent-guards blocked kanban_request_review: pre-review checks"}',
-                               status="error",
-                               error_message="agent-guards blocked kanban_request_review: pre-review checks",
-                               session_id="s-rg")
-    result = guards._pre_tool_call(tool_name="kanban_request_review", args=args, session_id="s-rg")
-    assert result["action"] == "block"
-    assert "already failed 2 times" in result["message"]
-    assert_retry_instruction(result["message"])
-    guard.reset()
-
-
-def test_repeat_guard_non_lifecycle_block_stays_generic():
-    guard = guards.repeat_guard
-    for _ in range(2):
-        guards._post_tool_call(tool_name="read_file", args={"path": "/missing.txt"},
-                               result='{"error": "File not found: /missing.txt"}', status="error",
-                               error_message="File not found: /missing.txt", session_id="s-plain")
-    result = guards._pre_tool_call(tool_name="read_file", args={"path": "/missing.txt"}, session_id="s-plain")
-    assert result["action"] == "block"
-    assert INSTRUCTION not in result["message"]
-    guard.reset()
