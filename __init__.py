@@ -71,8 +71,6 @@ Modules:
   says the worker's part is finished and only lead-owned steps remain; that is a completion;
 - ``schedule_gate`` (same condition, worker process only) blocks ``kanban_schedule``: it ends
   the run without a timer, so a self-scheduled card silently stops;
-- ``published_head_gate`` (same condition, worker process only) blocks ``kanban_request_review``
-  when the claimed ``metadata.commit``/``head`` is not the live head of the named pull request;
 - ``pr_acceptance_gate`` (same condition, worker process only) keeps the published-PR completion
   duty visible and capped: a ``kanban_show`` of the card with a GitHub ``completion_contract``
   gains the ``metadata.published_pr`` reminder, a rejected ``kanban_complete`` ("PR acceptance
@@ -126,7 +124,7 @@ import shlex
 from typing import Any, Optional
 
 try:
-    from . import approval_wait_gate, background_notify_gate, backup_copy_gate, checkpoint_gate, churn_wake, completion_gate, github_contact, handoff_gate, inventory_rule, kanban_policy, kanban_show_slim_gate, lead_delegation, notification_reconcile, paas_promote_gate, pr_acceptance_gate, published_head_gate, review_gate, review_loop, schedule_gate, skill_size, stale_wake, stop_gate, waiting_wake, workspace_scope_gate, workspace_write_gate
+    from . import approval_wait_gate, background_notify_gate, backup_copy_gate, checkpoint_gate, churn_wake, completion_gate, github_contact, handoff_gate, inventory_rule, kanban_policy, kanban_show_slim_gate, lead_delegation, notification_reconcile, paas_promote_gate, pr_acceptance_gate, repeat_guard, review_gate, review_loop, schedule_gate, skill_size, stale_wake, stop_gate, waiting_wake, workspace_scope_gate, workspace_write_gate
 except ImportError:
     if __name__ != "__init__":
         raise
@@ -647,7 +645,6 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
         (lambda: pr_acceptance_gate.check(tool_name, args, **kwargs), "pr_acceptance_gate"),
         (lambda: approval_wait_gate.check(tool_name, args, **kwargs), "approval_wait_gate"),
         (lambda: review_gate.check(tool_name, **kwargs), "review_gate"),
-        (lambda: published_head_gate.check(tool_name, args), "published_head_gate"),
         (lambda: handoff_gate.check(tool_name, args, **kwargs), "handoff_gate"),
         (lambda: completion_gate.check(tool_name, args), "completion_gate"),
         (lambda: backup_copy_gate.check(tool_name, args), "backup_copy_gate"),
