@@ -56,16 +56,6 @@ Modules:
   (self-assignment contacts nobody; unresolvable login fails closed); for a CODEOWNERS-only
   gap the message names the setup's documented merge command when one exists
   (``AGENT_GUARDS_MERGE_HINT``), and always offers ``kanban_block`` with ``kind=needs_input``;
-- ``approval_wait_gate`` (same condition, worker process only) blocks the silent hours-long wait
-  on an approval-only pull request: when the exact head of a polled PR is green on every
-  automated check and the review approval is the only open gate, readiness polls of it
-  (``gh pr checks``, ``gh pr view --json statusCheckRollup|mergeStateStatus|...``,
-  ``gh api .../pulls/<n>``, poller helper scripts) are blocked with the
-  authorized moves (merge the verified head via the documented merge command when the
-  setup names one (``AGENT_GUARDS_MERGE_HINT``), or ``kanban_block(kind="needs_input")``), and a repeating ``kanban_heartbeat`` note that admits
-  the approval-only wait is blocked from the second one on. Pending or failing checks, drafts
-  and dirty states are not verdict names, so their polls flow through; verdicts are cached
-  for 15 minutes and fail open on errors;
 - ``review_gate`` (same condition) blocks ``kanban_request_review`` until the eight pre-review
   checks are closed in ``todo_list``, each completed item carrying a receipt's anchor.
 - ``handoff_gate`` (same condition) bounces, once per session, a ``kanban_block`` whose reason
@@ -117,7 +107,7 @@ import shlex
 from typing import Any, Optional
 
 try:
-    from . import approval_wait_gate, background_notify_gate, backup_copy_gate, checkpoint_gate, churn_wake, completion_gate, github_contact, handoff_gate, kanban_policy, kanban_show_slim_gate, lead_delegation, notification_reconcile, paas_promote_gate, pr_acceptance_gate, review_gate, review_loop, schedule_gate, skill_size, stale_wake, stop_gate, waiting_wake, workspace_scope_gate, workspace_write_gate
+    from . import background_notify_gate, backup_copy_gate, checkpoint_gate, churn_wake, completion_gate, github_contact, handoff_gate, kanban_policy, kanban_show_slim_gate, lead_delegation, notification_reconcile, paas_promote_gate, pr_acceptance_gate, review_gate, review_loop, schedule_gate, skill_size, stale_wake, stop_gate, waiting_wake, workspace_scope_gate, workspace_write_gate
 except ImportError:
     if __name__ != "__init__":
         raise
@@ -636,7 +626,6 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
         (lambda: github_contact.check(tool_name, args), "github_contact"),
         (lambda: paas_promote_gate.check(tool_name, args), "paas_promote_gate"),
         (lambda: pr_acceptance_gate.check(tool_name, args, **kwargs), "pr_acceptance_gate"),
-        (lambda: approval_wait_gate.check(tool_name, args, **kwargs), "approval_wait_gate"),
         (lambda: review_gate.check(tool_name, **kwargs), "review_gate"),
         (lambda: handoff_gate.check(tool_name, args, **kwargs), "handoff_gate"),
         (lambda: completion_gate.check(tool_name, args), "completion_gate"),

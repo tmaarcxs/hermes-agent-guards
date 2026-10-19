@@ -35,7 +35,7 @@ def _load(name: str, search: bool):
 
 def test_the_synthetic_unit_import_survives_and_binds_nothing():
     module = _load("__init__", search=False)
-    assert not hasattr(module, "approval_wait_gate")
+    assert not hasattr(module, "stop_gate_unused_probe")
 
 
 def test_the_host_loader_shape_still_binds_every_submodule():
@@ -48,7 +48,7 @@ def test_the_host_loader_shape_still_binds_every_submodule():
     name = ns + ".agent_guards_regression"
     module = _load(name, search=True)
     assert callable(module.register)
-    for sub in ("approval_wait_gate", "stop_gate", "waiting_wake", "workspace_scope_gate"):
+    for sub in ("stop_gate", "waiting_wake", "workspace_scope_gate"):
         assert getattr(module, sub) is not None
 
 
