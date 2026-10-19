@@ -2,7 +2,7 @@ import sqlite3
 import sys
 
 guards = sys.modules["agent_guards"]
-wake = guards.stale_wake
+wake = guards.wakes
 
 NOW = 1_000_000.0
 TEN_S = 10
@@ -112,7 +112,8 @@ def test_stall_sweep_wakes_once_per_episode_and_stays_quiet_while_it_grows():
     state = wake.stall_sweep(conn, {}, rec, NOW)
     assert sorted(text.split()[2] for text, _ in rec.calls) == ["t_s"]
     max_id = conn.execute("select max(id) from task_events where task_id='t_s'").fetchone()[0]
-    assert list(state.values()) == [max_id]
+    entry = state["t_s"]
+    assert list(entry) == ["anchor", "at"] and entry["anchor"] == max_id
     for _ in range(wake.STALL_MIN_EVENTS):
         cur = next_id(conn)
         conn.execute(
@@ -146,9 +147,9 @@ def test_stall_sweep_rearms_only_after_leaving_and_reentering_the_stall_set():
     assert wake.stalled_cards(conn) == []
     guards_of(conn, "t_s", wake.STALL_MIN_EVENTS, start=next_id(conn))
     rec = Recorder()
-    state2 = wake.stall_sweep(conn, state, rec, NOW)
+    state2 = wake.stall_sweep(conn, state, rec, NOW + wake.STALL_MIN_INTERVAL + TEN_S)
     assert sorted(text.split()[2] for text, _ in rec.calls) == ["t_s"]
-    assert state2["t_s"] > state["t_s"]
+    assert state2["t_s"] != state["t_s"]
 
 
 def test_stall_sweep_forgets_cards_that_left_the_stall_set():
@@ -195,7 +196,7 @@ def test_old_shape_state_file_does_not_rewake():
     assert rec.calls == []
 
 
-def test_stall_wake_on_tick_is_unthrottled_and_named_fails_open(monkeypatch, tmp_path):
+def test_stall_on_tick_is_unthrottled_and_named_fails_open(monkeypatch, tmp_path):
     import types
 
     fake = types.ModuleType("hermes_cli")
@@ -224,17 +225,17 @@ def test_stall_wake_on_tick_is_unthrottled_and_named_fails_open(monkeypatch, tmp
     conn.close()
 
     calls = []
-    monkeypatch.setattr(wake, "_inject", lambda text, origin: calls.append((text, origin)) or True)
+    monkeypatch.setattr(wake, "inject", lambda text, origin: calls.append((text, origin)) or True)
     monkeypatch.setattr(wake, "_stall_state_path", lambda: tmp_path / "stall.json")
-    wake.stall_wake_on_tick(board=None)
+    wake.stall_on_tick(board=None)
     n_after_first = len(tmp_path.joinpath("stall.json").read_text())
-    wake.stall_wake_on_tick(board=None, dry_run=True)
-    wake.stall_wake_on_tick(board=None)
+    wake.stall_on_tick(board=None, dry_run=True)
+    wake.stall_on_tick(board=None)
     assert len(calls) == 1
     assert "[Kanban stall]" in calls[0][0]
     assert tmp_path.joinpath("stall.json").read_text() == tmp_path.joinpath("stall.json").read_text()
     assert n_after_first > 0
 
     monkeypatch.setattr(wake, "stall_sweep", lambda *a: 1 / 0)
-    wake.stall_wake_on_tick(board=None)  # fails open, no raise
-    wake.stall_wake_on_tick(board=None, dry_run=True)
+    wake.stall_on_tick(board=None)  # fails open, no raise
+    wake.stall_on_tick(board=None, dry_run=True)

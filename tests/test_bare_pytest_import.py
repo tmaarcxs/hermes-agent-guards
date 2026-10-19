@@ -48,7 +48,7 @@ def test_the_host_loader_shape_still_binds_every_submodule():
     name = ns + ".agent_guards_regression"
     module = _load(name, search=True)
     assert callable(module.register)
-    for sub in ("stop_gate", "waiting_wake", "workspace_scope_gate"):
+    for sub in ("stop_gate", "wakes", "workspace_scope_gate"):
         assert getattr(module, sub) is not None
 
 

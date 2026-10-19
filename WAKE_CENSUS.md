@@ -7,11 +7,11 @@ Source data: the dispatcher's injected wake messages in the worker `state.db`
 is `[1791756000, 1792360800)`). 48 notification rows dedup by `message_uid`
 to **43 unique wakes on 28 cards**: 32 stale, 11 stall.
 
-## Fire-condition table (module:line = stale_wake.py at the feature base 29c18c8)
+## Fire-condition table (module:line anchors were frozen at the pre-merge feature base 29c18c8; the code now lives in wakes.py)
 
 | # | Observed wake class | Count / cards | Fire condition (code anchor) | Reproduce |
 |---|---|---|---|---|
-| 1 | `todo`/`ready` open-card stale | 15 / 13 cards | `stale_cards` line 105: card in `STATUSES` minus parent-wait (`_WAITS_ON_PARENT`, line 64) whose last non-ignored event (line 119, `age >= STALE_AFTER=300`) is ≥5 min old; `sweep` fires when the state key differs from the record | `tests/test_stale_wake.py::test_wakes_each_stale_card_once_in_its_chat` |
+| 1 | `todo`/`ready` open-card stale | 15 / 13 cards | pre-merge `stale_cards` line 105: card in `STATUSES` minus parent-wait (`_WAITS_ON_PARENT`, line 64) whose last non-ignored event (line 119, `age >= STALE_AFTER=300`) is ≥5 min old; `sweep` fires when the state key differs from the record | the park-stale wake mechanic, now covered by tests/test_stale_park_wake.py |
 | 2 | parked stale, no live park record | 2 (`blocked`, `block_kind` NULL) | same query as (1); a park without a record keeps the legacy once-per-park wake | `tests/test_parked_episode_wake.py::test_plain_park_without_a_record_keeps_its_wake` |
 | 3 | parked stale **with** park record (`needs_input`/`capability`) | 12 / 9 cards — 10 fully redundant, 2 first-carries-information | same query as (1) with `block_kind` set by `kanban_db.block_task`; the park's own `blocked` dispatcher notification already reached the chats (44/47 within 2 min, 47/47 within 5 min — measured over 46 `blocked` events in the window) | `tests/test_parked_episode_wake.py::test_capability_park_is_suppressed_wherever_the_park_stays` |
 | 4 | unparked status with lingering `block_kind` | 6 / 5 cards | `block_kind` deliberately survives `unblock` (`hermes_cli/kanban_db.py:3602`), so a todo/ready card can carry a park residue; the legacy once-per-park key made these repeat | `tests/test_parked_episode_wake.py::test_an_unparked_card_with_a_park_record_wakes_its_state_event` |
@@ -26,7 +26,7 @@ parked card is never wakened, however old the park is).
 
 ## The suppression design
 
-One stateless predicate on the live row, `stale_wake._suppressed_park` —
+One stateless predicate on the live row (now the wakes.py suppression gate) —
 suppress exactly the stop-class parks, nothing else:
 
 - **Suppressed**: `status == 'blocked' and block_kind == 'capability'`
@@ -42,7 +42,7 @@ suppress exactly the stop-class parks, nothing else:
 The first transition into a suppressed state still appears exactly once —
 through the park's own automatic task-status message (47 of the 46 `blocked`
 events in the window were notified within 5 minutes, 44 within 2); a lost
-delivery is covered by the `notification_reconcile` sweep, so nothing is
+delivery is covered by the unreconciled-notice sweep in `wakes.py`, so nothing is
 silently dropped. The gate is stateless: it re-reads the live row each sweep,
 so no bookkeeping can leak and unblocking re-opens the normal wake.
 
@@ -83,7 +83,7 @@ row split inside class (3)/(4) is from the banner text itself
   pins it against the exact operational shape (one card flapping todo/ready
   across 20 guard ticks, one wake) so a future refactor cannot regress to
   per-event waking.
-- `review_loop`, `churn_wake`, `waiting_wake`: the census gives them 6, 1
+- The review-loop, churn-corner and waiting wake classes (module `wakes.py`): the census gives them 6, 1
   and 0 fires respectively; per the study report §3.4 no change is
   warranted at those counts.
 

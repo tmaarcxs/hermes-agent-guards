@@ -69,26 +69,20 @@ Modules:
   duty visible: a ``kanban_show`` of the card with a GitHub ``completion_contract``
   gains the ``metadata.published_pr`` reminder, and a rejected ``kanban_complete`` ("PR acceptance
   missing") gains the exact fix on the rejection text;
-- ``stale_wake`` wakes a card's subscribed chat once when the card has not moved for 5 min
-  (needs ``plugins.entries.agent-guards.allow_gateway_injection: true``);
-- ``waiting_wake`` wakes the same chats when a ``running`` card's heartbeat notes admit
-  waiting on an external gate (a merge bot, an approval, a deploy or rollout, a CI run)
-  and that first admission is 15 min old — once per run, quoting the wait — so the owner
-  decides: intervene, take the card over, or have the worker block it (same setting);
-- ``review_loop`` wakes the same chats when an open card reaches 3, 6, 9... review rounds
-  with changes requested, with a four-item decision menu: narrow the contract (the
-  integrity-only convergence contract rides verbatim), continue over the real defects,
-  split the card, or take it over (same injection setting);
-- ``churn_wake`` warns the same chats when a non-archived, non-done card reaches 10/20/40
-  worker runs or 5/10/20 change-requests — warning only, nothing is blocked — so the lead
-  splits, narrows or confirms the card (same injection setting);
-- ``board_watch`` makes the three wakes event-driven: each sweeps on the first
+
+- ``wakes`` (needs ``plugins.entries.agent-guards.allow_gateway_injection: true``) runs
+  every Kanban wake — stale parks once per parked stretch (plain open-card stale wakes
+  are gone; they acted 0/17 in the 14-day census), review-loop thresholds at 3/6/9...
+  change requests, the churn corner at 10 change requests, waiting-on-external-gate
+  runs, dispatcher stalls once per guard episode and at least 10 minutes apart, and
+  unreconciled delivery notices — on one shared chassis over ``board_watch``;
+- ``board_watch`` makes the wake sweeps event-driven: each sweeps on the first
   dispatcher tick after wake-relevant board activity (or any successful Kanban
-  mutation, via a shared poke file) instead of on fixed hourly/5-min ceilings.
-  The stale wake, whose trigger ripens with time rather than events, also
-  stores the next card's 5 min crossing in its cursor and sweeps on the first
-  tick at or past it, so a quiet board can no longer hold a wake past its age
-  gate. Watermark and dedup semantics are unchanged.
+  mutation, via a shared poke file) instead of on fixed ceilings. The stale-park
+  wake, whose trigger ripens with time rather than events, also stores the next
+  card's 5 min crossing in its cursor and sweeps on the first tick at or past
+  it, so a quiet board cannot hold a wake past its age gate. Watermark and dedup
+  semantics are unchanged.
 - ``workspace_scope_gate`` (lead process with a messaging session origin only) scopes a
   lead ``kanban_list`` result to the cards the calling chat thread is subscribed to
   (``kanban_notify_subs`` platform/chat_id/thread_id): other chats' cards are hidden,
@@ -101,6 +95,19 @@ Modules:
   summaries, review verdicts and errors are preserved; the result adverts
   ``removed_fields``/``dropped_event_rows``; worker processes and non-``kanban_show``
   results pass through unchanged.
+- ``wakes`` runs every Kanban wake on one shared chassis (board_watch cursors,
+  subscriber lookup, gateway injection): the stale-park wake (a parked card with a
+  block_kind record whose last non-ignored event is at least 5 min old, once per
+  parked stretch, minus the capability/triage parks whose own park notification
+  already reached the chats), the review-loop threshold wake (3, 6, 9... change
+  requests, once per threshold, durable-write-before-send), the churn corner
+  warning (a non-archived, non-done card with at least 10 change requests, once
+  per ungated crossing), the waiting-on-external-gate wake (a running card whose
+  heartbeat wait streak is at least 15 min old, once per run), the dispatcher-stall
+  wake (last 30 events all active_pr respawn guards on a todo/ready card, once per
+  guard episode, at least 10 minutes apart), and the unreconciled-notice delivery
+  net (a terminal state event no subscription confirmed delivered). The plain
+  open-card stale wake is gone: its 17 wakes in 14 days acted zero times.
 """
 
 
@@ -109,7 +116,7 @@ import shlex
 from typing import Any, Optional
 
 try:
-    from . import background_notify_gate, backup_copy_gate, checkpoint_gate, churn_wake, completion_gate, github_contact, handoff_gate, hermes_home_gate, kanban_policy, kanban_show_slim_gate, lead_delegation, notification_reconcile, paas_promote_gate, review_gate, review_loop, schedule_gate, skill_size, stale_wake, stop_gate, waiting_wake, workspace_scope_gate, workspace_write_gate
+    from . import background_notify_gate, backup_copy_gate, checkpoint_gate, completion_gate, github_contact, handoff_gate, hermes_home_gate, kanban_policy, kanban_show_slim_gate, lead_delegation, paas_promote_gate, review_gate, schedule_gate, skill_size, stop_gate, workspace_scope_gate, workspace_write_gate, wakes
 except ImportError:
     if __name__ != "__init__":
         raise
@@ -150,12 +157,7 @@ def register(ctx) -> None:
     ctx.register_hook("post_tool_call", _post_tool_call)
     ctx.register_hook("pre_verify", stop_gate.check)
     ctx.register_hook("transform_tool_result", _transform_tool_result)
-    stale_wake.register(ctx)
-    ctx.register_hook("on_kanban_dispatch_tick", stale_wake.stall_wake_on_tick)
-    ctx.register_hook("on_kanban_dispatch_tick", waiting_wake.on_tick)
-    ctx.register_hook("on_kanban_dispatch_tick", review_loop.on_tick)
-    ctx.register_hook("on_kanban_dispatch_tick", churn_wake.on_tick)
-    ctx.register_hook("on_kanban_dispatch_tick", notification_reconcile.on_tick)
+    wakes.register(ctx)
 
 
 def _segments(command: str, pattern: re.Pattern) -> list[str]:

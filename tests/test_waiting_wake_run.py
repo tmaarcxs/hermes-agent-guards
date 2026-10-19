@@ -4,7 +4,7 @@ import sys
 import time
 
 guards = sys.modules["agent_guards"]
-wake = guards.waiting_wake
+wake = guards.wakes
 board_watch = guards.board_watch
 
 NOW = 1_000_000.0
@@ -124,7 +124,7 @@ def test_an_actor_in_a_later_clause_is_not_the_external_gate():
         heart(conn, "t_w", note, age_s=WAIT_AFTER + 600)
     assert waiting(conn) == []
     rec = Recorder()
-    assert wake.sweep(conn, {}, rec, NOW) == {}
+    assert wake.waiting_sweep(conn, {}, rec, NOW) == {}
     assert rec.calls == []
 
 
@@ -132,7 +132,7 @@ def test_a_wait_note_sixteen_minutes_old_wakes_the_card_exactly_once_with_the_in
     conn = board()
     a_run_with_one_wait_note(conn, first_age_s=16 * MIN)
     rec = Recorder()
-    state = wake.sweep(conn, {}, rec, NOW)
+    state = wake.waiting_sweep(conn, {}, rec, NOW)
     assert woken(rec) == ["t_w"]
     text, origin = rec.calls[0]
     assert "[Kanban waiting]" in text and "t_w" in text
@@ -143,32 +143,32 @@ def test_a_wait_note_sixteen_minutes_old_wakes_the_card_exactly_once_with_the_in
         "user_id": "555000100", "profile": "default",
     }
     assert state == {"t_w": 1}
-    assert wake.sweep(conn, state, Recorder(), NOW) == state
-    assert wake.sweep(conn, state, Recorder(), NOW + 5 * HOUR) == state
+    assert wake.waiting_sweep(conn, state, Recorder(), NOW) == state
+    assert wake.waiting_sweep(conn, state, Recorder(), NOW + 5 * HOUR) == state
 
 
 def test_a_wait_note_fourteen_minutes_old_does_not_wake_yet():
     conn = board()
     a_run_with_one_wait_note(conn, first_age_s=14 * MIN)
     rec = Recorder()
-    assert wake.sweep(conn, {}, rec, NOW) == {}
+    assert wake.waiting_sweep(conn, {}, rec, NOW) == {}
     assert rec.calls == []
-    state = wake.sweep(conn, {}, Recorder(), NOW + 2 * MIN)
+    state = wake.waiting_sweep(conn, {}, Recorder(), NOW + 2 * MIN)
     assert state == {"t_w": 1}
 
 
 def test_wakes_again_only_for_a_new_run():
     conn = board()
     a_run_with_one_wait_note(conn)
-    state = wake.sweep(conn, {}, Recorder(), NOW)
+    state = wake.waiting_sweep(conn, {}, Recorder(), NOW)
     spawn(conn, "t_w")
     rec = Recorder()
-    state2 = wake.sweep(conn, state, rec, NOW)
+    state2 = wake.waiting_sweep(conn, state, rec, NOW)
     assert rec.calls == [] and state2 == {}
     heart(conn, "t_w", INCIDENT, age_s=WAIT_AFTER + 60)
     heart(conn, "t_w", INCIDENT, age_s=30)
     rec2 = Recorder()
-    state3 = wake.sweep(conn, state2, rec2, NOW)
+    state3 = wake.waiting_sweep(conn, state2, rec2, NOW)
     assert woken(rec2) == ["t_w"] and state3["t_w"] > state["t_w"]
 
 
@@ -242,12 +242,12 @@ def test_only_running_cards_are_watched():
 def test_no_subscriber_or_failed_injection_retries_and_a_closed_card_drops_out():
     conn = board()
     a_run_with_one_wait_note(conn)
-    state = wake.sweep(conn, {}, Recorder(ok=False), NOW)
+    state = wake.waiting_sweep(conn, {}, Recorder(ok=False), NOW)
     assert state == {}
     rec = Recorder()
-    assert wake.sweep(conn, state, rec, NOW) == {"t_w": 1}
+    assert wake.waiting_sweep(conn, state, rec, NOW) == {"t_w": 1}
     conn.execute("update tasks set status = 'done' where id = 't_w'")
-    assert wake.sweep(conn, {"t_w": 1}, Recorder(), NOW) == {}
+    assert wake.waiting_sweep(conn, {"t_w": 1}, Recorder(), NOW) == {}
 
 
 def test_a_wait_phrase_without_an_external_actor_after_it_never_counts():
@@ -317,19 +317,19 @@ def test_on_tick_is_unthrottled_state_is_its_own_file_and_it_fails_open(monkeypa
     conn.close()
 
     calls = []
-    monkeypatch.setattr(wake.stale_wake, "_inject", lambda text, origin: calls.append((text, origin)) or True)
+    monkeypatch.setattr(wake, "inject", lambda text, origin: calls.append((text, origin)) or True)
     monkeypatch.setattr(board_watch, "state_path", lambda name: tmp_path / name)
     state_file = tmp_path / "kanban-waiting-wake.json"
 
-    wake.on_tick(board=None)
+    wake.waiting_on_tick(board=None)
     assert len(calls) == 1 and "[Kanban waiting]" in calls[0][0]
     first = state_file.read_text()
-    wake.on_tick(board=None)
+    wake.waiting_on_tick(board=None)
     wake.on_tick(board=None, dry_run=True)
     assert len(calls) == 1 and state_file.read_text() == first
 
-    monkeypatch.setattr(wake, "sweep", lambda *a: 1 / 0)
-    wake.on_tick(board=None)
+    monkeypatch.setattr(wake, "waiting_sweep", lambda *a: 1 / 0)
+    wake.waiting_on_tick(board=None)
     wake.on_tick(board=None, dry_run=True)
 
 
@@ -337,7 +337,10 @@ def test_registered_on_dispatch_tick():
     hooks = []
     ctx = type("Ctx", (), {"register_hook": lambda self, name, fn: hooks.append((name, fn))})()
     sys.modules["agent_guards"].register(ctx)
-    assert ("on_kanban_dispatch_tick", wake.on_tick) in hooks
+    registered = [hook for name, hook in hooks if name == "on_kanban_dispatch_tick"]
+    for hook in (wake.stale_on_tick, wake.loop_on_tick, wake.churn_on_tick, wake.waiting_on_tick, wake.stall_on_tick, wake.reconcile_on_tick):
+        assert hook in registered
+    assert len(registered) == 6
 
 
 def test_streak_wake_keys_on_the_newest_nonempty_note_not_the_run_first():
@@ -351,7 +354,7 @@ def test_streak_wake_keys_on_the_newest_nonempty_note_not_the_run_first():
     for age in (5 * MIN, 4 * MIN, 3 * MIN, 2 * MIN, 1 * MIN):
         heart(conn, "t_w", None, age_s=age)
     rec = Recorder()
-    state = wake.sweep(conn, {}, rec, NOW)
+    state = wake.waiting_sweep(conn, {}, rec, NOW)
     assert woken(rec) == ["t_w"]
     assert "16 min" in rec.calls[0][0]
     assert state == {"t_w": 1}
@@ -369,7 +372,7 @@ def test_a_progress_note_after_a_wait_note_ends_the_streak():
     heart(conn, "t_w", None, age_s=3 * MIN)
     heart(conn, "t_w", PROGRESS, age_s=1 * MIN)
     rec = Recorder()
-    assert wake.sweep(conn, {}, rec, NOW) == {}
+    assert wake.waiting_sweep(conn, {}, rec, NOW) == {}
     assert rec.calls == []
 
 
@@ -381,10 +384,10 @@ def test_a_new_wait_note_restarts_the_streak_and_the_clock():
     heart(conn, "t_w", PROGRESS, age_s=10 * MIN)
     heart(conn, "t_w", "Still waiting on the code review verdict on PR 1047.", age_s=2 * MIN)
     rec = Recorder()
-    assert wake.sweep(conn, {}, rec, NOW) == {}
+    assert wake.waiting_sweep(conn, {}, rec, NOW) == {}
     assert rec.calls == []
     heart(conn, "t_w", PROGRESS, age_s=1 * MIN)
-    assert wake.sweep(conn, {}, Recorder(), NOW) == {}
+    assert wake.waiting_sweep(conn, {}, Recorder(), NOW) == {}
 
     conn = board()
     card(conn, "t_w")
@@ -393,7 +396,7 @@ def test_a_new_wait_note_restarts_the_streak_and_the_clock():
     heart(conn, "t_w", PROGRESS, age_s=10 * MIN)
     heart(conn, "t_w", "Still waiting on the code review verdict on PR 1047.", age_s=16 * MIN)
     rec2 = Recorder()
-    state = wake.sweep(conn, {}, rec2, NOW)
+    state = wake.waiting_sweep(conn, {}, rec2, NOW)
     assert woken(rec2) == ["t_w"] and state == {"t_w": 1}
 
 
@@ -406,7 +409,7 @@ def test_empty_heartbeats_in_the_middle_of_a_streak_do_not_break_it():
     for age in (9 * MIN, 8 * MIN, 7 * MIN, 6 * MIN, 5 * MIN):
         heart(conn, "t_w", None, age_s=age)
     rec = Recorder()
-    state = wake.sweep(conn, {}, rec, NOW)
+    state = wake.waiting_sweep(conn, {}, rec, NOW)
     assert woken(rec) == ["t_w"]
     text, _ = rec.calls[0]
     assert "20 min" in text
