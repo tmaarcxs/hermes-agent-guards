@@ -91,11 +91,6 @@ Modules:
 - ``churn_wake`` warns the same chats when a non-archived, non-done card reaches 10/20/40
   worker runs or 5/10/20 change-requests — warning only, nothing is blocked — so the lead
   splits, narrows or confirms the card (same injection setting);
-- ``pr_comment_gate`` (same condition, lead process only) blocks a lead ``kanban_comment`` that
-  carries a full GitHub PR URL onto a todo/ready/blocked card: the dispatcher respawn guard reads
-  any full PR URL from the last 24 h as "a worker already opened a PR" and holds the card out of
-  the ready queue every tick (``respawn_guarded reason=active_pr``), so the comment is rejected
-  with an ``owner/repo#N`` citation to use instead; worker comments are untouched.
 - ``board_watch`` makes the three wakes event-driven: each sweeps on the first
   dispatcher tick after wake-relevant board activity (or any successful Kanban
   mutation, via a shared poke file) instead of on fixed hourly/5-min ceilings.
@@ -131,7 +126,7 @@ import shlex
 from typing import Any, Optional
 
 try:
-    from . import approval_wait_gate, background_notify_gate, backup_copy_gate, checkpoint_gate, churn_wake, completion_gate, github_contact, handoff_gate, inventory_rule, kanban_policy, kanban_show_slim_gate, lead_delegation, notification_reconcile, paas_promote_gate, pr_acceptance_gate, pr_comment_gate, published_head_gate, review_gate, review_loop, schedule_gate, skill_size, stale_wake, stop_gate, waiting_wake, workspace_scope_gate, workspace_write_gate
+    from . import approval_wait_gate, background_notify_gate, backup_copy_gate, checkpoint_gate, churn_wake, completion_gate, github_contact, handoff_gate, inventory_rule, kanban_policy, kanban_show_slim_gate, lead_delegation, notification_reconcile, paas_promote_gate, pr_acceptance_gate, published_head_gate, review_gate, review_loop, schedule_gate, skill_size, stale_wake, stop_gate, waiting_wake, workspace_scope_gate, workspace_write_gate
 except ImportError:
     if __name__ != "__init__":
         raise
@@ -653,14 +648,12 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
         (lambda: approval_wait_gate.check(tool_name, args, **kwargs), "approval_wait_gate"),
         (lambda: review_gate.check(tool_name, **kwargs), "review_gate"),
         (lambda: published_head_gate.check(tool_name, args), "published_head_gate"),
-        (lambda: pr_comment_gate.check(tool_name, args), "pr_comment_gate"),
         (lambda: handoff_gate.check(tool_name, args, **kwargs), "handoff_gate"),
         (lambda: completion_gate.check(tool_name, args), "completion_gate"),
         (lambda: backup_copy_gate.check(tool_name, args), "backup_copy_gate"),
         (lambda: schedule_gate.check(tool_name, args), "schedule_gate"),
         (lambda: skill_size.check(tool_name, args), "skill_size"),
         (lambda: background_notify_gate.check(tool_name, args), "background_notify_gate"),
-        (lambda: pr_comment_gate.check(tool_name, args), "pr_comment_gate"),
     ):
         try:
             blocked = check()
