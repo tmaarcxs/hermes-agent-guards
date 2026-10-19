@@ -28,12 +28,8 @@ from typing import Any, Optional
 from . import kanban_policy
 
 MESSAGE = (
-    "agent-guards blocked terminal: a background job must say how its completion reaches you. "
-    "Add notify=true (one completion notice with the tail of the output) or set heartbeat>0 "
-    "for live progress ticks. If this really is a long-lived server/daemon that never completes "
-    "(vite, uvicorn, http.server, postgres, docker compose up, ...), it does not need notify; "
-    "otherwise a silent background job is how a run ends up waiting on an outcome that never "
-    "arrives: add notify, or run it foreground if it is bounded."
+    "agent-guards blocked terminal: give this background=true job an outcome channel — "
+    "add notify=true (or heartbeat>0) or run it foreground."
 )
 
 _RETRY_INSTRUCTION = getattr(kanban_policy, "RETRY_INSTRUCTION", "")
