@@ -15,8 +15,9 @@ Blocks (terminal, foreground or background as noted):
   or any ``~/.hermes/profiles/<name>``, or the same paths literally absolute; targets
   nested deeper (``~/.hermes/cache/scratch/x``) stay allowed, quoted mention in a
   grep pass and heredoc prose passes too; the fix: create test homes with
-  ``mktemp -d`` inside the scratch workspace and pass them via
-  ``env HERMES_HOME=<path> <cmd>`` only, delete them by literal path;
+  ``mktemp -d`` inside the scratch workspace and run the command as
+  ``env HERMES_HOME="$(mktemp -d "$PWD/.hermes-test-home.XXXXXX")" <test cmd>``,
+  then delete the printed directory by its literal path;
 - in a worker process (``github_contact``): commands that contact people on GitHub —
   review requests, issue assignees and comments whose body ``@mentions`` a user or
   org/team; for a CODEOWNERS-only gap the message names the setup's documented merge
@@ -161,8 +162,9 @@ _RSYNC_DELETE_FLAG = re.compile(r"(?:^|[\s/])--delete(?=[\s'=\"]|$)")
 _PYTH_HERMES_ENV_RE = re.compile(r"os\.environ(?:\.get)?\[?\s*\(??\s*['\"]([^'\"]+)['\"]")
 _HERMES_HOME_DELETE_MESSAGE = (
     "hermes_home_guard: this would recursively delete a live Hermes home. For tests, create a throwaway "
-    "home with `mktemp -d` inside the scratch workspace and run the command as `env HERMES_HOME=<path> <cmd>` "
-    "only; delete such directories by their literal path."
+    "home with `mktemp -d` inside the scratch workspace and run the command as "
+    '`env HERMES_HOME="$(mktemp -d "$PWD/.hermes-test-home.XXXXXX")" <test cmd>`; '
+    "delete the printed directory by its literal path."
 )
 _UNIT_SECONDS = {"": 1, "s": 1, "m": 60, "h": 3600}
 _MAX_FOREGROUND_SLEEP = 30
@@ -666,7 +668,7 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
         if tool_name == "terminal":
             found = terminal_violations(str(args.get("command") or ""), bool(args.get("background")))
             if found:
-                return {"action": "block", "message": "agent-guards blocked terminal [__init__]: " + "; ".join(found) + "."}
+                return {"action": "block", "message": "agent-guards blocked terminal [__init__]: " + "; ".join(found)}
             return None
         if tool_name == "kanban_attach" and len(str(args.get("content_base64") or "")) > _MAX_INLINE_ATTACH:
             return {"action": "block", "message": stamp(_INLINE_ATTACH_MESSAGE, "__init__")}

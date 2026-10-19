@@ -90,7 +90,7 @@ row split inside class (3)/(4) is from the banner text itself
 ## Test receipts
 
 Mandated command (from the board card):
-`env HERMES_HOME=$(mktemp -d) PYTHONPATH=~/.hermes/hermes-agent ~/.hermes/hermes-agent/venv/bin/python -m pytest -q tests`
+`env HERMES_HOME="$(mktemp -d "$PWD/.hermes-test-home.XXXXXX")" PYTHONPATH=~/.hermes/hermes-agent ~/.hermes/hermes-agent/venv/bin/python -m pytest -q tests`
 
 - baseline (29c18c8) + new tests, before the change: 6 failed / 2 passed in
   `test_parked_episode_wake.py` (TDD red);
