@@ -14,11 +14,18 @@ steps never run. The approval must instead hand the card back to the implementer
 verdict recorded, through ``kanban_request_changes`` — the supported return path that closes
 the reviewer run and restores the implementer. Cards whose Acceptance is only a review
 verdict, or whose post-review items are already evidenced, complete normally.
+
+In a worker process, it also keeps the published-PR completion duty visible: a ``kanban_show``
+of the card whose ``completion_contract`` names a GitHub publication gains a reminder stating
+that ``kanban_complete`` must carry ``metadata.published_pr``, and a ``kanban_complete``
+rejected as ``PR acceptance missing`` gains the exact fix on the rejection text the worker
+is already reading.
 """
 
+import json
 import os
 import re
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from . import kanban_policy
 
@@ -57,13 +64,21 @@ def _metadata(args: Any) -> dict:
     (see ``tools/kanban_tools.py`` handler contracts); accept both shapes."""
     metadata = args.get("metadata") if isinstance(args, dict) else None
     if isinstance(metadata, str):
-        import json
-
         try:
             metadata = json.loads(metadata)
         except Exception:
             metadata = None
     return metadata if isinstance(metadata, dict) else {}
+
+
+def _text(result: Any) -> str:
+    """Contract text from a show result, the persisted contract, empty if neither."""
+    if isinstance(result, str):
+        try:
+            return str(json.loads(result).get("task", {}).get("completion_contract") or "")
+        except Exception:
+            return ""
+    return str(result or "")
 
 
 def acceptance_item_texts(body: str) -> list[tuple[str, str]]:
@@ -90,6 +105,18 @@ def _task(task_id: str) -> Optional[tuple[str, bool]]:
         if task is None:
             return None
         return str(task.body or ""), kb._retry_status_for_run(conn, task_id) == "review"
+    finally:
+        conn.close()
+
+
+def _read_contract(task_id: str) -> Optional[str]:
+    from hermes_cli import kanban_db as kb
+    from hermes_cli import kanban_db_connect as kbc
+
+    conn = kbc.connect(board=None)
+    try:
+        task = kb.get_task(conn, task_id)
+        return str(task.completion_contract or "") if task is not None else None
     finally:
         conn.close()
 
@@ -143,3 +170,75 @@ def check(tool_name: str, args: Any, load_task=_task) -> Optional[str]:
     if not unmet:
         return None
     return UNMET_MESSAGE.format(unmet=", ".join(unmet)) + " " + kanban_policy.RETRY_INSTRUCTION
+
+
+_PUB_REPO = re.compile(r"[\w.-]+/[\w.-]+")
+_PUB_URL = re.compile(r"https://github\.com/([\w.-]+/[\w.-]+)/pull/([1-9]\d*)")
+_SHOW_REMINDER = (
+    "\n\nagent-guards reminder: this card's completion contract is {contract!r}. kanban_complete on it "
+    "must carry metadata.published_pr as {fix} — the PR's required checks on its exact head must be green "
+    "before completion is accepted, and an attempt without published_pr is rejected as \"PR acceptance "
+    "missing\"."
+)
+_REJECTION_SUFFIX = (
+    "\nagent-guards: this rejection is fixed by metadata, not by more work. Retry kanban_complete in this "
+    "same response with metadata.published_pr set to {fix} exactly."
+)
+
+
+def publication_contract(contract: str) -> tuple[str, str]:
+    """``("url"|"repo", contract)`` for a GitHub publication contract, ``("none", "")`` otherwise."""
+    text = str(contract or "").strip()
+    if _PUB_URL.fullmatch(text):
+        return "url", text
+    if _PUB_REPO.fullmatch(text):
+        return "repo", text
+    return "none", ""
+
+
+def required_value(kind: str, contract: str) -> str:
+    """The manifest value ``metadata.published_pr`` must carry for this contract."""
+    return contract if kind == "url" else f"a GitHub PR URL in {contract}"
+
+
+def _worker_process() -> bool:
+    return bool(kanban_policy.configured_worker()) and bool(os.environ.get("HERMES_KANBAN_TASK", "").strip())
+
+
+def _remind(result: str) -> str:
+    kind, text = publication_contract(_text(result))
+    return result + _SHOW_REMINDER.format(contract=text, fix=required_value(kind, text))
+
+
+def _fix(task_id: str, load_contract: Optional[Callable] = None) -> Optional[str]:
+    try:
+        contract = str((load_contract or _read_contract)(task_id) or "")
+    except Exception:
+        return None
+    kind, text = publication_contract(contract)
+    if kind == "none":
+        return None
+    return _REJECTION_SUFFIX.format(fix=required_value(kind, text))
+
+
+def transform(tool_name: str, args: Any, result: Any, status: str, error_message: Optional[str],
+              load_contract: Optional[Callable] = None, **kwargs) -> Optional[str]:
+    """``transform_tool_result``: the show-time reminder and the on-rejection fix."""
+    if not _worker_process() or not isinstance(result, str):
+        return None
+    if tool_name == "kanban_show" and str((args or {}).get("task_id") or "") in ("", os.environ.get("HERMES_KANBAN_TASK") or ""):
+        kind, _ = publication_contract(_text(result))
+        if kind == "none":
+            return None
+        return _remind(result)
+    if tool_name == "kanban_complete" and status == "error" and "PR acceptance missing" in str(error_message or ""):
+        task_id = str(os.environ.get("HERMES_KANBAN_TASK") or "").strip()
+        if not task_id:
+            return None
+        return _fix(task_id, load_contract)
+    return None
+
+
+__all__ = ["REVIEWER_MESSAGE", "UNMET_MESSAGE", "MESSAGE", "acceptance_item_texts", "acceptance_items",
+           "check", "missing_items", "pending_post_review_items", "publication_contract", "required_value",
+           "transform", "unmet_items"]

@@ -1,9 +1,16 @@
+import json
 import sys
 
 import pytest
 
 guards = sys.modules["agent_guards"]
 gate = guards.completion_gate
+
+URL_CONTRACT = "https://github.com/atlas/spa-demosuite/pull/223"
+REPO_CONTRACT = "atlas/spa-demosuite"
+REJECTION = (
+    "PR acceptance missing: Supply metadata.published_pr matching the persisted completion contract."
+)
 
 BODY = "Goal\n\n## Acceptance\n1. Suites pass.\n2. PR merged.\n3. Staging verified.\n\nSibling: other card."
 
@@ -16,6 +23,12 @@ def worker_process(monkeypatch):
 
 def check(metadata, body=BODY, review=False):
     return gate.check("kanban_complete", {"summary": "s", "metadata": metadata}, load_task=lambda _: (body, review))
+
+
+def show(task_id=None):
+    args = {} if task_id is None else {"task_id": task_id}
+    return gate.transform("kanban_show", args, json.dumps({"task": {"completion_contract": REPO_CONTRACT}}),
+                          status="ok", error_message=None)
 
 
 def test_partial_completion_is_blocked():
@@ -130,13 +143,11 @@ def test_items_are_parsed_from_the_acceptance_section_only():
 
 
 def test_string_metadata_json_is_parsed():
-    import json
     message = check(json.dumps({"acceptance": {}}.get("acceptance") and {} or {"acceptance": {}}))
     assert message and "1, 2, 3" in message
 
 
 def test_string_metadata_with_full_map_passes_and_reviewer_block_fires():
-    import json
     empty_json = json.dumps({"acceptance": {}})
     assert "1, 2, 3" in check(empty_json)
     reviewer_json = json.dumps({"review_verdict": "APPROVE"})
@@ -148,3 +159,62 @@ def test_string_metadata_with_full_map_passes_and_reviewer_block_fires():
 def test_string_metadata_unparsable_treated_as_empty():
     message = check("{not json")
     assert message and "1, 2, 3" in message
+
+
+def test_reminder_on_show_of_own_contract_card(monkeypatch):
+    configure_publication(monkeypatch)
+    result = show()
+    assert "published_pr" in result and REPO_CONTRACT in result
+
+
+def test_no_reminder_for_other_card_or_local_contract(monkeypatch):
+    configure_publication(monkeypatch)
+    assert gate.transform("kanban_show", {"task_id": "t_other"},
+                          json.dumps({"task": {"completion_contract": REPO_CONTRACT}}),
+                          status="ok", error_message=None) is None
+    assert gate.transform("kanban_show", {}, json.dumps({"task": {"completion_contract": "local-only"}}),
+                          status="ok", error_message=None) is None
+
+
+def test_show_reminder_requires_string_result(monkeypatch):
+    configure_publication(monkeypatch)
+    assert gate.transform("kanban_show", {}, None, status="ok", error_message=None) is None
+
+
+def test_rejection_suffix_names_the_fix(monkeypatch):
+    configure_publication(monkeypatch)
+    out = gate.transform("kanban_complete", {}, '{"error": "%s"}' % REJECTION,
+                         status="error", error_message=REJECTION)
+    assert out and REPO_CONTRACT in out and "published_pr" in out
+
+
+def test_no_suffix_on_other_errors_or_success(monkeypatch):
+    configure_publication(monkeypatch)
+    assert gate.transform("kanban_complete", {}, '{"error": "boomed"}', status="error",
+                          error_message="other failure") is None
+    assert gate.transform("kanban_complete", {}, '{"ok": true}', status="ok", error_message=None) is None
+
+
+def test_lead_process_shows_no_publication_duty(monkeypatch):
+    monkeypatch.setattr(guards.kanban_policy, "configured_worker", lambda: "worker")
+    monkeypatch.delenv("HERMES_KANBAN_TASK", raising=False)
+    assert gate.transform("kanban_show", {}, json.dumps({"task": {"completion_contract": REPO_CONTRACT}}),
+                          status="ok", error_message=None) is None
+
+
+def test_publication_contract_classifier():
+    assert gate.publication_contract(URL_CONTRACT) == ("url", URL_CONTRACT)
+    assert gate.publication_contract(REPO_CONTRACT) == ("repo", REPO_CONTRACT)
+    assert gate.publication_contract("local-only") == ("none", "")
+    assert gate.publication_contract("") == ("none", "")
+    assert gate.publication_contract("not a repo") == ("none", "")
+
+
+def test_required_value():
+    assert gate.required_value("url", URL_CONTRACT) == URL_CONTRACT
+    assert gate.required_value("repo", REPO_CONTRACT) == f"a GitHub PR URL in {REPO_CONTRACT}"
+
+
+def configure_publication(monkeypatch, load=lambda _tid: REPO_CONTRACT):
+    monkeypatch.setattr(gate, "_read_contract", load)
+    return load

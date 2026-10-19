@@ -62,11 +62,10 @@ Modules:
   says the worker's part is finished and only lead-owned steps remain; that is a completion;
 - ``schedule_gate`` (same condition, worker process only) blocks ``kanban_schedule``: it ends
   the run without a timer, so a self-scheduled card silently stops;
-- ``pr_acceptance_gate`` (same condition, worker process only) keeps the published-PR completion
-  duty visible and capped: a ``kanban_show`` of the card with a GitHub ``completion_contract``
-  gains the ``metadata.published_pr`` reminder, a rejected ``kanban_complete`` ("PR acceptance
-  missing") gains the exact fix, and after two counted rejections a retry still lacking a
-  matching ``published_pr`` is blocked with the contract restated and the ``kanban_block`` escape;
+- ``completion_gate`` (same condition, worker process only) keeps the published-PR completion
+  duty visible: a ``kanban_show`` of the card with a GitHub ``completion_contract``
+  gains the ``metadata.published_pr`` reminder, and a rejected ``kanban_complete`` ("PR acceptance
+  missing") gains the exact fix on the rejection text;
 - ``stale_wake`` wakes a card's subscribed chat once when the card has not moved for 5 min
   (needs ``plugins.entries.agent-guards.allow_gateway_injection: true``);
 - ``waiting_wake`` wakes the same chats when a ``running`` card's heartbeat notes admit
@@ -107,7 +106,7 @@ import shlex
 from typing import Any, Optional
 
 try:
-    from . import background_notify_gate, backup_copy_gate, checkpoint_gate, churn_wake, completion_gate, github_contact, handoff_gate, kanban_policy, kanban_show_slim_gate, lead_delegation, notification_reconcile, paas_promote_gate, pr_acceptance_gate, review_gate, review_loop, schedule_gate, skill_size, stale_wake, stop_gate, waiting_wake, workspace_scope_gate, workspace_write_gate
+    from . import background_notify_gate, backup_copy_gate, checkpoint_gate, churn_wake, completion_gate, github_contact, handoff_gate, kanban_policy, kanban_show_slim_gate, lead_delegation, notification_reconcile, paas_promote_gate, review_gate, review_loop, schedule_gate, skill_size, stale_wake, stop_gate, waiting_wake, workspace_scope_gate, workspace_write_gate
 except ImportError:
     if __name__ != "__init__":
         raise
@@ -606,7 +605,7 @@ def normalized_args(tool_name: str, args: dict[str, Any]) -> Optional[dict[str, 
 
 
 def _post_tool_call(**kwargs) -> None:
-    for guard in (review_gate, stop_gate, checkpoint_gate, pr_acceptance_gate):
+    for guard in (review_gate, stop_gate, checkpoint_gate):
         try:
             guard.record(**kwargs)
         except Exception:
@@ -615,7 +614,7 @@ def _post_tool_call(**kwargs) -> None:
 
 def _transform_tool_result(**kwargs) -> Optional[str]:
     try:
-        transformed = pr_acceptance_gate.transform(**kwargs)
+        transformed = completion_gate.transform(**kwargs)
         if transformed is not None:
             return transformed
     except Exception:
@@ -647,7 +646,6 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
         (lambda: lead_delegation.check(tool_name, args), "lead_delegation"),
         (lambda: github_contact.check(tool_name, args), "github_contact"),
         (lambda: paas_promote_gate.check(tool_name, args), "paas_promote_gate"),
-        (lambda: pr_acceptance_gate.check(tool_name, args, **kwargs), "pr_acceptance_gate"),
         (lambda: review_gate.check(tool_name, **kwargs), "review_gate"),
         (lambda: handoff_gate.check(tool_name, args, **kwargs), "handoff_gate"),
         (lambda: completion_gate.check(tool_name, args), "completion_gate"),
