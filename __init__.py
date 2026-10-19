@@ -68,6 +68,13 @@ Modules:
   says the worker's part is finished and only lead-owned steps remain; that is a completion;
 - ``schedule_gate`` (same condition, worker process only) blocks ``kanban_schedule``: it ends
   the run without a timer, so a self-scheduled card silently stops;
+- ``blocking_wait_gate`` (same condition, worker process only) caps a blocking ``process_manage``
+  ``wait`` at 60 s: a worker session cannot receive a completion notification (Hermes strips
+  ``notify_on_complete`` whenever ``HERMES_KANBAN_TASK`` is set), so a longer wait is idle time
+  nothing can wake the worker out of. The block names the three real options — re-issue under the
+  cap, do the remaining work first and check with a non-blocking ``poll``, or ``kanban_block``
+  the card for an external dependency. Measured 2026-10-19: 126 DeepSeek worker ``process_manage``
+  calls under the reporting card's 00:00-21:00 cutoff, 23,022 s total, 75 of them at 60 s or more;
 - ``completion_gate`` (same condition, worker process only) keeps the published-PR completion
   duty visible: a ``kanban_show`` of the card with a GitHub ``completion_contract``
   gains the ``metadata.published_pr`` reminder, and a rejected ``kanban_complete`` ("PR acceptance
@@ -119,7 +126,7 @@ import shlex
 from typing import Any, Optional
 
 try:
-    from . import background_notify_gate, backup_copy_gate, checkpoint_gate, completion_gate, github_contact, handoff_gate, hermes_home_gate, kanban_policy, kanban_show_slim_gate, lead_delegation, lead_work_nudge, paas_promote_gate, review_gate, schedule_gate, skill_size, stop_gate, workspace_scope_gate, workspace_write_gate, wakes
+    from . import background_notify_gate, backup_copy_gate, blocking_wait_gate, checkpoint_gate, completion_gate, github_contact, handoff_gate, hermes_home_gate, kanban_policy, kanban_show_slim_gate, lead_delegation, lead_work_nudge, paas_promote_gate, review_gate, schedule_gate, skill_size, stop_gate, workspace_scope_gate, workspace_write_gate, wakes
 except ImportError:
     if __name__ != "__init__":
         raise
@@ -274,6 +281,7 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
         (lambda: completion_gate.check(tool_name, args), "completion_gate"),
         (lambda: backup_copy_gate.check(tool_name, args), "backup_copy_gate"),
         (lambda: schedule_gate.check(tool_name, args), "schedule_gate"),
+        (lambda: blocking_wait_gate.check(tool_name, args), "blocking_wait_gate"),
         (lambda: skill_size.check(tool_name, args), "skill_size"),
         (lambda: background_notify_gate.check(tool_name, args), "background_notify_gate"),
     ):
