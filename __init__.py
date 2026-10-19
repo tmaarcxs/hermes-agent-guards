@@ -51,6 +51,9 @@ Modules:
   worker profile, out of triage, without execution overrides and with a numbered Acceptance list;
 - ``lead_delegation`` (same condition, lead process only) blocks the lead from editing files under
   repository roots and from ``git commit``/``git push``/``gh pr create`` there: delivery goes to workers;
+- ``lead_work_nudge`` (same condition, lead process only) appends one nudge to the tool result of the
+  call that crosses 5 work calls in a user turn when the lead has not called ``kanban_create`` in that
+  turn: split the remaining work across as many parallel cards as possible instead of continuing itself;
 - ``completion_gate`` (same condition, worker process only) blocks ``kanban_complete`` until
   ``metadata.acceptance`` maps every numbered Acceptance item of the card to its evidence;
 - ``github_contact`` (same condition, worker process only) blocks terminal calls that contact
@@ -116,7 +119,7 @@ import shlex
 from typing import Any, Optional
 
 try:
-    from . import background_notify_gate, backup_copy_gate, checkpoint_gate, completion_gate, github_contact, handoff_gate, hermes_home_gate, kanban_policy, kanban_show_slim_gate, lead_delegation, paas_promote_gate, review_gate, schedule_gate, skill_size, stop_gate, workspace_scope_gate, workspace_write_gate, wakes
+    from . import background_notify_gate, backup_copy_gate, checkpoint_gate, completion_gate, github_contact, handoff_gate, hermes_home_gate, kanban_policy, kanban_show_slim_gate, lead_delegation, lead_work_nudge, paas_promote_gate, review_gate, schedule_gate, skill_size, stop_gate, workspace_scope_gate, workspace_write_gate, wakes
 except ImportError:
     if __name__ != "__init__":
         raise
@@ -226,24 +229,31 @@ def _post_tool_call(**kwargs) -> None:
 
 
 def _transform_tool_result(**kwargs) -> Optional[str]:
+    transformed = None
     try:
         transformed = completion_gate.transform(**kwargs)
-        if transformed is not None:
-            return transformed
     except Exception:
-        pass
+        transformed = None
+    if transformed is None:
+        try:
+            transformed = workspace_scope_gate.transform(
+                kwargs.get("tool_name") or "", kwargs.get("args"), kwargs.get("result"))
+        except Exception:
+            transformed = None
+    if transformed is None:
+        try:
+            transformed = kanban_show_slim_gate.transform(
+                kwargs.get("tool_name") or "", kwargs.get("args"), kwargs.get("result"))
+        except Exception:
+            transformed = None
+    result = transformed if transformed is not None else kwargs.get("result")
     try:
-        scoped = workspace_scope_gate.transform(
-            kwargs.get("tool_name") or "", kwargs.get("args"), kwargs.get("result"))
-        if scoped is not None:
-            return scoped
+        nudged = lead_work_nudge.hook(
+            tool_name=kwargs.get("tool_name") or "", args=kwargs.get("args"), result=result,
+            session_id=kwargs.get("session_id") or "", turn_id=kwargs.get("turn_id") or "")
     except Exception:
-        pass
-    try:
-        return kanban_show_slim_gate.transform(
-            kwargs.get("tool_name") or "", kwargs.get("args"), kwargs.get("result"))
-    except Exception:
-        return None
+        return transformed
+    return nudged if nudged is not None else transformed
 
 
 def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -> Optional[dict]:
