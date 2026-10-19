@@ -113,3 +113,10 @@ def test_not_a_worker_is_exempt(monkeypatch):
 def test_message_carries_the_fix():
     result = call({"background": True, "command": "python3 replay.py"})
     assert "notify=true" in result
+
+
+def test_block_message_is_compact_and_names_the_fix():
+    result = call({"background": True, "command": "python3 replay.py"})
+    assert len(result.encode("utf-8")) <= 320
+    assert "background=true" in result
+    assert "notify=true" in result
