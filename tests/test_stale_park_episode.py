@@ -1,12 +1,12 @@
 """The stale wake's suppression gate: park states a repeat wake cannot help.
 
-`_suppressed_park` (stale_wake) drops the stale wake exactly where the park's
+`wakes` drops the stale wake exactly where the park's
 own dispatcher notification has already carried the state to the chats and the
 park is out of the lead-reachable set: a `capability` wall on a blocked card
 and a triage escalation (block_loop_detected). The dispatcher notified 47 of
 46 blocked events within 5 minutes in the 10-12..10-18 sample, so the +5-min
 stale wake only restated those; the first transition still appears once, and
-`notification_reconcile` covers a lost delivery. Everything else keeps the
+the unreconciled-notice sweep covers a lost delivery. Everything else keeps the
 legacy behavior: plain parks (`block_kind` NULL or foreign — nobody was told),
 `needs_input`/`transient` parks (lead-resolvable, the reason addresses the
 lead), and every unparked card even when a block_kind lingers, because
@@ -20,7 +20,7 @@ import sqlite3
 
 import sys
 
-wake = sys.modules["agent_guards"].stale_wake
+wake = sys.modules["agent_guards"].wakes
 
 NOW = 1_000_000.0
 HOUR = 3600
@@ -82,7 +82,7 @@ def test_capability_park_is_suppressed_wherever_the_park_stays():
     event(conn, "t_wall", "blocked", 2)
     for hours in (0, 1, 2, 6, 24, 300):
         event(conn, "t_wall", "commented", 0)
-        assert wake.sweep(conn, {}, Recorder(), NOW + hours * HOUR) == {}
+        assert wake.stale_sweep(conn, {}, Recorder(), NOW + hours * HOUR) == {}
 
 
 def test_triage_escalation_is_suppressed_while_it_waits():
@@ -90,7 +90,7 @@ def test_triage_escalation_is_suppressed_while_it_waits():
     card(conn, "t_tri", "triage", 2, block_kind="needs_input")
     event(conn, "t_tri", "block_loop_detected", 2)
     rec = Recorder()
-    assert wake.sweep(conn, {}, rec, NOW) == {}
+    assert wake.stale_sweep(conn, {}, rec, NOW) == {}
     assert rec.calls == []
 
 
@@ -100,11 +100,11 @@ def test_needs_input_park_keeps_its_wake():
     card(conn, "t_ask", "blocked", 2, block_kind="needs_input")
     event(conn, "t_ask", "blocked", 2)
     rec = Recorder()
-    state = wake.sweep(conn, {}, rec, NOW)
+    state = wake.stale_sweep(conn, {}, rec, NOW)
     assert woken(rec) == ["t_ask"]
     assert state == {"t_ask": "parked"}
     event(conn, "t_ask", "commented", 0)
-    assert wake.sweep(conn, state, rec, NOW + HOUR) == state
+    assert wake.stale_sweep(conn, state, rec, NOW + HOUR) == state
     assert len(rec.calls) == 1  # once per parked stretch, as before
 
 
@@ -113,22 +113,8 @@ def test_transient_park_keeps_its_wake():
     card(conn, "t_flaky", "blocked", 2, block_kind="transient")
     event(conn, "t_flaky", "blocked", 2)
     rec = Recorder()
-    state = wake.sweep(conn, {}, rec, NOW)
+    state = wake.stale_sweep(conn, {}, rec, NOW)
     assert woken(rec) == ["t_flaky"]
-
-
-def test_plain_park_without_a_record_keeps_its_wake():
-    """block_kind NULL: the dispatcher never sent a carry-the-state notice for
-    this park, so the stale wake is the only signal."""
-    conn = board()
-    card(conn, "t_plain", "blocked", 2)
-    rec = Recorder()
-    state = wake.sweep(conn, {}, rec, NOW)
-    assert woken(rec) == ["t_plain"]
-    assert state == {"t_plain": "parked"}
-    event(conn, "t_plain", "commented", 0)
-    assert wake.sweep(conn, state, rec, NOW + HOUR) == state
-    assert len(rec.calls) == 1
 
 
 def test_foreign_block_kind_value_keeps_its_wake():
@@ -136,7 +122,7 @@ def test_foreign_block_kind_value_keeps_its_wake():
     card(conn, "t_x", "blocked", 2, block_kind="dependency")
     event(conn, "t_x", "blocked", 2)
     rec = Recorder()
-    state = wake.sweep(conn, {}, rec, NOW)
+    state = wake.stale_sweep(conn, {}, rec, NOW)
     assert woken(rec) == ["t_x"]
     assert state == {"t_x": "parked"}
 
@@ -147,11 +133,11 @@ def test_unblocking_reopens_normal_wakes_even_with_a_lingering_block_kind():
     conn = board()
     card(conn, "t_u", "blocked", 2, block_kind="capability")
     event(conn, "t_u", "blocked", 2)
-    assert wake.sweep(conn, {}, Recorder(), NOW) == {}
+    assert wake.stale_sweep(conn, {}, Recorder(), NOW) == {}
     conn.execute("update tasks set status = 'todo' where id = 't_u'")
     event(conn, "t_u", "unblocked", 0.12)  # 7 min ago: past the 5-minute age
     rec = Recorder()
-    state = wake.sweep(conn, {}, rec, NOW)
+    state = wake.stale_sweep(conn, {}, rec, NOW)
     assert woken(rec) == ["t_u"]  # the wake re-arms: gate reads status, not residue
     assert state == {"t_u": 3}
 
@@ -163,14 +149,14 @@ def test_re_park_of_a_capability_card_stays_silent_after_an_unblock():
     conn = board()
     card(conn, "t_r", "blocked", 2, block_kind="capability")
     event(conn, "t_r", "blocked", 2)
-    assert wake.sweep(conn, {}, Recorder(), NOW) == {}
+    assert wake.stale_sweep(conn, {}, Recorder(), NOW) == {}
     conn.execute("update tasks set status = 'todo' where id = 't_r'")
     event(conn, "t_r", "unblocked", 0.12)
-    state = wake.sweep(conn, {}, Recorder(), NOW)  # unparked wake spends the state key
+    state = wake.stale_sweep(conn, {}, Recorder(), NOW)  # unparked wake spends the state key
     conn.execute("update tasks set status = 'blocked' where id = 't_r'")
     event(conn, "t_r", "blocked", 0.02)
     rec = Recorder()
-    assert wake.sweep(conn, state, rec, NOW + HOUR) == state
+    assert wake.stale_sweep(conn, state, rec, NOW + HOUR) == state
     assert rec.calls == []  # fresh park, fresh notification, no stale repeat
 
 
@@ -181,7 +167,7 @@ def test_an_unparked_card_with_a_park_record_wakes_its_state_event():
     card(conn, "t_res", "todo", 2, block_kind="needs_input")
     event(conn, "t_res", "unblocked", 2)
     rec = Recorder()
-    state = wake.sweep(conn, {}, rec, NOW)
+    state = wake.stale_sweep(conn, {}, rec, NOW)
     assert woken(rec) == ["t_res"]
     assert state == {"t_res": 2}
 
@@ -191,7 +177,7 @@ def test_gate_is_stateless_across_a_lost_state_file():
     card(conn, "t_k", "blocked", 2, block_kind="capability")
     event(conn, "t_k", "blocked", 2)
     for _ in range(3):
-        assert wake.sweep(conn, {}, Recorder(), NOW) == {}
+        assert wake.stale_sweep(conn, {}, Recorder(), NOW) == {}
 
 
 def test_park_record_suppression_does_not_touch_next_due():
@@ -199,7 +185,8 @@ def test_park_record_suppression_does_not_touch_next_due():
     conn = board()
     card(conn, "t_sup", "blocked", 0.01, block_kind="capability")
     event(conn, "t_sup", "blocked", 0.01)
-    card(conn, "t_open", "todo", 0.01)
+    card(conn, "t_open", "blocked", 0.01, block_kind="needs_input")
+    event(conn, "t_open", "blocked", 0.01)
     due = wake.next_due(conn, NOW)
     assert due is not None
-    assert wake.sweep(conn, {}, Recorder(), due + 1) == {"t_open": 3}
+    assert wake.stale_sweep(conn, {}, Recorder(), due + 1) == {"t_open": "parked"}

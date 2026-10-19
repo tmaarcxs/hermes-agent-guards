@@ -4,7 +4,7 @@ import sqlite3
 import time
 import sys
 
-loop = sys.modules["agent_guards"].review_loop
+loop = sys.modules["agent_guards"].wakes
 
 from agent_guards import board_watch
 
@@ -82,7 +82,7 @@ def test_wakes_open_card_at_third_round_with_latest_reason():
     card(conn, "t_two", "ready", 2)
     card(conn, "t_done", "done", 9)
     rec = Recorder()
-    state = loop.sweep(conn, {}, rec)
+    state = loop.loop_sweep(conn, {}, rec)
     assert woken(rec) == ["t_loop"]
     text, origin = rec.calls[0]
     assert "3 review rounds" in text and "fix 3" in text and "every 3 review rounds" in text
@@ -101,15 +101,15 @@ def test_wakes_once_per_threshold_and_again_at_next():
     conn = board()
     card(conn, "t_loop", "running", 4)
     rec = Recorder()
-    state = loop.sweep(conn, {}, rec)
+    state = loop.loop_sweep(conn, {}, rec)
     assert len(rec.calls) == 1
     changes(conn, "t_loop", "fix 5")
     rec2 = Recorder()
-    state = loop.sweep(conn, state, rec2)
+    state = loop.loop_sweep(conn, state, rec2)
     assert rec2.calls == []
     changes(conn, "t_loop", "fix 6")
     rec3 = Recorder()
-    state = loop.sweep(conn, state, rec3)
+    state = loop.loop_sweep(conn, state, rec3)
     assert woken(rec3) == ["t_loop"] and state == {"t_loop": 6}
 
 
@@ -117,10 +117,10 @@ def test_failed_injection_or_missing_chat_retries_later():
     conn = board()
     card(conn, "t_nochat", "review", 3, subscribed=False)
     card(conn, "t_fail", "review", 3)
-    state = loop.sweep(conn, {}, Recorder(ok=False))
+    state = loop.loop_sweep(conn, {}, Recorder(ok=False))
     assert state == {}
     rec = Recorder()
-    assert loop.sweep(conn, state, rec) == {"t_fail": 3}
+    assert loop.loop_sweep(conn, state, rec) == {"t_fail": 3}
 
 
 def test_one_wake_per_threshold_across_repeated_sweeps_and_restarts(monkeypatch, tmp_path):
@@ -145,7 +145,7 @@ def test_one_wake_per_threshold_across_repeated_sweeps_and_restarts(monkeypatch,
     def sweep_once(state):
         load = getattr(loop, "_file_load", None)
         kwargs = {"load": load} if load else {}
-        state = loop.sweep(conn, dict(state), rec, **kwargs)
+        state = loop.loop_sweep(conn, dict(state), rec, **kwargs)
         total.extend(rec.calls)
         rec.calls.clear()
         return state
@@ -197,21 +197,21 @@ def test_failed_injection_does_not_erase_a_sibling_marker(monkeypatch, tmp_path)
             )
             return True
 
-    state = loop.sweep(conn, {}, Inject())
+    state = loop.loop_sweep(conn, {}, Inject())
     assert state == {"t_zb": 3}
     assert file_at_t_zb_inject == [{"t_zb": 3}]
 
     rec = Recorder()
-    replay = loop.sweep(conn, json.loads((tmp_path / "kanban-review-loop.json").read_text()), rec)
+    replay = loop.loop_sweep(conn, json.loads((tmp_path / "kanban-review-loop.json").read_text()), rec)
     assert woken(rec) == ["t_a"] and replay == {"t_a": 3, "t_zb": 3}
 
 
 def test_closed_cards_are_forgotten():
     conn = board()
     card(conn, "t_loop", "ready", 3)
-    state = loop.sweep(conn, {}, Recorder())
+    state = loop.loop_sweep(conn, {}, Recorder())
     conn.execute("update tasks set status = 'done' where id = 't_loop'")
-    assert loop.sweep(conn, state, Recorder()) == {}
+    assert loop.loop_sweep(conn, state, Recorder()) == {}
 
 
 def test_wake_text_is_byte_identical():
@@ -219,7 +219,7 @@ def test_wake_text_is_byte_identical():
     conn = board()
     card(conn, "t_abc123", "review", 6)
     rec = Recorder()
-    loop.sweep(conn, {}, rec)
+    loop.loop_sweep(conn, {}, rec)
     assert rec.calls[0][0] == (
         "[Kanban review loop] t_abc123 has had 6 review rounds with changes requested (review):"
         " title t_abc123\n"
@@ -269,26 +269,26 @@ def test_exactly_one_wake_per_threshold_across_restarts(rounds):
             raise RuntimeError("gateway restarted mid-sweep")
 
     with pytest.raises(RuntimeError):
-        loop.sweep(conn, {}, Restart(), file)
+        loop.loop_sweep(conn, {}, Restart(), file)
     assert file.load() == {"t_loop": threshold}
 
     rec = Recorder()
-    assert loop.sweep(conn, file.load(), rec, file) == {"t_loop": threshold}
+    assert loop.loop_sweep(conn, file.load(), rec, file) == {"t_loop": threshold}
     assert rec.calls == []
 
     file = FakeFile(fail_first=True)
     with pytest.raises(RuntimeError):
-        loop.sweep(conn, {}, Restart(), file)
+        loop.loop_sweep(conn, {}, Restart(), file)
     assert file.load() == {}
 
     rec = Recorder()
-    assert loop.sweep(conn, file.load(), rec, file) == {"t_loop": threshold}
+    assert loop.loop_sweep(conn, file.load(), rec, file) == {"t_loop": threshold}
     assert woken(rec) == ["t_loop"]
 
     for n in range(rounds, next_threshold + 1):
         changes(conn, "t_loop", f"fix {n + 1}")
     rec = Recorder()
-    state = loop.sweep(conn, file.load(), rec, file)
+    state = loop.loop_sweep(conn, file.load(), rec, file)
     assert woken(rec) == ["t_loop"] and state["t_loop"] == next_threshold
     assert len(rec.calls) == 1
 
@@ -305,7 +305,7 @@ def test_threshold_is_flushed_before_the_first_injection():
             order.append(("inject", dict(file.data)))
             return True
 
-    loop.sweep(conn, {}, Inject(), file)
+    loop.loop_sweep(conn, {}, Inject(), file)
     assert order == [("inject", {"t_loop": 3})]
     assert file.load() == {"t_loop": 3}
 
@@ -323,7 +323,7 @@ def test_production_write_path_flushes_the_marker_before_the_inject(monkeypatch,
             on_disk_at_inject.append((tmp_path / "kanban-review-loop.json").exists())
             return True
 
-    state = loop.sweep(conn, {}, Inject())
+    state = loop.loop_sweep(conn, {}, Inject())
     assert on_disk_at_inject == [True]
     assert state == {"t_loop": 3}
 
@@ -339,19 +339,19 @@ def test_board_needs_relevant_events(monkeypatch, tmp_path):
     conn.commit()
     calls = []
     monkeypatch.setattr(board_watch, "state_path", lambda name: tmp_path / name)
-    monkeypatch.setattr(loop, "sweep", lambda *a, **k: calls.append(a) or {"t_x": 3})
-    loop.on_tick(board=None)
+    monkeypatch.setattr(loop, "loop_sweep", lambda *a, **k: calls.append(a) or {"t_x": 3})
+    loop.loop_on_tick(board=None)
     assert len(calls) == 1  # no cursor yet: one initialization sweep
     assert json.loads((tmp_path / "kanban-review-loop.json").read_text()) == {"t_x": 3}
     conn.execute("insert into task_events (task_id, kind) values ('t_x', 'heartbeat')")
     conn.commit()
-    loop.on_tick(board=None)
+    loop.loop_on_tick(board=None)
     assert len(calls) == 1  # heartbeat is not a review-round change: skipped
     conn.execute("insert into task_events (task_id, kind) values ('t_x', 'changes_requested')")
     conn.commit()
-    loop.on_tick(board=None)
+    loop.loop_on_tick(board=None)
     assert len(calls) == 2
-    loop.on_tick(board=None)  # same relevant event again: skipped
+    loop.loop_on_tick(board=None)  # same relevant event again: skipped
     assert len(calls) == 2
 
 def test_poke_forces_the_sweep_despite_an_unchanged_cursor(monkeypatch, tmp_path):
@@ -365,11 +365,11 @@ def test_poke_forces_the_sweep_despite_an_unchanged_cursor(monkeypatch, tmp_path
     conn.commit()
     calls = []
     monkeypatch.setattr(board_watch, "state_path", lambda name: tmp_path / name)
-    monkeypatch.setattr(loop, "sweep", lambda *a, **k: calls.append(a) or {})
-    loop.on_tick(board=None)
+    monkeypatch.setattr(loop, "loop_sweep", lambda *a, **k: calls.append(a) or {})
+    loop.loop_on_tick(board=None)
     assert len(calls) == 1  # no cursor yet: one initialization sweep
     board_watch.write_state(board_watch.POKE_FILE, {"at": time.time() + 10})
-    loop.on_tick(board=None)
+    loop.loop_on_tick(board=None)
     assert len(calls) == 2
 
 def test_dumping_sweep_still_advances_the_cursor(monkeypatch, tmp_path):
@@ -384,8 +384,8 @@ def test_dumping_sweep_still_advances_the_cursor(monkeypatch, tmp_path):
     monkeypatch.setattr(board_watch, "state_path", lambda name: tmp_path / name)
     conn.execute("insert into task_events (task_id, kind) values ('t_x', 'changes_requested')")
     conn.commit()
-    monkeypatch.setattr(loop, "sweep", lambda *a: 1 / 0)
-    loop.on_tick(board=None)
+    monkeypatch.setattr(loop, "loop_sweep", lambda *a: 1 / 0)
+    loop.loop_on_tick(board=None)
     assert json.loads((tmp_path / "kanban-review-loop-cursor.json").read_text())["event_id"] == 1
 
 def test_dry_run_never_sweeps_and_never_writes(monkeypatch, tmp_path):
@@ -406,4 +406,4 @@ def test_registered_on_dispatch_tick():
     hooks = []
     ctx = type("Ctx", (), {"register_hook": lambda self, name, fn: hooks.append((name, fn))})()
     sys.modules["agent_guards"].register(ctx)
-    assert ("on_kanban_dispatch_tick", loop.on_tick) in hooks
+    assert any(name == "on_kanban_dispatch_tick" and hook.__module__.endswith("wakes") for name, hook in hooks)

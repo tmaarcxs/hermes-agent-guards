@@ -11,7 +11,7 @@ re-arm it.
 import sqlite3
 import sys
 
-wake = sys.modules["agent_guards"].stale_wake
+wake = sys.modules["agent_guards"].wakes
 
 NOW = 1_000_000.0
 TEN_S = 10
