@@ -146,7 +146,6 @@ _FIND_DELETE = re.compile(_START + r"find\b")
 _FIND_DELETE_FLAGS = re.compile(r"\s-delete\b")
 _FIND_NAME_FILTER = re.compile(r"-name\b")
 _FIND_EXEC_RM = re.compile(r"-exec\s+(?:sudo\s+)?rm\s(?:[^;{}])*-[a-zA-Z]*r")
-_RMTREE_ARG = re.compile(r"rmtree\s*\(\s*([^),]+)")
 _RSYNC_DELETE = re.compile(_START + r"rsync\b")
 _RSYNC_DELETE_FLAG = re.compile(r"(?:^|[\s/])--delete(?=[\s'=\"]|$)")
 _PYTH_HERMES_ENV_RE = re.compile(r"os\.environ(?:\.get)?\[?\s*\(??\s*['\"]([^'\"]+)['\"]")
@@ -514,16 +513,39 @@ def _heredoc_python_body(command: str) -> Optional[str]:
     return "\n".join(body) if body else None
 
 
+_PY_DELETE_CALL = re.compile(r"\b(?:shutil\.rmtree|os\.(?:remove|unlink|rmdir))\s*\(\s*([^),]+)")
+_PY_PATH_DELETE = re.compile(r"\bpathlib\.Path\s*\(\s*(.+?)\s*\)\s*\.\s*(?:rmdir|unlink)\s*\(")
+_PY_STRING_BODY = re.compile(r"['\"][^'\"]*['\"]")
+
+
+def _py_delete_token(raw: str) -> str:
+    unescaped = raw.replace('\\"', '"').replace("\\'", "'")
+    match = _PY_STRING_BODY.search(unescaped)
+    if match:
+        literal = match.group(0)
+        return literal[1:-1] if len(literal) >= 2 else literal
+    return unescaped.strip().strip('"\'')
+
+
 def _python_rmtree_protected(phrase: str) -> bool:
-    for match in _RMTREE_ARG.finditer(phrase):
-        raw = match.group(1).strip()
-        if "os.environ" in raw or "os.getenv" in raw:
-            literal = _PYTH_HERMES_ENV_RE.search(raw)
+    """`rmtree`, `os.remove`/`unlink`/`rmdir` and `pathlib.Path(...).rmdir()/.unlink()` arguments
+    resolve to one token each; `\"` inside a doubly-quoted `-c` payload is un-escaped before the
+    string literal is isolated, so a backslash never reads as the delimiter that ends the
+    argument (S1)."""
+    calls = []
+    for match in _PY_DELETE_CALL.finditer(phrase):
+        calls.append(match.group(1))
+    for match in _PY_PATH_DELETE.finditer(phrase):
+        calls.append(match.group(1))
+    for raw in calls:
+        token = raw.strip()
+        if not ("os.environ" in token or "os.getenv" in token):
+            token = _py_delete_token(token)
+        if "os.environ" in token or "os.getenv" in token:
+            literal = _PYTH_HERMES_ENV_RE.search(token)
             if literal and "HERMES_HOME" in literal.group(1):
                 return True
             continue
-        literal = re.match(r"(['\"])(.*?)\1", raw)
-        token = literal.group(2) if literal else raw
         if _path_level(token) in _PROTECTED_LEVELS:
             return True
     return False
