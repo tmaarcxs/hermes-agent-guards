@@ -81,9 +81,6 @@ _PY_CREATE = re.compile(
     r"\b(?:write_text|write_bytes)\s*\(|\brates?_file\(|\bto_csv\s*\(|\bto_json\s*\(|\bsavefig\s*\(|\bdump\s*\("
 )
 _PY_STRINGS = re.compile(r"(['\"])(.*?)\1")
-_DOWNLOAD = re.compile(r"\b(?:curl|wget)\b[^\n;|&]*?\s(?:-o|-O|--output|-O\s)(?:\s+)?(?P<path>\S+)")
-"""``curl -o <file>`` / ``wget -O <file>`` create the output file; covered here
-because the shared target extractor does not treat them as write heads."""
 
 
 def _home() -> Path:
@@ -201,11 +198,36 @@ def _creation_targets(cwd: str, segment: str) -> list[str]:
         operands = [dest for dest in tokens[head_index + 1:] if not dest.startswith("-")]
         if operands:
             targets.append(_wwg._join(cwd, operands[0]))
-    for match in _DOWNLOAD.finditer(unquoted):
-        dest = match.group("path")
-        if not dest.startswith("-"):
+    elif head in ("curl", "wget"):
+        for dest in _download_destinations(tokens, head_index):
             targets.append(_wwg._join(cwd, dest))
     return targets
+
+
+def _download_destinations(tokens: list[str], index: int) -> list[str]:
+    """Output file of a ``curl -o``/``wget -O`` head, taken from its own operands.
+
+    The old unanchored ``\\bcurl\\b`` regex matched the word anywhere in the
+    segment, so ``echo curl -o foo`` (which writes nothing) was blocked. The
+    head is only the command word, as for every other create shape.
+    """
+    rest = tokens[index + 1:]
+    outputs: list[str] = []
+    position = 0
+    while position < len(rest):
+        token = rest[position]
+        if token in ("-o", "-O", "--output"):
+            if position + 1 < len(rest):
+                outputs.append(rest[position + 1])
+                position += 1
+        elif token.startswith("--output="):
+            outputs.append(token.split("=", 1)[1])
+        elif token.startswith("-o") and token != "-o" and len(token) > 2:
+            outputs.append(token[2:])
+        elif token.startswith("-O") and token != "-O" and len(token) > 2:
+            outputs.append(token[2:])
+        position += 1
+    return outputs
 
 
 def _sed_destinations(tokens: list[str], index: int) -> list[str]:

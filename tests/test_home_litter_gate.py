@@ -643,3 +643,45 @@ def test_create_head_behind_a_wrapper_still_blocks(monkeypatch):
 def test_wrapper_alone_does_not_fire(monkeypatch):
     home = home_of(monkeypatch)
     assert worker_terminal("sudo grep -rn mkdir src", workdir=home) is None
+
+
+_DOWNLOAD_HEAD_ALLOWED = (
+    "echo curl -o foo",
+    "echo wget -O bar",
+    "grep -rn 'curl -o' src",
+    "grep -rn wget src",
+    "curl --help",
+    "wget --version",
+)
+"""Commands that name ``curl``/``wget`` without downloading: the old unanchored
+``\\bcurl\\b`` regex blocked ``echo curl -o foo`` (which writes nothing)."""
+
+
+@pytest.mark.parametrize("command", _DOWNLOAD_HEAD_ALLOWED, ids=lambda value: str(value))
+def test_download_head_only_counts_in_command_position(monkeypatch, command):
+    home = home_of(monkeypatch)
+    assert worker_terminal(command, workdir=home) is None, command
+
+
+_DOWNLOAD_HEAD_BLOCKED = (
+    ("curl -o brandnew http://x", "brandnew"),
+    ("wget -O brandnew http://x", "brandnew"),
+    ("curl --output brandnew http://x", "brandnew"),
+    ("curl --output=brandnew http://x", "brandnew"),
+    ("curl -obrandnew http://x", "brandnew"),
+    ("sudo curl -o brandnew http://x", "brandnew"),
+)
+"""``curl -o``/``wget -O`` still create the output file and must keep blocking."""
+
+
+@pytest.mark.parametrize("command,entry", _DOWNLOAD_HEAD_BLOCKED, ids=lambda value: str(value))
+def test_download_head_still_blocks(monkeypatch, command, entry):
+    home = home_of(monkeypatch)
+    message = worker_terminal(command, workdir=home)
+    assert message and "home_litter_gate" in message, command
+    assert "~/" + entry in message, (command, message)
+
+
+def test_download_into_an_existing_target_is_allowed(monkeypatch):
+    home = home_of(monkeypatch)
+    assert worker_terminal("curl -o existing.txt http://x", workdir=home) is None
