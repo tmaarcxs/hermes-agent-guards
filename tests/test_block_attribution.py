@@ -13,6 +13,7 @@ guards = sys.modules["agent_guards"]
 
 REGISTERED_GUARDS = [
     "checkpoint_gate",
+    "home_litter_gate",
     "kanban_policy",
     "lead_delegation",
     "github_contact",
