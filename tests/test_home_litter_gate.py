@@ -120,7 +120,31 @@ def test_dotted_new_top_level_allowed(monkeypatch):
 
 def test_new_entry_below_home_allowed(monkeypatch):
     assert worker_terminal("cd ~/git_repos && mkdir newrepo") is None
-    assert worker_terminal("mkdir -p ~/git_repos/worktrees/hermes-agent-guards/t_x") is None
+    assert worker_terminal("mkdir -p ~/git_repos/ad-hoc/t_x") is None
+
+
+def test_nested_creation_of_new_top_level_entry_blocked(monkeypatch):
+    """`mkdir -p <newtop>/<child>` from cwd ~ creates ~/<newtop>: litter."""
+    for command in (
+        "cd ~ && mkdir -p scratch/f3",
+        "cd ~ && mkdir -p wt/t_x",
+        "cd ~ && mkdir -p hermes-scratch/a",
+        "cd ~ && mkdir -p kanban_tmp/x",
+        "cd ~ && mkdir -p cache-scratch/x",
+        "cd ~ && mkdir -p profiles/x",
+    ):
+        assert "home_litter_gate" in worker_terminal(command), command
+
+
+def test_nested_creation_under_existing_top_level_allowed(monkeypatch):
+    """An existing first component keeps deep creates working."""
+    assert worker_terminal("cd ~ && mkdir -p git_repos/ad-hoc/t_x") is None
+    assert worker_terminal("cd ~ && mkdir -p .cache/probe/deep") is None
+    assert worker_terminal("cd ~ && mkdir -p Downloads/a/b") is None
+
+
+def test_multi_operand_mkdir_one_new_top_level_blocked(monkeypatch):
+    assert "home_litter_gate" in worker_terminal("cd ~ && mkdir -p a/b c/d")
 
 
 def test_hermes_tree_untouched(monkeypatch):
@@ -179,9 +203,9 @@ def test_git_worktree_add_under_main_repo_allowed(monkeypatch, tmp_path):
 
 
 def test_git_worktree_add_path_under_home_direct_child_blocked(monkeypatch):
-    """A worktree dir that IS a direct child of ~ is still litter (nested is not)."""
+    """A worktree dir that is a new top-level entry under ~ is litter, nested too."""
     assert "home_litter_gate" in worker_terminal("mkdir ~/wt")
-    assert worker_terminal("mkdir -p ~/wt/t_x") is None
+    assert "home_litter_gate" in worker_terminal("mkdir -p ~/wt/t_x")
 
 
 def test_production_entry_point_pre_tool_call_blocks(monkeypatch):
@@ -199,7 +223,7 @@ def test_production_entry_point_pre_tool_call_blocks(monkeypatch):
 def test_production_entry_point_allows_safe_call(monkeypatch):
     result = guard._pre_tool_call(
         tool_name="terminal",
-        args={"command": "mkdir -p ~/git_repos/worktrees/hermes-agent-guards/t_x"},
+        args={"command": "mkdir -p ~/git_repos/ad-hoc/t_x"},
         session_id="s-home-litter-e2e-ok",
     )
     assert result is None

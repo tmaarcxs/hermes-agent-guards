@@ -8,8 +8,11 @@ bare ``sqlite3 kanban.db``, a ``mkdir scratch``, a ``> ~/note`` redirect — lan
 a brand-new entry at the top of ``~`` and nothing stops it.
 
 This gate blocks ``terminal``/``write_file``/``patch`` calls from worker
-processes when the write target resolves to a **direct child of the real home
-that does not exist yet**. It is deliberately narrow:
+processes when the write target would create a **not-yet-existing top-level
+entry under the real home**. That includes a direct child (``mkdir scratch``)
+and a nested target whose first component under ``~`` does not exist yet
+(``mkdir -p scratch/f3`` from cwd ``~`` creates ``~/scratch`` too). It is
+deliberately narrow:
 
 - An entry that already exists is allowed (edits to ``~/.config``,
   ``~/git_repos`` and every existing file keep working).
@@ -75,8 +78,14 @@ def _home() -> Path:
 
 
 def _new_top_level_entry(path: str) -> Optional[str]:
-    """Return the offending entry name when *path* is a not-yet-existing direct
-    child of the real home (and not allowlisted), else ``None``."""
+    """Return the offending entry name when *path* would create a not-yet-existing
+    top-level entry under the real home (and it is not allowlisted), else ``None``.
+
+    The check is on the first component under the home, not only a direct child:
+    ``mkdir -p scratch/f3`` from cwd ``~`` creates ``~/scratch`` as well, so the
+    absent first component is the litter. A path whose first component already
+    exists (``~/git_repos/newrepo``, ``~/.cache/x``) stays allowed.
+    """
     candidate = _wwg._normalize(path)
     if not candidate:
         return None
@@ -85,17 +94,15 @@ def _new_top_level_entry(path: str) -> Optional[str]:
     except (OSError, ValueError):
         return None
     home = _home()
-    if resolved.parent != home:
+    if resolved == home or home not in resolved.parents:
         return None
-    name = resolved.name
-    if not name:
-        return None
-    if name.startswith("."):
+    name = resolved.relative_to(home).parts[0]
+    if not name or name.startswith("."):
         return None
     if name in ALLOWED_NEW_TOP_LEVEL:
         return None
     try:
-        if resolved.exists():
+        if (home / name).exists():
             return None
     except OSError:
         return None
