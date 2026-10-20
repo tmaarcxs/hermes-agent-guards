@@ -15,6 +15,7 @@ REGISTERED_GUARDS = [
     "checkpoint_gate",
     "home_litter_gate",
     "kanban_policy",
+    "workspace_convention",
     "lead_delegation",
     "github_contact",
     "paas_promote_gate",

@@ -119,7 +119,7 @@ import shlex
 from typing import Any, Optional
 
 try:
-    from . import background_notify_gate, backup_copy_gate, checkpoint_gate, completion_gate, github_contact, handoff_gate, hermes_home_gate, home_litter_gate, kanban_policy, kanban_show_slim_gate, lead_delegation, lead_work_nudge, paas_promote_gate, review_gate, schedule_gate, skill_size, stop_gate, workspace_scope_gate, workspace_write_gate, wakes
+    from . import background_notify_gate, backup_copy_gate, checkpoint_gate, completion_gate, github_contact, handoff_gate, hermes_home_gate, home_litter_gate, kanban_policy, kanban_show_slim_gate, lead_delegation, lead_work_nudge, paas_promote_gate, review_gate, schedule_gate, skill_size, stop_gate, wakes, workspace_convention, workspace_scope_gate, workspace_write_gate
 except ImportError:
     if __name__ != "__init__":
         raise
@@ -267,6 +267,7 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
         (lambda: workspace_write_gate.check(tool_name, args), "workspace_write_gate"),
         (lambda: home_litter_gate.check(tool_name, args), "home_litter_gate"),
         (lambda: kanban_policy.check(tool_name, args), "kanban_policy"),
+        (lambda: workspace_convention.check(tool_name, args), "workspace_convention"),
         (lambda: lead_delegation.check(tool_name, args), "lead_delegation"),
         (lambda: github_contact.check(tool_name, args), "github_contact"),
         (lambda: paas_promote_gate.check(tool_name, args), "paas_promote_gate"),
