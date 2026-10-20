@@ -521,3 +521,48 @@ def test_python_receiver_creation_outside_home_allowed(monkeypatch, template):
     module = "pathlib" if "pathlib" in template else "shutil"
     command = 'python3 -c "import %s; %s"' % (module, template.format(home=workspace))
     assert worker_terminal(command) is None, command
+
+
+def test_config_cwd_at_home_blocks_on_the_first_command(monkeypatch, tmp_path):
+    """A worker whose *process* cwd is the home (``terminal.cwd: .``) has no
+    session record yet on its first command; the gate must still resolve that
+    cwd from the tool's own default rather than falling back to the workspace.
+    """
+    home = home_of(monkeypatch)
+    monkeypatch.setattr(os, "getcwd", lambda: home)
+    monkeypatch.delenv("HERMES_SESSION_KEY", raising=False)
+    monkeypatch.delenv("TERMINAL_CWD", raising=False)
+    for command, entry in (("sqlite3 kanban.db 'select 1'", "kanban.db"),
+                           ("mkdir scratch", "scratch"),
+                           ("touch litter.md", "litter.md")):
+        result = guard._pre_tool_call(
+            tool_name="terminal", args={"command": command}, session_id="s-hlg-config-cwd")
+        message = result["message"] if result else None
+        assert message and "home_litter_gate" in message, command
+        assert "~/" + entry in message, (command, message)
+
+
+def test_config_cwd_elsewhere_does_not_fire(monkeypatch, tmp_path):
+    """The same first-command route with a safe process cwd stays allowed."""
+    workspace = tmp_path / "ws"
+    workspace.mkdir(exist_ok=True)
+    monkeypatch.setattr(os, "getcwd", lambda: str(workspace))
+    monkeypatch.delenv("HERMES_SESSION_KEY", raising=False)
+    monkeypatch.delenv("TERMINAL_CWD", raising=False)
+    result = guard._pre_tool_call(
+        tool_name="terminal", args={"command": "mkdir scratch"}, session_id="s-hlg-config-cwd-ok")
+    assert result is None, result
+
+
+def test_config_cwd_honours_terminal_cwd_env(monkeypatch, tmp_path):
+    """An absolute ``TERMINAL_CWD`` wins over the process cwd, as the tool's own
+    ``_resolve_config_cwd`` does."""
+    home = home_of(monkeypatch)
+    workspace = tmp_path / "ws"
+    workspace.mkdir(exist_ok=True)
+    monkeypatch.setattr(os, "getcwd", lambda: home)
+    monkeypatch.setenv("TERMINAL_CWD", str(workspace))
+    monkeypatch.delenv("HERMES_SESSION_KEY", raising=False)
+    result = guard._pre_tool_call(
+        tool_name="terminal", args={"command": "mkdir scratch"}, session_id="s-hlg-config-cwd-env")
+    assert result is None, result

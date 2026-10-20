@@ -288,13 +288,42 @@ def _resolved_cwd(args: dict, kwargs: dict) -> Optional[str]:
         from tools.approval_context import get_current_session_key
         from tools.terminal_tool import get_session_cwd
     except Exception:
-        return None
+        return _config_cwd()
     try:
         key = (get_current_session_key(default="") or str(kwargs.get("task_id") or "")
                or str(kwargs.get("session_id") or ""))
-        return get_session_cwd(key)
+        recorded = get_session_cwd(key)
     except Exception:
-        return None
+        recorded = None
+    return recorded or _config_cwd()
+
+
+def _config_cwd() -> Optional[str]:
+    """The terminal tool's own default cwd when no session record exists yet.
+
+    ``tools/terminal_tool_config._resolve_config_cwd`` uses
+    ``TERMINAL_CWD`` (config ``terminal.cwd``, ``"."`` in this install) and
+    otherwise ``os.getcwd()`` — the *process* cwd. A worker process launched
+    with its cwd at the home directory therefore runs a bare
+    ``sqlite3 kanban.db`` in ``~`` even on its first command, before any cwd
+    has been recorded. Returning that cwd here keeps the gate's view equal to
+    the tool's.
+    """
+    try:
+        from tools.terminal_scope import terminal_env
+        configured = (terminal_env("TERMINAL_CWD", "") or "").strip()
+    except Exception:
+        configured = (os.environ.get("TERMINAL_CWD") or "").strip()
+    try:
+        process_cwd = os.getcwd()
+    except OSError:
+        process_cwd = ""
+    if not configured or configured == ".":
+        return process_cwd or None
+    try:
+        return os.path.abspath(os.path.expanduser(configured))
+    except (OSError, ValueError):
+        return process_cwd or None
 
 
 def terminal_violations(command: str, base_cwd: Optional[str] = None) -> list[str]:
