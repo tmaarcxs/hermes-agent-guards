@@ -91,6 +91,14 @@ def test_python_heredoc_write_in_home_blocked(monkeypatch):
     assert "home_litter_gate" in worker_terminal(command)
 
 
+def test_curl_output_into_new_home_file_blocked(monkeypatch):
+    assert "home_litter_gate" in worker_terminal("curl -sL https://example.com/x -o ~/x.tar")
+
+
+def test_wget_output_into_new_home_file_blocked(monkeypatch):
+    assert "home_litter_gate" in worker_terminal("wget -O ~/x.tar https://example.com/x")
+
+
 
 def test_existing_top_level_entry_allowed(monkeypatch):
     assert worker_terminal("cd ~ && echo x > existing.txt") is None
@@ -152,3 +160,24 @@ def test_message_names_safe_targets(monkeypatch):
     message = worker_terminal("cd ~ && mkdir scratch")
     assert "HERMES_KANBAN_WORKSPACE" in message and "scratch" in message
     assert "kanban.db" in message
+
+
+def test_production_entry_point_pre_tool_call_blocks(monkeypatch):
+    """Drive the real plugin entry point, not the module check."""
+    result = guard._pre_tool_call(
+        tool_name="terminal",
+        args={"command": "cd ~ && sqlite3 kanban.db 'select 1'"},
+        session_id="s-home-litter-e2e",
+    )
+    assert result is not None and result["action"] == "block", result
+    assert "[home_litter_gate]" in result["message"]
+    assert result["message"].startswith("agent-guards blocked terminal")
+
+
+def test_production_entry_point_allows_safe_call(monkeypatch):
+    result = guard._pre_tool_call(
+        tool_name="terminal",
+        args={"command": "mkdir -p ~/git_repos/worktrees/hermes-agent-guards/t_x"},
+        session_id="s-home-litter-e2e-ok",
+    )
+    assert result is None

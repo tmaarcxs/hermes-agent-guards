@@ -65,6 +65,9 @@ _PY_CREATE = re.compile(
     r"\b(?:write_text|write_bytes)\s*\(|\brates?_file\(|\bto_csv\s*\(|\bto_json\s*\(|\bsavefig\s*\(|\bdump\s*\("
 )
 _PY_STRINGS = re.compile(r"(['\"])(.*?)\1")
+_DOWNLOAD = re.compile(r"\b(?:curl|wget)\b[^\n;|&]*?\s(?:-o|-O|--output|-O\s)(?:\s+)?(?P<path>\S+)")
+"""``curl -o <file>`` / ``wget -O <file>`` create the output file; covered here
+because the shared target extractor does not treat them as write heads."""
 
 
 def _home() -> Path:
@@ -124,6 +127,10 @@ def _creation_targets(cwd: str, segment: str) -> list[str]:
                         targets.append(_wwg._join(cwd, dest))
             break
     for match in _SQLITE3.finditer(unquoted):
+        dest = match.group("path")
+        if not dest.startswith("-"):
+            targets.append(_wwg._join(cwd, dest))
+    for match in _DOWNLOAD.finditer(unquoted):
         dest = match.group("path")
         if not dest.startswith("-"):
             targets.append(_wwg._join(cwd, dest))
