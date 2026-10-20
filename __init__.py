@@ -46,7 +46,9 @@ Modules:
   successful post-call-1 Kanban comment (or review/complete/block), non-checkpoint tool calls are
   blocked until one is written, and the duty re-arms every 25 calls so a long run keeps
   checkpointing instead of dying at the iteration cap holding everything in hand;
-- ``skill_size`` blocks growing a skill markdown file past its size limit;
+- ``skill_size`` blocks growing a skill markdown file past its size limit, and flags
+  after the fact a ``terminal``/``execute_code``/unified-diff ``patch`` call that left one
+  over its limit (post-hoc instruction appended to the tool result, no revert);
 - ``kanban_policy`` (only with ``kanban.default_assignee`` set) keeps delegated cards on the
   worker profile, out of triage, without execution overrides and with a numbered Acceptance list;
 - ``lead_delegation`` (same condition, lead process only) blocks the lead from editing files under
@@ -246,6 +248,13 @@ def _transform_tool_result(**kwargs) -> Optional[str]:
                 kwargs.get("tool_name") or "", kwargs.get("args"), kwargs.get("result"))
         except Exception:
             transformed = None
+    if transformed is None:
+        try:
+            transformed = skill_size.transform(
+                kwargs.get("tool_name") or "", kwargs.get("args"), kwargs.get("result"),
+                tool_call_id=kwargs.get("tool_call_id") or "")
+        except Exception:
+            transformed = None
     result = transformed if transformed is not None else kwargs.get("result")
     try:
         nudged = lead_work_nudge.hook(
@@ -277,6 +286,7 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
         (lambda: backup_copy_gate.check(tool_name, args), "backup_copy_gate"),
         (lambda: schedule_gate.check(tool_name, args), "schedule_gate"),
         (lambda: skill_size.check(tool_name, args), "skill_size"),
+        (lambda: skill_size.record(tool_name, args, **kwargs), "skill_size"),
         (lambda: background_notify_gate.check(tool_name, args), "background_notify_gate"),
     ):
         try:

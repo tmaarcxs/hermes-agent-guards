@@ -1,4 +1,6 @@
+import os
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -18,8 +20,42 @@ def root(tmp_path, monkeypatch):
     return skills
 
 
+@pytest.fixture(autouse=True)
+def _clear_caches():
+    for cache in (getattr(size, "_PENDING", None), getattr(size, "_TREE", None)):
+        if cache is not None:
+            cache.clear()
+    yield
+    for cache in (getattr(size, "_PENDING", None), getattr(size, "_TREE", None)):
+        if cache is not None:
+            cache.clear()
+
+
 def pre(tool, **args):
     return guards._pre_tool_call(tool_name=tool, args=args, session_id="s1")
+
+
+def write(tool, result="ok", call_id="c1", **args):
+    """The hook pair one writing tool call goes through: pre_tool_call, then the result transform.
+
+    ``None`` is the unchanged result (every transform declined), which the host turns back
+    into the original string; a returned string replaces it.
+    """
+    guards._pre_tool_call(tool_name=tool, args=args, session_id="s1", tool_call_id=call_id)
+    return guards._transform_tool_result(tool_name=tool, args=args, result=result,
+                                         session_id="s1", tool_call_id=call_id)
+
+
+def flagged(out):
+    return bool(out) and "over the limit for SKILL.md" in out and "references/<topic>.md" in out
+
+
+def unchanged(out):
+    return out is None
+
+
+def out_has_char_count(out, count):
+    return bool(out) and f"at {count:,} characters" in out
 
 
 def blocked(result):
@@ -116,3 +152,176 @@ def test_roots_follow_hermes_home(monkeypatch, tmp_path):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hh"))
     monkeypatch.setitem(sys.modules, "hermes_constants", None)
     assert size._hermes_home() == tmp_path / "hh"
+
+
+def test_terminal_append_past_limit_is_flagged(root):
+    skill = root / "cat" / "demo" / "SKILL.md"
+    guards._pre_tool_call(tool_name="terminal", args={"command": "cat >> x"}, session_id="s1", tool_call_id="c1")
+    skill.write_text(skill.read_text() + "y" * 7000)
+    out = guards._transform_tool_result(tool_name="terminal", args={"command": "cat >> x"}, result="ok",
+                                        session_id="s1", tool_call_id="c1")
+    assert flagged(out) and out.startswith("ok")
+
+
+def test_execute_code_new_over_limit_reference_is_flagged(root):
+    guards._pre_tool_call(tool_name="execute_code", args={"code": "open(...)"}, session_id="s1", tool_call_id="c2")
+    (root / "cat" / "demo" / "references" / "fresh.md").write_text("r" * 12001)
+    out = guards._transform_tool_result(tool_name="execute_code", args={"code": "open(...)"}, result="ok",
+                                        session_id="s1", tool_call_id="c2")
+    assert out and "over the limit for a skill reference file" in out
+
+
+def test_shrinking_an_over_limit_file_is_not_flagged(root):
+    skill = root / "cat" / "demo" / "SKILL.md"
+    skill.write_text("x" * 9000)
+    guards._pre_tool_call(tool_name="terminal", args={"command": "python shrink.py"}, session_id="s1",
+                          tool_call_id="c1")
+    skill.write_text("x" * 5000)
+    assert guards._transform_tool_result(tool_name="terminal", args={"command": "python shrink.py"}, result="ok",
+                                         session_id="s1", tool_call_id="c1") is None
+    assert skill.read_text() == "x" * 5000
+
+
+def test_write_under_the_limit_is_not_flagged(root):
+    assert unchanged(write("terminal", command="cat >> x"))
+
+
+def test_non_skill_markdown_is_not_flagged(root, tmp_path):
+    notes = tmp_path / "notes.md"
+    guards._pre_tool_call(tool_name="terminal", args={"command": "echo > notes.md"}, session_id="s1", tool_call_id="c3")
+    notes.write_text("n" * 50000)
+    assert guards._transform_tool_result(tool_name="terminal", args={"command": "echo > notes.md"}, result="ok",
+                                         session_id="s1", tool_call_id="c3") is None
+
+
+def test_internal_error_fails_open(root, monkeypatch):
+    monkeypatch.setattr(size, "_snapshot", lambda: (_ for _ in ()).throw(RuntimeError("boom")))
+    assert unchanged(write("terminal", command="cat >> x"))
+    assert guards._pre_tool_call(tool_name="terminal", args={"command": "cat >> x"},
+                                 session_id="s1", tool_call_id="c4") is None
+
+
+def test_unified_diff_patch_is_measured_after_the_fact(root):
+    skill = root / "cat" / "demo" / "SKILL.md"
+    guards._pre_tool_call(tool_name="patch", args={"path": str(skill), "mode": "patch"}, session_id="s1",
+                          tool_call_id="c5")
+    skill.write_text("x" * 9000)
+    out = guards._transform_tool_result(tool_name="patch", args={"path": str(skill), "mode": "patch"}, result="ok",
+                                        session_id="s1", tool_call_id="c5")
+    assert flagged(out)
+
+
+def test_unrelated_tool_and_unpaired_transform_pass(root):
+    assert unchanged(write("read_file", path=str(root / "cat" / "demo" / "SKILL.md")))
+    assert guards._transform_tool_result(tool_name="terminal", args={}, result="ok", tool_call_id="never") is None
+
+
+def test_non_string_result_untouched(root):
+    (root / "cat" / "demo" / "SKILL.md").write_text("x" * 9000)
+    guards._pre_tool_call(tool_name="terminal", args={"command": "cat >> x"}, session_id="s1", tool_call_id="c6")
+    assert guards._transform_tool_result(tool_name="terminal", args={"command": "cat >> x"}, result={"ok": True},
+                                         session_id="s1", tool_call_id="c6") is None
+
+
+def test_untouched_over_limit_file_is_not_flagged(root):
+    (root / "cat" / "demo" / "references" / "big.md").write_text("r" * 13000)
+    assert unchanged(write("terminal", command="echo hi"))
+
+
+def test_growth_that_stays_under_the_limit_is_not_flagged(root):
+    skill = root / "cat" / "demo" / "SKILL.md"
+    guards._pre_tool_call(tool_name="terminal", args={"command": "cat >> x"}, session_id="s1", tool_call_id="c7")
+    skill.write_text(skill.read_text() + "y" * 200)
+    assert guards._transform_tool_result(tool_name="terminal", args={"command": "cat >> x"}, result="ok",
+                                         session_id="s1", tool_call_id="c7") is None
+
+
+def test_repeated_transform_for_one_call_flags_once(root):
+    skill = root / "cat" / "demo" / "SKILL.md"
+    guards._pre_tool_call(tool_name="terminal", args={"command": "cat >> x"}, session_id="s1", tool_call_id="c8")
+    skill.write_text("x" * 9000)
+    args = {"command": "cat >> x"}
+    first = guards._transform_tool_result(tool_name="terminal", args=args, result="ok", session_id="s1",
+                                          tool_call_id="c8")
+    second = guards._transform_tool_result(tool_name="terminal", args=args, result="ok", session_id="s1",
+                                           tool_call_id="c8")
+    assert flagged(first) and second is None
+
+
+def test_multibyte_over_byte_limit_but_under_char_limit_is_not_flagged(root):
+    skill = root / "cat" / "demo" / "SKILL.md"
+    guards._pre_tool_call(tool_name="terminal", args={"command": "cat > x"}, session_id="s1", tool_call_id="c11")
+    skill.write_text("\u00e9" * 5000)
+    assert size.SKILL_LIMIT < len(skill.read_bytes()) and len(skill.read_text(encoding="utf-8")) < size.SKILL_LIMIT
+    out = guards._transform_tool_result(tool_name="terminal", args={"command": "cat > x"}, result="ok",
+                                        session_id="s1", tool_call_id="c11")
+    assert out is None
+
+
+def test_multibyte_file_over_char_and_byte_limit_is_flagged_with_char_count(root):
+    skill = root / "cat" / "demo" / "SKILL.md"
+    guards._pre_tool_call(tool_name="terminal", args={"command": "cat > x"}, session_id="s1", tool_call_id="c12")
+    skill.write_text("\u00e9" * 7000)
+    assert out_has_char_count(guards._transform_tool_result(
+        tool_name="terminal", args={"command": "cat > x"}, result="ok", session_id="s1", tool_call_id="c12"), 7000)
+
+
+def test_untouched_multibyte_over_limit_file_is_not_flagged(root):
+    (root / "cat" / "demo" / "references" / "big.md").write_text("\u00e9" * 13000)
+    assert unchanged(write("terminal", command="echo hi"))
+
+
+def test_post_hoc_and_pre_call_agree_on_units_for_a_multibyte_file(root):
+    skill = root / "cat" / "demo" / "SKILL.md"
+    body = "\u00e9" * 5985
+    skill.write_text(body)
+    assert len(body) == 5985 and len(body.encode("utf-8")) > size.SKILL_LIMIT
+    assert pre("write_file", path=str(skill), content=body) is None
+    guards._pre_tool_call(tool_name="terminal", args={"command": "true"}, session_id="s1", tool_call_id="u1")
+    skill.write_text(body + "x")
+    snapshot = size._snapshot()
+    assert snapshot[str(skill)][1] == len(body + "x") == 5986
+    assert unchanged(guards._transform_tool_result(tool_name="terminal", args={"command": "true"}, result="ok",
+                                                   session_id="s1", tool_call_id="u1"))
+
+
+def test_every_file_left_over_its_limit_is_flagged(root):
+    skill = root / "cat" / "demo" / "SKILL.md"
+    reference = root / "cat" / "demo" / "references" / "fresh.md"
+    guards._pre_tool_call(tool_name="terminal", args={"command": "python gen.py"}, session_id="s1",
+                          tool_call_id="c13")
+    skill.write_text("x" * 9000)
+    reference.write_text("r" * 13000)
+    out = guards._transform_tool_result(tool_name="terminal", args={"command": "python gen.py"}, result="ok",
+                                        session_id="s1", tool_call_id="c13")
+    assert out.startswith("ok")
+    assert "SKILL.md" in out and "fresh.md" in out
+    assert out.count("agent-guards: terminal left") == 2
+
+
+def test_directory_cache_does_not_hide_a_new_file(root):
+    guards._pre_tool_call(tool_name="terminal", args={"command": "true"}, session_id="s1", tool_call_id="c9")
+    guards._transform_tool_result(tool_name="terminal", args={"command": "true"}, result="ok", session_id="s1",
+                                  tool_call_id="c9")
+    guards._pre_tool_call(tool_name="terminal", args={"command": "cat > x"}, session_id="s1", tool_call_id="c10")
+    (root / "cat" / "demo" / "references" / "added.md").write_text("r" * 12001)
+    out = guards._transform_tool_result(tool_name="terminal", args={"command": "cat > x"}, result="ok",
+                                        session_id="s1", tool_call_id="c10")
+    assert out and "added.md" in out
+
+
+def test_symlinked_directory_out_of_the_roots_is_not_snapshotted(root, tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "escaped.md").write_text("x" * 50000)
+    (root / "cat" / "demo" / "escape").symlink_to(outside, target_is_directory=True)
+    snapshot = size._snapshot()
+    assert all(Path(os.path.realpath(path)).is_relative_to(root) for path in snapshot)
+    assert unchanged(write("terminal", command="cat > escaped.md"))
+
+
+def test_pending_snapshot_is_bounded(root):
+    for index in range(size._MAX_PENDING + 3):
+        guards._pre_tool_call(tool_name="terminal", args={"command": "true"}, session_id="s1",
+                              tool_call_id=f"c{index}")
+    assert len(size._PENDING) == size._MAX_PENDING
