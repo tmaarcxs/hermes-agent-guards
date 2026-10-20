@@ -566,3 +566,80 @@ def test_config_cwd_honours_terminal_cwd_env(monkeypatch, tmp_path):
     result = guard._pre_tool_call(
         tool_name="terminal", args={"command": "mkdir scratch"}, session_id="s-hlg-config-cwd-env")
     assert result is None, result
+
+
+"""Round-6 regression tests: create heads are recognised only in command position.
+
+R4786-1: `_creation_targets` treated *any* token equal to a create head as the
+command word, so a read-only or non-creating command that merely *mentions*
+`mkdir`/`cp`/`install`/`sqlite3`/`tee` was blocked with a factually wrong
+message ("would create ~/src"). At the cwd state this guard exists for (worker
+process cwd = `~`) that turned `grep -rn mkdir src`, `pip install requests` and
+`echo sqlite3 kanban.db` into hard failures. The head is now the first token in
+command position (skipping leading wrappers and `VAR=value` words); everything
+after it is an operand, never a head.
+"""
+
+_HEAD_POSITION_ALLOWED = (
+    "grep -rn mkdir src",
+    "grep -rn install src",
+    "rg mkdir docs",
+    "echo mkdir foo",
+    "echo cp foo",
+    "pip install requests",
+    "pip3 install -q -r req.txt",
+    "npm install",
+    "make install",
+    "brew install jq",
+    "gem install bundler",
+    "man install",
+    "which install",
+    "echo sqlite3 kanban.db",
+    "grep -rn tee src",
+    "git log --oneline -- install",
+    "cat install",
+    "awk '{print} ' install",
+)
+"""Read-only / non-creating commands that merely name a create head as an
+argument. None of them creates anything under ``~``, so all must be allowed
+with the cwd at the real home."""
+
+
+@pytest.mark.parametrize("command", _HEAD_POSITION_ALLOWED, ids=lambda value: str(value))
+def test_mentioning_a_create_head_is_not_a_creation(monkeypatch, command):
+    home = home_of(monkeypatch)
+    assert worker_terminal(command, workdir=home) is None, command
+
+
+_HEAD_POSITION_BLOCKED = (
+    ("mkdir brandnew", "brandnew"),
+    ("touch brandnew.md", "brandnew.md"),
+    ("echo x > brandnewfile", "brandnewfile"),
+    ("sqlite3 kanban.db 'select 1'", "kanban.db"),
+    ("tee brandnew.log", "brandnew.log"),
+    ("cp a.md brandnewdir", "brandnewdir"),
+)
+"""True positives that must keep blocking at cwd ``~`` after the head fix."""
+
+
+@pytest.mark.parametrize("command,entry", _HEAD_POSITION_BLOCKED, ids=lambda value: str(value))
+def test_create_head_in_command_position_still_blocks(monkeypatch, command, entry):
+    home = home_of(monkeypatch)
+    message = worker_terminal(command, workdir=home)
+    assert message and "home_litter_gate" in message, command
+    assert "~/" + entry in message, (command, message)
+
+
+def test_create_head_behind_a_wrapper_still_blocks(monkeypatch):
+    """`sudo mkdir x` / `env FOO=1 mkdir x` create `~/x`; the wrapper is skipped
+    when locating the command word."""
+    home = home_of(monkeypatch)
+    for command in ("sudo mkdir brandnew", "env FOO=1 mkdir brandnew"):
+        message = worker_terminal(command, workdir=home)
+        assert message and "home_litter_gate" in message, command
+        assert "~/brandnew" in message, (command, message)
+
+
+def test_wrapper_alone_does_not_fire(monkeypatch):
+    home = home_of(monkeypatch)
+    assert worker_terminal("sudo grep -rn mkdir src", workdir=home) is None

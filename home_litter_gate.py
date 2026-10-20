@@ -24,7 +24,8 @@ itself — ``cp a.md ~/`` lands ``~/a.md``. It is deliberately narrow:
   so they are out of scope by construction.
 
 The lead is never affected; only worker processes (``HERMES_KANBAN_TASK`` set)
-are checked. Unknown command shapes fail open.
+are checked. A creating head counts only in command position — ``grep -rn
+mkdir src`` reads, it does not create. Unknown command shapes fail open.
 """
 
 import os
@@ -50,15 +51,13 @@ _MESSAGE = (
     "DB lives at ~/.hermes/kanban.db (never a bare relative 'kanban.db')."
 )
 
-_SQLITE3 = re.compile(r"\bsqlite3\s+(?:-\S+\s+)*(?P<path>\S+)")
-"""``sqlite3 <db>`` creates the file when missing; the shared target extractor
-does not treat it as a write head."""
-
-_CREATE_HEADS = ("cp", "mv", "rsync", "install", "touch", "mkdir", "tee")
+_CREATE_HEADS = ("cp", "mv", "rsync", "install", "touch", "mkdir")
 """Creation-capable shell heads only.
 
 ``rm``/``rmdir`` are excluded on purpose: deleting an entry that does not exist
-is a no-op, not litter, and the lead's own cleanup uses ``rm -rf``.
+is a no-op, not litter, and the lead's own cleanup uses ``rm -rf``. ``tee`` and
+``sqlite3`` create files too but need their own operand parsing, so they are
+handled separately below.
 """
 
 _COPY_HEADS = ("cp", "mv", "rsync", "install")
@@ -66,6 +65,13 @@ _COPY_HEADS = ("cp", "mv", "rsync", "install")
 top-level entry — while the destination resolves to the home itself, so the
 per-target check sees no child to name. The sources are re-expressed as home
 children so the same create/allow decision applies.
+"""
+
+_WRAPPERS = frozenset({"sudo", "command", "nohup", "time", "exec", "env", "nice", "ionice", "stdbuf"})
+"""Words that may precede the real command word without being it.
+
+``sudo mkdir x`` still creates ``~/x``; a create head is only recognised in
+command position, so these wrappers are skipped when locating it.
 """
 _REDIRECT = re.compile(r"(?:>>|>)\s*(\S+)")
 _FD_REDIRECT = re.compile(r"^\d?&[\d()]*$|^\d?&|^[&]|\)$")
@@ -144,6 +150,25 @@ def _copy_into_home_children(cwd: str, sources: list[str], dest: str) -> list[st
     return children
 
 
+def _head_index(tokens: list[str]) -> int:
+    """Index of the command word: skip leading wrappers and ``VAR=value`` words.
+
+    ``sudo mkdir x`` and ``env FOO=1 mkdir x`` both create ``~/x``; the create
+    head must be recognised in command position, not at whatever index the word
+    happens to appear (``grep -rn mkdir src`` is a read, not a create).
+    """
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token in _WRAPPERS or (
+            "=" in token and not token.startswith("-") and not token.startswith("/")
+        ):
+            index += 1
+            continue
+        break
+    return index
+
+
 def _creation_targets(cwd: str, segment: str) -> list[str]:
     """Shell write targets that CREATE a path (never ``rm``/``rmdir``)."""
     unquoted = re.sub(r"'[^']*'|\"(?:[^\"\\]|\\.)*\"", "''", segment)
@@ -151,31 +176,31 @@ def _creation_targets(cwd: str, segment: str) -> list[str]:
     for match in _REDIRECT.finditer(unquoted):
         if not _FD_REDIRECT.match(match.group(1)):
             targets.append(_wwg._join(cwd, match.group(1)))
-    for match in re.finditer(r"\btee\b(?:\s+-\S+)*\s+(\S+)", unquoted):
-        targets.append(_wwg._join(cwd, match.group(1)))
     tokens = _wwg._tokens(segment)
-    for index, head in enumerate(tokens):
-        if head.lower() in _CREATE_HEADS:
-            operands = [dest for dest in tokens[index + 1:] if not dest.startswith("-")]
-            if not operands:
-                break
-            if head.lower() in ("mkdir", "touch"):
+    head_index = _head_index(tokens)
+    head = tokens[head_index].lower() if head_index < len(tokens) else ""
+    if head in _CREATE_HEADS:
+        operands = [dest for dest in tokens[head_index + 1:] if not dest.startswith("-")]
+        if operands:
+            if head in ("mkdir", "touch"):
                 for dest in operands:
                     targets.append(_wwg._join(cwd, dest))
             else:
                 dest = operands[-1]
                 targets.append(_wwg._join(cwd, dest))
-                if head.lower() in _COPY_HEADS:
+                if head in _COPY_HEADS:
                     targets.extend(_copy_into_home_children(cwd, operands[:-1], dest))
-            break
-        if head == "sed":
-            for dest in _sed_destinations(tokens, index):
-                targets.append(_wwg._join(cwd, dest))
-            break
-    for match in _SQLITE3.finditer(unquoted):
-        dest = match.group("path")
-        if not dest.startswith("-"):
+    elif head == "tee":
+        operands = [dest for dest in tokens[head_index + 1:] if not dest.startswith("-")]
+        if operands:
+            targets.append(_wwg._join(cwd, operands[0]))
+    elif head == "sed":
+        for dest in _sed_destinations(tokens, head_index):
             targets.append(_wwg._join(cwd, dest))
+    elif head == "sqlite3":
+        operands = [dest for dest in tokens[head_index + 1:] if not dest.startswith("-")]
+        if operands:
+            targets.append(_wwg._join(cwd, operands[0]))
     for match in _DOWNLOAD.finditer(unquoted):
         dest = match.group("path")
         if not dest.startswith("-"):
