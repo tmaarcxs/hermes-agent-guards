@@ -7,18 +7,45 @@ call and blocks when that size is over the limit and larger than the current fil
 inside a skill at most ``REFERENCE_LIMIT``. Shrinking an over-limit file is always
 allowed, so an oversized skill can be split step by step.
 
+Writes that ``check`` cannot see coming are caught after the fact: ``record`` runs
+on ``pre_tool_call`` for ``terminal``, ``execute_code`` and ``patch`` and takes a
+snapshot of every markdown file under the skill roots — its byte size by ``stat``,
+and its character count only for a file already over its limit in bytes, since a
+file under the limit in bytes cannot be over it in characters. ``transform`` runs
+on ``transform_tool_result`` and re-snapshots, then appends the tree-split
+instruction once per skill markdown file that call left over its limit in
+characters and larger than (or new since) the snapshot. Unified-diff ``patch``
+calls and writes through ``terminal``/``execute_code`` (shell redirects, python
+scripts, ``sed -i``, ``cp``/``mv``) are therefore measured too. Nothing is
+reverted, deleted or backed up: the write stands and the model is told to fix it in
+the same turn.
+
 Only markdown inside the skill roots is measured; scripts and data files are not.
-Unified-diff ``patch`` calls and writes through ``terminal``/``execute_code`` are not
-measured (ponytail: catches slips, not deliberate evasion; ``skill_tree_check.py`` in
-skill-library-audit audits the whole library).
+Both surfaces catch slips, not deliberate evasion; ``skill_tree_check.py`` in
+skill-library-audit audits the whole library.
 """
 
 import os
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Optional
 
 SKILL_LIMIT = 6000
 REFERENCE_LIMIT = 12000
+
+_WATCHED_TOOLS = frozenset({"terminal", "execute_code", "patch"})
+_MAX_PENDING = 8
+_MAX_TREE = 4096
+_PENDING: "OrderedDict[str, dict[str, tuple[int, Optional[int], float]]]" = OrderedDict()
+_TREE: "dict[str, tuple[float, list[str], list[str]]]" = {}
+
+_TREE_SPLIT = (
+    "Distribute the content as a tree instead: keep SKILL.md as the index (frontmatter, when to use, "
+    "the few rules needed on every load, and one line per reference saying when to read it); put each "
+    "topic in references/<topic>.md; when a reference outgrows its limit, keep that file as a short "
+    "index pointing to references/<topic>-<subtopic>.md files. Move text verbatim, keep existing file "
+    "paths, then retry."
+)
 
 
 def _hermes_home() -> Path:
@@ -46,6 +73,17 @@ def _limit(path: Path) -> Optional[int]:
     if not any(real.is_relative_to(root) for root in _roots()):
         return None
     return SKILL_LIMIT if path.name == "SKILL.md" else REFERENCE_LIMIT
+
+
+def _snapshot_limit(path: str) -> Optional[int]:
+    """``_limit`` for a path ``_snapshot`` produced: it walked the resolved roots already, so
+    the per-file ``realpath`` syscall (the bulk of the post-call cost) is skipped."""
+    name = path.rsplit("/", 1)[-1]
+    if not name.endswith(".md"):
+        return None
+    if _SKIPPED_PARTS & set(path.split("/")):
+        return None
+    return SKILL_LIMIT if name == "SKILL.md" else REFERENCE_LIMIT
 
 
 def _size(path: Path) -> int:
@@ -119,6 +157,148 @@ def _file_tool_targets(tool_name: str, args: dict) -> list[tuple[Path, int, int]
                                        bool(args.get("replace_all")), text))]
 
 
+def _scan(directory: str) -> tuple[list[str], list[str]]:
+    """Child markdown paths and child directories of one directory, one ``scandir``.
+
+    A child directory is only descended into when its resolved path stays inside a skill
+    root, so a symlink pointing out of the roots cannot smuggle outside files in.
+    """
+    files: list[str] = []
+    directories: list[str] = []
+    roots = _roots()
+    try:
+        entries = list(os.scandir(directory))
+    except OSError:
+        return files, directories
+    for entry in entries:
+        try:
+            if entry.is_dir(follow_symlinks=True):
+                if entry.name in _SKIPPED_PARTS:
+                    continue
+                if any(Path(os.path.realpath(entry.path)).is_relative_to(root) for root in roots):
+                    directories.append(entry.path)
+            elif entry.name.endswith(".md"):
+                if entry.is_symlink() and not any(
+                    Path(os.path.realpath(entry.path)).is_relative_to(root) for root in roots
+                ):
+                    continue
+                files.append(entry.path)
+        except OSError:
+            continue
+    return files, directories
+
+
+def _children(directory: str, mtime: float) -> tuple[list[str], list[str]]:
+    """``_scan`` memoized on the directory's own mtime: a cached directory whose mtime still
+    matches is reused without a ``scandir``, since any added or removed entry bumps it. An
+    in-place rewrite keeps the directory mtime and is caught by the per-file ``stat`` below.
+    """
+    hit = _TREE.get(directory)
+    if hit is not None and hit[0] == mtime:
+        return hit[1], hit[2]
+    files, directories = _scan(directory)
+    if len(_TREE) >= _MAX_TREE:
+        _TREE.clear()
+    _TREE[directory] = (mtime, files, directories)
+    return files, directories
+
+
+def _chars(path: str, byte_size: int, limit: Optional[int]) -> Optional[int]:
+    """Character count of ``path``, read only when its byte size exceeds ``limit``.
+
+    UTF-8 never uses fewer bytes than characters, so a file under the limit in bytes is
+    under it in characters too; only the handful of byte-over-limit files pay a read.
+    """
+    if limit is None or byte_size <= limit:
+        return None
+    try:
+        return len(Path(path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def _snapshot() -> dict[str, tuple[int, Optional[int], float]]:
+    """Byte size, over-limit character count and mtime of every skill markdown file.
+
+    The size is ``stat``-only; the character count is read only for a file already over
+    its limit in bytes, so a snapshot stays cheap on a large tree.
+    """
+    found: dict[str, tuple[int, Optional[int], float]] = {}
+    stack = [str(root) for root in _roots()]
+    while stack:
+        directory = stack.pop()
+        try:
+            mtime = os.stat(directory).st_mtime
+        except OSError:
+            continue
+        files, directories = _children(directory, mtime)
+        stack.extend(directories)
+        for path in files:
+            try:
+                info = os.stat(path)
+            except OSError:
+                continue
+            found[path] = (info.st_size, _chars(path, info.st_size, _snapshot_limit(path)), info.st_mtime)
+    return found
+
+
+def record(tool_name: str = "", args: Any = None, **kwargs) -> None:
+    """``pre_tool_call``: remember the skill-markdown sizes before a call that can write them.
+
+    Keyed by ``tool_call_id`` so concurrent tool calls in one turn cannot shadow each
+    other; the oldest entries are dropped once ``_MAX_PENDING`` is exceeded.
+    """
+    try:
+        if tool_name not in _WATCHED_TOOLS:
+            return
+        key = str(kwargs.get("tool_call_id") or "")
+        _PENDING[key] = _snapshot()
+        _PENDING.move_to_end(key)
+        while len(_PENDING) > _MAX_PENDING:
+            _PENDING.popitem(last=False)
+    except Exception:
+        return
+
+
+def _post_message(tool_name: str, target: Path, chars: int, limit: int) -> str:
+    kind = "SKILL.md" if limit == SKILL_LIMIT else "a skill reference file"
+    return (
+        f"agent-guards: {tool_name} left {target} at {chars:,} characters, over the limit for {kind} "
+        f"({limit:,}; SKILL.md {SKILL_LIMIT:,}, other skill .md files {REFERENCE_LIMIT:,}). "
+        "Fix it now, in this turn. " + _TREE_SPLIT
+    )
+
+
+def transform(tool_name: str = "", args: Any = None, result: Any = None, **kwargs) -> Optional[str]:
+    """``transform_tool_result``: flag every skill markdown this call pushed over its limit.
+
+    Returns the tool result with one tree-split instruction appended per offending file,
+    or ``None`` to leave it untouched. Fails open: an internal error never changes the
+    result.
+    """
+    try:
+        if tool_name not in _WATCHED_TOOLS or not isinstance(result, str):
+            return None
+        key = str(kwargs.get("tool_call_id") or "")
+        before = _PENDING.pop(key, None)
+        if before is None:
+            return None
+        messages = []
+        for path, (_size, chars, _mtime) in _snapshot().items():
+            limit = _snapshot_limit(path)
+            if limit is None or chars is None or chars <= limit:
+                continue
+            previous = before.get(path)
+            if previous is not None and previous[1] is not None and chars <= previous[1]:
+                continue
+            messages.append(_post_message(tool_name, Path(path), chars, limit))
+        if not messages:
+            return None
+        return result + "\n\n" + "\n\n".join(messages)
+    except Exception:
+        return None
+
+
 def check(tool_name: str, args: Any = None, **_kwargs) -> Optional[str]:
     if not isinstance(args, dict):
         return None
@@ -135,10 +315,6 @@ def check(tool_name: str, args: Any = None, **_kwargs) -> Optional[str]:
         kind = "SKILL.md" if limit == SKILL_LIMIT else "a skill reference file"
         return (
             f"agent-guards blocked {tool_name}: {target.name} would be {after:,} characters; the limit for {kind} "
-            f"is {limit:,} (SKILL.md {SKILL_LIMIT:,}, other skill .md files {REFERENCE_LIMIT:,}). Distribute the "
-            "content as a tree instead: keep SKILL.md as the index (frontmatter, when to use, the few rules needed on "
-            "every load, and one line per reference saying when to read it); put each topic in "
-            "references/<topic>.md; when a reference outgrows its limit, keep that file as a short index pointing to "
-            "references/<topic>-<subtopic>.md files. Move text verbatim, keep existing file paths, then retry."
+            f"is {limit:,} (SKILL.md {SKILL_LIMIT:,}, other skill .md files {REFERENCE_LIMIT:,}). " + _TREE_SPLIT
         )
     return None
