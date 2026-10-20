@@ -717,3 +717,132 @@ def test_download_flags_per_tool(monkeypatch, command, expected_block, entry):
         assert "~/" + entry in message, (command, message)
     else:
         assert message is None, (command, message)
+
+
+"""Round-7 regression tests: wrapper options, and python targets vs sources.
+
+R4818-1: `_head_index` skipped a wrapper *word* but not the wrapper's own
+options, so every form where the wrapper carries an option — `sudo -u root
+mkdir x`, `nice -n 5 mkdir x`, `env -i mkdir x`, `timeout 5 mkdir x` — was
+allowed while `sudo mkdir x` blocked. The option (and any argument it consumes)
+is now skipped, and `timeout` also skips its positional duration.
+
+R4818-2: the python branch read *every* literal in a creating call as a created
+path, so a copy SOURCE was reported as litter; it also resolved relative
+literals against the guard process's cwd instead of the command's resolved cwd,
+so `python3 -c "os.makedirs('brandnew')"` with `workdir=~` slipped through.
+Only the call's write target is read now, resolved against the command cwd.
+"""
+
+_WRAPPER_OPTION_CREATES = (
+    ("sudo -u root mkdir brandnew", "brandnew"),
+    ("sudo -n mkdir brandnew", "brandnew"),
+    ("sudo -E mkdir brandnew", "brandnew"),
+    ("sudo --user=root mkdir brandnew", "brandnew"),
+    ("sudo -u root touch brandnew.md", "brandnew.md"),
+    ("env -i mkdir brandnew", "brandnew"),
+    ("env -u FOO mkdir brandnew", "brandnew"),
+    ("env -C /tmp mkdir brandnew", "brandnew"),
+    ("nice -n 5 mkdir brandnew", "brandnew"),
+    ("ionice -c2 mkdir brandnew", "brandnew"),
+    ("stdbuf -o0 mkdir brandnew", "brandnew"),
+    ("time -p mkdir brandnew", "brandnew"),
+    ("command -p mkdir brandnew", "brandnew"),
+    ("timeout 5 mkdir brandnew", "brandnew"),
+    ("sudo -u root tee brandnew.log", "brandnew.log"),
+    ("sudo -u root sqlite3 kanban.db 'select 1'", "kanban.db"),
+    ("sudo -u root curl -o brandnew http://x", "brandnew"),
+    ("nice -n 5 tee brandnew.log", "brandnew.log"),
+    ("timeout 5 sqlite3 kanban.db 'select 1'", "kanban.db"),
+    ("echo hi | sudo -u root tee brandnew.log", "brandnew.log"),
+    ("cat f | timeout 5 sqlite3 kanban.db", "kanban.db"),
+    ("cd ~ && sudo -u root mkdir brandnew", "brandnew"),
+    ("cd ~ && timeout 5 mkdir brandnew", "brandnew"),
+)
+"""Creating commands whose wrapper carries its own option(s); all must block."""
+
+
+@pytest.mark.parametrize("command,entry", _WRAPPER_OPTION_CREATES, ids=lambda value: str(value))
+def test_create_head_behind_wrapper_options_still_blocks(monkeypatch, command, entry):
+    home = home_of(monkeypatch)
+    message = worker_terminal(command, workdir=home)
+    assert message and "home_litter_gate" in message, command
+    assert "~/" + entry in message, (command, message)
+
+
+_WRAPPER_OPTION_READS = (
+    "sudo -u root grep -rn mkdir nosuchdir",
+    "nice -n 5 grep -rn mkdir nosuchdir",
+    "env -i grep -rn mkdir nosuchdir",
+    "timeout 5 grep -rn mkdir nosuchdir",
+    "sudo -u root cat install",
+)
+"""The same wrappers around a read-only command: nothing is created."""
+
+
+@pytest.mark.parametrize("command", _WRAPPER_OPTION_READS, ids=lambda value: str(value))
+def test_wrapper_options_on_a_read_do_not_fire(monkeypatch, command):
+    home = home_of(monkeypatch)
+    assert worker_terminal(command, workdir=home) is None, command
+
+
+_PY_TARGET_CASES = (
+    ("import os; os.makedirs('brandnew')", True, "brandnew"),
+    ("import os; os.mkdir('brandnew')", True, "brandnew"),
+    ("import pathlib; pathlib.Path('brandnew').write_text('x')", True, "brandnew"),
+    ("import shutil; shutil.copy('a', 'brandnew')", True, "brandnew"),
+    ("import shutil; shutil.copyfile('a', 'brandnew')", True, "brandnew"),
+    ("import shutil; shutil.copy('a', 'existing.txt')", False, None),
+    ("import os; os.makedirs('existing.txt')", False, None),
+    ("import shutil; shutil.copy('existing.txt', 'existing.txt')", False, None),
+)
+"""Python creating calls: the *target* literal decides, never the source. A
+relative target resolves against the command's cwd (``workdir=~`` here)."""
+
+
+@pytest.mark.parametrize(
+    "body,expected_block,entry", _PY_TARGET_CASES, ids=lambda value: str(value)
+)
+def test_python_target_resolves_against_the_command_cwd(monkeypatch, body, expected_block, entry):
+    home = home_of(monkeypatch)
+    command = 'python3 -c "%s"' % body
+    message = worker_terminal(command, workdir=home)
+    if expected_block:
+        assert message and "home_litter_gate" in message, command
+        assert "~/" + entry in message, (command, message)
+    else:
+        assert message is None, (command, message)
+
+
+def test_python_relative_target_with_a_safe_workdir_does_not_fire(monkeypatch, tmp_path):
+    """The same relative literal with the cwd inside the workspace creates
+    nothing under ``~`` and stays allowed."""
+    workspace = tmp_path / "ws"
+    workspace.mkdir(exist_ok=True)
+    for body in ("import os; os.makedirs('brandnew')",
+                 "import shutil; shutil.copy('a', 'brandnew')"):
+        assert worker_terminal('python3 -c "%s"' % body, workdir=str(workspace)) is None, body
+
+
+_SQLITE3_ARG_CASES = (
+    ("sqlite3 -cmd '.timer on' brandnew.db 'select 1'", True, "brandnew.db"),
+    ("sqlite3 -separator , brandnew.db 'select 1'", True, "brandnew.db"),
+    ("sqlite3 -newline '\\n' brandnew.db 'select 1'", True, "brandnew.db"),
+    ("sqlite3 -init init.sql brandnew.db 'select 1'", True, "brandnew.db"),
+    ("sqlite3 -cmd '.timer on' existing.txt 'select 1'", False, None),
+)
+"""sqlite3 options that consume a separate argument: the DB operand is the one
+after them, so the option's value is not mistaken for the path."""
+
+
+@pytest.mark.parametrize(
+    "command,expected_block,entry", _SQLITE3_ARG_CASES, ids=lambda value: str(value)
+)
+def test_sqlite3_option_arguments_are_not_the_database(monkeypatch, command, expected_block, entry):
+    home = home_of(monkeypatch)
+    message = worker_terminal(command, workdir=home)
+    if expected_block:
+        assert message and "home_litter_gate" in message, command
+        assert "~/" + entry in message, (command, message)
+    else:
+        assert message is None, (command, message)

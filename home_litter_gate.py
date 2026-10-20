@@ -25,7 +25,14 @@ itself — ``cp a.md ~/`` lands ``~/a.md``. It is deliberately narrow:
 
 The lead is never affected; only worker processes (``HERMES_KANBAN_TASK`` set)
 are checked. A creating head counts only in command position — ``grep -rn
-mkdir src`` reads, it does not create. Unknown command shapes fail open.
+mkdir src`` reads, it does not create. The command word is the first token that
+is not a leading wrapper, a ``VAR=value`` word, or a wrapper's own option (and
+that option's argument, where it takes one), so ``sudo -u root mkdir x``,
+``nice -n 5 mkdir x``, ``env -i mkdir x`` and ``timeout 5 mkdir x`` are all
+recognised. A python ``-c``/heredoc creating call contributes only its write
+target — never a copy source — resolved against the command's own cwd, so
+``python3 -c "os.makedirs('brandnew')"`` with the cwd at ``~`` is caught.
+Unknown command shapes fail open.
 """
 
 import os
@@ -67,27 +74,72 @@ per-target check sees no child to name. The sources are re-expressed as home
 children so the same create/allow decision applies.
 """
 
-_WRAPPERS = frozenset({"sudo", "command", "nohup", "time", "exec", "env", "nice", "ionice", "stdbuf"})
+_WRAPPERS = frozenset({"sudo", "command", "nohup", "time", "exec", "env", "nice", "ionice", "stdbuf", "timeout"})
 """Words that may precede the real command word without being it.
 
 ``sudo mkdir x`` still creates ``~/x``; a create head is only recognised in
-command position, so these wrappers are skipped when locating it.
+command position, so these wrappers — and the options each may carry — are
+skipped when locating it.
+"""
+
+_ARG_OPTIONS = {
+    "sudo": frozenset({
+        "-u", "--user", "-g", "--group", "-p", "--prompt", "-C", "--close-from",
+        "-h", "--host", "-r", "--role", "-t", "--type", "-U", "--other-user",
+        "-D", "--chdir", "-R", "--chroot", "-T", "--command-timeout",
+    }),
+    "env": frozenset({"-u", "--unset", "-C", "--chdir", "-S", "--split-string"}),
+    "nice": frozenset({"-n", "--adjustment"}),
+    "ionice": frozenset({
+        "-c", "--class", "-n", "--classdata", "-p", "--pid", "-P", "--pgid", "-u", "--uid",
+    }),
+    "stdbuf": frozenset({"-i", "--input", "-o", "--output", "-e", "--error"}),
+    "timeout": frozenset({"-s", "--signal", "-k", "--kill-after"}),
+    "time": frozenset({"-o", "--output", "-f", "--format"}),
+    "exec": frozenset({"-a", "--argv0"}),
+}
+"""Wrapper options that consume the *next* token as their argument, per wrapper.
+
+``sudo -u root mkdir x`` names ``root`` as ``-u``'s argument, so the head is the
+token after it; without this ``-u`` reads as the command word and the create
+head behind it is missed. The sets are per wrapper because the same letter
+differs: ``sudo -n`` takes no argument while ``nice -n 5`` does. An attached
+form (``-c2``, ``--user=root``) consumes nothing extra.
+"""
+
+_WRAPPER_OPERANDS = {"timeout": 1}
+"""Wrappers whose first positional operand is not the command.
+
+``timeout DURATION COMMAND`` puts the duration before the command, so one
+non-option token is skipped after the wrapper's options.
 """
 _REDIRECT = re.compile(r"(?:>>|>)\s*(\S+)")
 _FD_REDIRECT = re.compile(r"^\d?&[\d()]*$|^\d?&|^[&]|\)$")
 _PY_CREATE = re.compile(
-    r"\b(?:makedirs|mkdir|copytree|copyfile|copy|move|rename|replace)\s*\(|"
+    r"\b(?P<name>makedirs|mkdir|copytree|copyfile|copy|move|rename|replace)\s*\(|"
     r"\bopen\s*\([^()]*,\s*['\"][waxu+]|"
-    r"\b(?:write_text|write_bytes)\s*\(|\brates?_file\(|\bto_csv\s*\(|\bto_json\s*\(|\bsavefig\s*\(|\bdump\s*\("
+    r"\b(?:write_text|write_bytes)\s*\(|"
+    r"\brates?_file\(|\bto_csv\s*\(|\bto_json\s*\(|\bsavefig\s*\(|\bdump\s*\("
 )
 _PY_STRINGS = re.compile(r"(['\"])(.*?)\1")
+_COPY_LITERAL_CALLS = frozenset({"copytree", "copyfile", "copy", "move", "rename", "replace"})
+"""Calls whose *last* literal is the write target; the earlier ones are sources.
+
+``shutil.copy('a', 'brandnew')`` writes ``brandnew``; treating ``a`` as a
+created path would report a nonexistent source as litter (and block a copy into
+an existing destination).
+"""
+_MULTI_TARGET_CALLS = frozenset({"makedirs", "mkdir"})
+"""Calls that create every literal operand (a multi-operand ``mkdir a b``)."""
+_SQLITE3_ARG_OPTIONS = frozenset({"-cmd", "-separator", "-nullvalue", "-newline", "-init"})
+"""sqlite3 options that consume a separate argument, so the DB operand is after them."""
 
 
 def _home() -> Path:
     return _wwg._home()
 
 
-def _new_top_level_entry(path: str) -> Optional[str]:
+def _new_top_level_entry(path: str, cwd: Optional[str] = None) -> Optional[str]:
     """Return the offending entry name when *path* would create a not-yet-existing
     top-level entry under the real home (and it is not allowlisted), else ``None``.
 
@@ -95,10 +147,18 @@ def _new_top_level_entry(path: str) -> Optional[str]:
     ``mkdir -p scratch/f3`` from cwd ``~`` creates ``~/scratch`` as well, so the
     absent first component is the litter. A path whose first component already
     exists (``~/git_repos/newrepo``, ``~/.cache/x``) stays allowed.
+
+    A relative *path* (a python ``-c``/heredoc literal, say) resolves against
+    *cwd* — the command's own cwd — rather than the guard process's cwd, so
+    ``python3 -c "os.makedirs('brandnew')"`` with ``workdir=~`` is caught even
+    though the process cwd is elsewhere. ``None`` keeps the process-cwd
+    resolution for callers that already carry an absolute path.
     """
     candidate = _wwg._normalize(path)
     if not candidate:
         return None
+    if cwd and not candidate.startswith(("/", "~", "$")):
+        candidate = _wwg._join(cwd, candidate) or candidate
     try:
         resolved = Path(candidate).expanduser().resolve(strict=False)
     except (OSError, ValueError):
@@ -148,18 +208,36 @@ def _copy_into_home_children(cwd: str, sources: list[str], dest: str) -> list[st
 
 
 def _head_index(tokens: list[str]) -> int:
-    """Index of the command word: skip leading wrappers and ``VAR=value`` words.
+    """Index of the command word: skip leading wrappers, their options and
+    ``VAR=value`` words.
 
-    ``sudo mkdir x`` and ``env FOO=1 mkdir x`` both create ``~/x``; the create
-    head must be recognised in command position, not at whatever index the word
-    happens to appear (``grep -rn mkdir src`` is a read, not a create).
+    ``sudo -u root mkdir x``, ``nice -n 5 mkdir x`` and ``env -i mkdir x`` all
+    create ``~/x``; the create head must be recognised in command position, not
+    at whatever index the word happens to appear (``grep -rn mkdir src`` is a
+    read, not a create). A wrapper may carry its own options — some consuming
+    the next token as an argument (``sudo -u root``), some attached
+    (``nice -n5``, ``--user=root``) — and ``timeout`` also takes a positional
+    duration before the command; all of those are skipped so the head is the
+    real command word. Unknown tokens before a known head stop the scan: the
+    shape is then unanalyzable and fails open downstream.
     """
     index = 0
     while index < len(tokens):
         token = tokens[index]
-        if token in _WRAPPERS or (
-            "=" in token and not token.startswith("-") and not token.startswith("/")
-        ):
+        if token in _WRAPPERS:
+            index += 1
+            options = _ARG_OPTIONS.get(token, frozenset())
+            while index < len(tokens):
+                current = tokens[index]
+                if not current.startswith("-"):
+                    break
+                consumes_next = current in options
+                index += 1
+                if consumes_next and index < len(tokens):
+                    index += 1
+            index += _WRAPPER_OPERANDS.get(token, 0)
+            continue
+        if "=" in token and not token.startswith("-") and not token.startswith("/"):
             index += 1
             continue
         break
@@ -195,13 +273,35 @@ def _creation_targets(cwd: str, segment: str) -> list[str]:
         for dest in _sed_destinations(tokens, head_index):
             targets.append(_wwg._join(cwd, dest))
     elif head == "sqlite3":
-        operands = [dest for dest in tokens[head_index + 1:] if not dest.startswith("-")]
+        operands = _operands_after(tokens, head_index, _SQLITE3_ARG_OPTIONS)
         if operands:
             targets.append(_wwg._join(cwd, operands[0]))
     elif head in ("curl", "wget"):
         for dest in _download_destinations(head, tokens, head_index):
             targets.append(_wwg._join(cwd, dest))
     return targets
+
+
+def _operands_after(tokens: list[str], index: int, arg_options: frozenset) -> list[str]:
+    """Non-option operands after *index*, skipping options that consume a value.
+
+    ``sqlite3 -cmd '.timer on' kanban.db`` names ``kanban.db`` as the database;
+    the option and its separate argument must not be read as the path. An
+    attached form (``--separator=,``) consumes nothing extra.
+    """
+    operands: list[str] = []
+    position = index + 1
+    while position < len(tokens):
+        token = tokens[position]
+        if token in arg_options:
+            position += 2
+            continue
+        if token.startswith("-") and token != "-":
+            position += 1
+            continue
+        operands.append(token)
+        position += 1
+    return operands
 
 
 def _download_destinations(head: str, tokens: list[str], index: int) -> list[str]:
@@ -306,31 +406,57 @@ def _py_receiver(code: str, start: int) -> str:
     return tail
 
 
+def _py_call_body(code: str, start: int) -> str:
+    """The matched call's argument text, parens balanced up to 200 chars."""
+    depth = 1
+    body: list[str] = []
+    for char in code[start:start + 200]:
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                break
+        body.append(char)
+    text = "".join(body)
+    if "expanduser(" in text:
+        text = text[text.index("expanduser(") + len("expanduser("):]
+    return text
+
+
 def _py_creation_literals(code: str) -> list[str]:
+    """Path literals that a matched creating call would actually write.
+
+    Only the *target* of each call is returned, so a copy source is not
+    mistaken for litter: ``shutil.copy('a', 'brandnew')`` writes ``brandnew``,
+    and ``pathlib.Path('brandnew').write_text('x')`` puts its path in the
+    receiver, not the payload. An unrecognised shape contributes all its
+    literals (fail-open on precision, never silently dropping a candidate).
+    """
     literals: list[str] = []
     for match in _PY_CREATE.finditer(code):
-        depth = 1
-        body: list[str] = []
-        for char in code[match.start():match.start() + 200]:
-            if char == "(":
-                depth += 1
-            elif char == ")":
-                depth -= 1
-                if depth == 0:
-                    break
-            body.append(char)
-        text = _py_receiver(code, match.start()) + "".join(body)
-        if "expanduser(" in text:
-            text = text[text.index("expanduser(") + len("expanduser("):]
-        literals.extend(literal for _, literal in _PY_STRINGS.findall(text))
+        name = match.group("name") or ""
+        receiver = _py_receiver(code, match.start())
+        receiver_literals = [literal for _, literal in _PY_STRINGS.findall(receiver)]
+        body_literals = [literal for _, literal in _PY_STRINGS.findall(_py_call_body(code, match.start()))]
+        if receiver_literals:
+            literals.extend(receiver_literals)
+        elif name in _COPY_LITERAL_CALLS:
+            literals.extend(body_literals[-1:])
+        elif name in _MULTI_TARGET_CALLS:
+            literals.extend(body_literals)
+        elif name == "open":
+            literals.extend(body_literals[:1])
+        else:
+            literals.extend(body_literals)
     return literals
 
 
-def _offending(targets: list[str]) -> Optional[str]:
+def _offending(targets: list[str], cwd: Optional[str] = None) -> Optional[str]:
     for target in targets:
         if not target:
             continue
-        entry = _new_top_level_entry(target)
+        entry = _new_top_level_entry(target, cwd)
         if entry:
             return entry
     return None
@@ -394,11 +520,11 @@ def _config_cwd() -> Optional[str]:
 def terminal_violations(command: str, base_cwd: Optional[str] = None) -> list[str]:
     blanked = _wwg._strip_heredoc_bodies(command)
     for cwd, segment in _wwg._segments(blanked, base_cwd):
-        entry = _offending(_creation_targets(cwd, segment))
+        entry = _offending(_creation_targets(cwd, segment), cwd)
         if entry:
             return [_MESSAGE.format(tool="terminal", entry="~/" + entry)]
     for body in _wwg._script_bodies(command):
-        entry = _offending(_py_creation_literals(body))
+        entry = _offending(_py_creation_literals(body), base_cwd)
         if entry:
             return [_MESSAGE.format(tool="terminal", entry="~/" + entry)]
     return []
