@@ -54,6 +54,10 @@ def unchanged(out):
     return out is None
 
 
+def out_has_char_count(out, count):
+    return bool(out) and f"at {count:,} characters" in out
+
+
 def blocked(result):
     return bool(result) and result.get("action") == "block" and result.get("message", "").startswith("agent-guards blocked")
 
@@ -242,6 +246,43 @@ def test_repeated_transform_for_one_call_flags_once(root):
     second = guards._transform_tool_result(tool_name="terminal", args=args, result="ok", session_id="s1",
                                            tool_call_id="c8")
     assert flagged(first) and second is None
+
+
+def test_multibyte_over_byte_limit_but_under_char_limit_is_not_flagged(root):
+    skill = root / "cat" / "demo" / "SKILL.md"
+    guards._pre_tool_call(tool_name="terminal", args={"command": "cat > x"}, session_id="s1", tool_call_id="c11")
+    skill.write_text("\u00e9" * 5000)
+    assert size.SKILL_LIMIT < len(skill.read_bytes()) and len(skill.read_text(encoding="utf-8")) < size.SKILL_LIMIT
+    out = guards._transform_tool_result(tool_name="terminal", args={"command": "cat > x"}, result="ok",
+                                        session_id="s1", tool_call_id="c11")
+    assert out is None
+
+
+def test_multibyte_file_over_char_and_byte_limit_is_flagged_with_char_count(root):
+    skill = root / "cat" / "demo" / "SKILL.md"
+    guards._pre_tool_call(tool_name="terminal", args={"command": "cat > x"}, session_id="s1", tool_call_id="c12")
+    skill.write_text("\u00e9" * 7000)
+    assert out_has_char_count(guards._transform_tool_result(
+        tool_name="terminal", args={"command": "cat > x"}, result="ok", session_id="s1", tool_call_id="c12"), 7000)
+
+
+def test_untouched_multibyte_over_limit_file_is_not_flagged(root):
+    (root / "cat" / "demo" / "references" / "big.md").write_text("\u00e9" * 13000)
+    assert unchanged(write("terminal", command="echo hi"))
+
+
+def test_every_file_left_over_its_limit_is_flagged(root):
+    skill = root / "cat" / "demo" / "SKILL.md"
+    reference = root / "cat" / "demo" / "references" / "fresh.md"
+    guards._pre_tool_call(tool_name="terminal", args={"command": "python gen.py"}, session_id="s1",
+                          tool_call_id="c13")
+    skill.write_text("x" * 9000)
+    reference.write_text("r" * 13000)
+    out = guards._transform_tool_result(tool_name="terminal", args={"command": "python gen.py"}, result="ok",
+                                        session_id="s1", tool_call_id="c13")
+    assert out.startswith("ok")
+    assert "SKILL.md" in out and "fresh.md" in out
+    assert out.count("agent-guards: terminal left") == 2
 
 
 def test_directory_cache_does_not_hide_a_new_file(root):

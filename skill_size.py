@@ -9,13 +9,16 @@ allowed, so an oversized skill can be split step by step.
 
 Writes that ``check`` cannot see coming are caught after the fact: ``record`` runs
 on ``pre_tool_call`` for ``terminal``, ``execute_code`` and ``patch`` and takes a
-stat-only snapshot of every markdown file under the skill roots; ``transform`` runs
+snapshot of every markdown file under the skill roots — its byte size by ``stat``,
+and its character count only for a file already over its limit in bytes, since a
+file under the limit in bytes cannot be over it in characters. ``transform`` runs
 on ``transform_tool_result`` and re-snapshots, then appends the tree-split
-instruction to the tool result when that call left a skill markdown file over its
-limit and larger than (or new since) the snapshot. Unified-diff ``patch`` calls and
-writes through ``terminal``/``execute_code`` (shell redirects, python scripts,
-``sed -i``, ``cp``/``mv``) are therefore measured too. Nothing is reverted, deleted
-or backed up: the write stands and the model is told to fix it in the same turn.
+instruction once per skill markdown file that call left over its limit in
+characters and larger than (or new since) the snapshot. Unified-diff ``patch``
+calls and writes through ``terminal``/``execute_code`` (shell redirects, python
+scripts, ``sed -i``, ``cp``/``mv``) are therefore measured too. Nothing is
+reverted, deleted or backed up: the write stands and the model is told to fix it in
+the same turn.
 
 Only markdown inside the skill roots is measured; scripts and data files are not.
 Both surfaces catch slips, not deliberate evasion; ``skill_tree_check.py`` in
@@ -33,7 +36,7 @@ REFERENCE_LIMIT = 12000
 _WATCHED_TOOLS = frozenset({"terminal", "execute_code", "patch"})
 _MAX_PENDING = 8
 _MAX_TREE = 4096
-_PENDING: "OrderedDict[str, dict[str, tuple[int, float]]]" = OrderedDict()
+_PENDING: "OrderedDict[str, dict[str, tuple[int, Optional[int], float]]]" = OrderedDict()
 _TREE: "dict[str, tuple[float, list[str], list[str]]]" = {}
 
 _TREE_SPLIT = (
@@ -200,9 +203,27 @@ def _children(directory: str, mtime: float) -> tuple[list[str], list[str]]:
     return files, directories
 
 
-def _snapshot() -> dict[str, tuple[int, float]]:
-    """Size and mtime of every skill markdown file, by ``stat`` only — no file is read."""
-    found: dict[str, tuple[int, float]] = {}
+def _chars(path: str, byte_size: int, limit: Optional[int]) -> Optional[int]:
+    """Character count of ``path``, read only when its byte size exceeds ``limit``.
+
+    UTF-8 never uses fewer bytes than characters, so a file under the limit in bytes is
+    under it in characters too; only the handful of byte-over-limit files pay a read.
+    """
+    if limit is None or byte_size <= limit:
+        return None
+    try:
+        return len(Path(path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def _snapshot() -> dict[str, tuple[int, Optional[int], float]]:
+    """Byte size, over-limit character count and mtime of every skill markdown file.
+
+    The size is ``stat``-only; the character count is read only for a file already over
+    its limit in bytes, so a snapshot stays cheap on a large tree.
+    """
+    found: dict[str, tuple[int, Optional[int], float]] = {}
     stack = [str(root) for root in _roots()]
     while stack:
         directory = stack.pop()
@@ -215,9 +236,9 @@ def _snapshot() -> dict[str, tuple[int, float]]:
         for path in files:
             try:
                 info = os.stat(path)
-                found[path] = (info.st_size, info.st_mtime)
             except OSError:
                 continue
+            found[path] = (info.st_size, _chars(path, info.st_size, _snapshot_limit(path)), info.st_mtime)
     return found
 
 
@@ -239,20 +260,21 @@ def record(tool_name: str = "", args: Any = None, **kwargs) -> None:
         return
 
 
-def _post_message(tool_name: str, target: Path, after: int, limit: int) -> str:
+def _post_message(tool_name: str, target: Path, chars: int, limit: int) -> str:
     kind = "SKILL.md" if limit == SKILL_LIMIT else "a skill reference file"
     return (
-        f"agent-guards: {tool_name} left {target} at {after:,} characters, over the limit for {kind} "
+        f"agent-guards: {tool_name} left {target} at {chars:,} characters, over the limit for {kind} "
         f"({limit:,}; SKILL.md {SKILL_LIMIT:,}, other skill .md files {REFERENCE_LIMIT:,}). "
         "Fix it now, in this turn. " + _TREE_SPLIT
     )
 
 
 def transform(tool_name: str = "", args: Any = None, result: Any = None, **kwargs) -> Optional[str]:
-    """``transform_tool_result``: flag skill markdown this call pushed over its limit.
+    """``transform_tool_result``: flag every skill markdown this call pushed over its limit.
 
-    Returns the tool result with the tree-split instruction appended, or ``None`` to
-    leave it untouched. Fails open: an internal error never changes the result.
+    Returns the tool result with one tree-split instruction appended per offending file,
+    or ``None`` to leave it untouched. Fails open: an internal error never changes the
+    result.
     """
     try:
         if tool_name not in _WATCHED_TOOLS or not isinstance(result, str):
@@ -261,16 +283,18 @@ def transform(tool_name: str = "", args: Any = None, result: Any = None, **kwarg
         before = _PENDING.pop(key, None)
         if before is None:
             return None
-        after = _snapshot()
-        for path, (size, _mtime) in after.items():
+        messages = []
+        for path, (_size, chars, _mtime) in _snapshot().items():
             limit = _snapshot_limit(path)
-            if limit is None or size <= limit:
+            if limit is None or chars is None or chars <= limit:
                 continue
             previous = before.get(path)
-            if previous is not None and size <= previous[0]:
+            if previous is not None and previous[1] is not None and chars <= previous[1]:
                 continue
-            return result + "\n\n" + _post_message(tool_name, Path(path), size, limit)
-        return None
+            messages.append(_post_message(tool_name, Path(path), chars, limit))
+        if not messages:
+            return None
+        return result + "\n\n" + "\n\n".join(messages)
     except Exception:
         return None
 
