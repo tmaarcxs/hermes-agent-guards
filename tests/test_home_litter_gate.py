@@ -685,3 +685,35 @@ def test_download_head_still_blocks(monkeypatch, command, entry):
 def test_download_into_an_existing_target_is_allowed(monkeypatch):
     home = home_of(monkeypatch)
     assert worker_terminal("curl -o existing.txt http://x", workdir=home) is None
+
+
+_DOWNLOAD_FLAG_CASES = (
+    ("curl -o f.tar http://x", True, "f.tar"),
+    ("curl --output f.tar http://x", True, "f.tar"),
+    ("curl --output=f.tar http://x", True, "f.tar"),
+    ("curl -of.tar http://x", True, "f.tar"),
+    ("curl -O http://x/f.tar", True, "f.tar"),
+    ("curl -sL -O http://x/f.tar", True, "f.tar"),
+    ("sudo curl -O http://x/f.tar", True, "f.tar"),
+    ("wget -O f.tar http://x", True, "f.tar"),
+    ("wget --output-document f.tar http://x", True, "f.tar"),
+    ("wget -q -O f.tar http://x", True, "f.tar"),
+    ("curl -o /tmp/f http://x", False, None),
+    ("wget -O /tmp/f http://x", False, None),
+)
+"""The two tools' output flags, which differ: curl's ``-O`` takes the URL
+basename (not ``-o``'s meaning), wget's ``-O`` names the file (wget has no
+``-o``). Reading curl's ``-O`` as a filename reported the bogus ``~/http:``."""
+
+
+@pytest.mark.parametrize(
+    "command,expected_block,entry", _DOWNLOAD_FLAG_CASES, ids=lambda value: str(value)
+)
+def test_download_flags_per_tool(monkeypatch, command, expected_block, entry):
+    home = home_of(monkeypatch)
+    message = worker_terminal(command, workdir=home)
+    if expected_block:
+        assert message and "home_litter_gate" in message, command
+        assert "~/" + entry in message, (command, message)
+    else:
+        assert message is None, (command, message)

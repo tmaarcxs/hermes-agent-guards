@@ -199,34 +199,52 @@ def _creation_targets(cwd: str, segment: str) -> list[str]:
         if operands:
             targets.append(_wwg._join(cwd, operands[0]))
     elif head in ("curl", "wget"):
-        for dest in _download_destinations(tokens, head_index):
+        for dest in _download_destinations(head, tokens, head_index):
             targets.append(_wwg._join(cwd, dest))
     return targets
 
 
-def _download_destinations(tokens: list[str], index: int) -> list[str]:
-    """Output file of a ``curl -o``/``wget -O`` head, taken from its own operands.
+def _download_destinations(head: str, tokens: list[str], index: int) -> list[str]:
+    """Output file of a ``curl``/``wget`` head, taken from its own operands.
 
     The old unanchored ``\\bcurl\\b`` regex matched the word anywhere in the
     segment, so ``echo curl -o foo`` (which writes nothing) was blocked. The
     head is only the command word, as for every other create shape.
+
+    ``curl`` and ``wget`` disagree on the flags, so they are parsed separately:
+    curl's ``-o``/``--output`` and wget's ``-O``/``--output-document`` name the
+    file; curl's ``-O``/``--remote-name`` takes it from the URL basename
+    (``curl -O http://x/f.tar`` writes ``./f.tar``, not ``./http:``). A bare
+    ``wget <url>`` (no output option) also writes the URL basename, but telling
+    that apart from ``wget --help``/``-i <list>`` needs more context than one
+    segment carries, so it stays a documented fail-open.
     """
     rest = tokens[index + 1:]
     outputs: list[str] = []
+    urls: list[str] = []
+    remote_name = False
     position = 0
     while position < len(rest):
         token = rest[position]
-        if token in ("-o", "-O", "--output"):
+        takes_argument = ("-o", "--output") if head == "curl" else ("-O", "--output-document")
+        remote_flag = ("-O", "--remote-name") if head == "curl" else ()
+        if token in takes_argument:
             if position + 1 < len(rest):
                 outputs.append(rest[position + 1])
                 position += 1
-        elif token.startswith("--output="):
+        elif token in remote_flag:
+            remote_name = True
+        elif token.startswith("--output=") or token.startswith("--output-document="):
             outputs.append(token.split("=", 1)[1])
-        elif token.startswith("-o") and token != "-o" and len(token) > 2:
+        elif len(token) > 2 and token.startswith(takes_argument[0]):
             outputs.append(token[2:])
-        elif token.startswith("-O") and token != "-O" and len(token) > 2:
-            outputs.append(token[2:])
+        elif "://" in token:
+            urls.append(token)
         position += 1
+    if remote_name and urls:
+        basename = urls[-1].rstrip("/").rsplit("/", 1)[-1].split("?", 1)[0]
+        if basename:
+            outputs.append(basename)
     return outputs
 
 
