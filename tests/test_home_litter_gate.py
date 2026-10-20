@@ -373,3 +373,151 @@ def test_create_head_destination_matrix(monkeypatch, template, dest, expected_bl
         assert "~/" + entry in message, (command, message)
     else:
         assert message is None, (command, message)
+
+
+"""Round-5 regression tests: resolved command cwd, sed -i operands, python receivers.
+
+R4784-1: the gate read only the in-string ``cd``, so a bare relative
+``sqlite3 kanban.db`` (the PR's own stated root cause) ran with the cwd at the
+real home and was allowed. The terminal tool resolves the cwd from the explicit
+``workdir`` argument first, then the session's recorded cwd. Both routes must
+reach the same create/allow decision.
+
+R4784-2: ``sed -i`` read ``tokens[index + 2:]``, which is the sed *script*, so
+an in-place edit of an existing file was reported as creating ``~/s``.
+
+R4784-3: ``copy``/``copyfile`` were missing from the python creation set and the
+path literal lives in the receiver of ``pathlib.Path(p).write_text(...)``.
+"""
+
+
+def session_cwd_route(monkeypatch, session_id, cwd):
+    """Record *cwd* as the session's cwd, as ``finalize_foreground_result`` does."""
+    from tools.terminal_tool import clear_session_cwd, record_session_cwd
+
+    record_session_cwd(session_id, cwd)
+    return lambda: clear_session_cwd(session_id)
+
+
+_WORKDIR_LITTER = (
+    ("sqlite3 kanban.db 'select 1'", "kanban.db"),
+    ("mkdir scratch", "scratch"),
+    ("touch litter.md", "litter.md"),
+    ("echo x > note.txt", "note.txt"),
+    ("sed -i '' 's/a/b/' brandnew.txt", "brandnew.txt"),
+)
+"""Relative creating writes that litter ``~`` when the command cwd is the home."""
+
+
+@pytest.mark.parametrize("command,entry", _WORKDIR_LITTER, ids=lambda value: str(value))
+def test_explicit_workdir_at_home_blocks(monkeypatch, command, entry):
+    """An explicit ``workdir`` at the real home resolves the relative target there."""
+    home = home_of(monkeypatch)
+    message = worker_terminal(command, workdir=home)
+    assert message and "home_litter_gate" in message, command
+    assert "~/" + entry in message, (command, message)
+
+
+@pytest.mark.parametrize("command,entry", _WORKDIR_LITTER, ids=lambda value: str(value))
+def test_recorded_session_cwd_at_home_blocks(monkeypatch, command, entry):
+    """A prior ``cd ~`` sets the session cwd; a later bare command must still block."""
+    home = home_of(monkeypatch)
+    session_id = "s-hlg-session-cwd"
+    cleanup = session_cwd_route(monkeypatch, session_id, home)
+    try:
+        result = guard._pre_tool_call(tool_name="terminal", args={"command": command}, session_id=session_id)
+        message = result["message"] if result else None
+        assert message and "home_litter_gate" in message, command
+        assert "~/" + entry in message, (command, message)
+    finally:
+        cleanup()
+
+
+_SAFE_CWD_LITTER = (
+    ("sqlite3 kanban.db 'select 1'", "workspace"),
+    ("mkdir scratch", "workspace"),
+    ("touch litter.md", "workspace"),
+    ("echo x > note.txt", "scratch"),
+)
+"""The same commands with the cwd inside an allowed zone create nothing under ``~``."""
+
+
+@pytest.mark.parametrize("command,zone", _SAFE_CWD_LITTER, ids=lambda value: str(value))
+def test_safe_workdir_does_not_fire(monkeypatch, tmp_path, command, zone):
+    """A relative creating write resolves against the given cwd, not the home."""
+    target = tmp_path / ("ws" if zone == "workspace" else "scratch")
+    target.mkdir(exist_ok=True)
+    assert worker_terminal(command, workdir=str(target)) is None, command
+
+
+def test_safe_recorded_session_cwd_does_not_fire(monkeypatch, tmp_path):
+    session_id = "s-hlg-session-cwd-ok"
+    workspace = tmp_path / "ws"
+    workspace.mkdir(exist_ok=True)
+    cleanup = session_cwd_route(monkeypatch, session_id, workspace)
+    try:
+        result = guard._pre_tool_call(
+            tool_name="terminal", args={"command": "mkdir scratch"}, session_id=session_id)
+        assert result is None, result
+    finally:
+        cleanup()
+
+
+_SED_IN_PLACE_ALLOWED = (
+    "cd ~ && sed -i '' 's/a/b/' existing.txt",
+    "cd ~ && sed -i 's/a/b/' existing.txt",
+    "cd ~ && sed -i -e 's/a/b/' existing.txt",
+    "cd ~ && sed --in-place 's/a/b/' existing.txt",
+    "cd ~ && sed -i 's/foo/bar/' git_repos/x.txt",
+    "cd ~ && sed -i '' 's/a/b/' .cache/probe",
+)
+"""In-place edits of an existing entry create nothing: the script and the ``-i``
+suffix must never be read as destinations."""
+
+
+@pytest.mark.parametrize("command", _SED_IN_PLACE_ALLOWED, ids=lambda value: str(value))
+def test_sed_in_place_on_existing_file_allowed(monkeypatch, command):
+    assert worker_terminal(command) is None, command
+
+
+_SED_IN_PLACE_BLOCKED = (
+    ("cd ~ && sed -i '' 's/a/b/' brandnew.txt", "brandnew.txt"),
+    ("cd ~ && sed -i 's/a/b/' brandnew.txt", "brandnew.txt"),
+    ("cd ~ && sed --in-place 's/a/b/' brandnew.txt", "brandnew.txt"),
+)
+
+
+@pytest.mark.parametrize("command,entry", _SED_IN_PLACE_BLOCKED, ids=lambda value: str(value))
+def test_sed_in_place_on_new_top_level_file_blocks(monkeypatch, command, entry):
+    message = worker_terminal(command)
+    assert message and "home_litter_gate" in message, command
+    assert "~/" + entry in message, (command, message)
+
+
+def test_sed_without_in_place_reads_only(monkeypatch):
+    assert worker_terminal("cd ~ && sed 's/a/b/' existing.txt") is None
+
+
+_PY_HOME_CREATES = (
+    "pathlib.Path('{home}/newfile').write_text('x')",
+    "pathlib.Path('{home}/newdir').mkdir()",
+    "shutil.copy('a', '{home}/newfile')",
+    "shutil.copyfile('a', '{home}/newfile')",
+)
+"""Python creation shapes whose path lives in the receiver, not the call body."""
+
+
+@pytest.mark.parametrize("template", _PY_HOME_CREATES, ids=lambda value: str(value))
+def test_python_receiver_creation_in_home_blocks(monkeypatch, template):
+    home = home_of(monkeypatch)
+    module = "pathlib" if "pathlib" in template else "shutil"
+    command = 'python3 -c "import %s; %s"' % (module, template.format(home=home))
+    assert "home_litter_gate" in worker_terminal(command), command
+
+
+@pytest.mark.parametrize("template", _PY_HOME_CREATES, ids=lambda value: str(value))
+def test_python_receiver_creation_outside_home_allowed(monkeypatch, template):
+    workspace = os.environ["HERMES_KANBAN_WORKSPACE"]
+    module = "pathlib" if "pathlib" in template else "shutil"
+    command = 'python3 -c "import %s; %s"' % (module, template.format(home=workspace))
+    assert worker_terminal(command) is None, command

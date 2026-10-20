@@ -265,7 +265,7 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
     for check, name in (
         (lambda: checkpoint_gate.check(tool_name, args, **kwargs), "checkpoint_gate"),
         (lambda: workspace_write_gate.check(tool_name, args), "workspace_write_gate"),
-        (lambda: home_litter_gate.check(tool_name, args), "home_litter_gate"),
+        (lambda: home_litter_gate.check(tool_name, args, **kwargs), "home_litter_gate"),
         (lambda: kanban_policy.check(tool_name, args), "kanban_policy"),
         (lambda: workspace_convention.check(tool_name, args), "workspace_convention"),
         (lambda: lead_delegation.check(tool_name, args), "lead_delegation"),

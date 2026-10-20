@@ -181,12 +181,17 @@ def is_worker() -> bool:
         return True
 
 
-def _segments(command: str) -> list[tuple[str, str]]:
+def _segments(command: str, base_cwd: Optional[str] = None) -> list[tuple[str, str]]:
     """(cwd, segment) pairs; a bare ``cd <path>`` segment retargets the cwd the
     following segments resolve relative paths against. Newlines inside quotes
     stay inside the segment: a multi-line quoted payload (commit message,
-    PR body) is prose, not pipeline syntax."""
-    cwd = "${HERMES_KANBAN_WORKSPACE}"
+    PR body) is prose, not pipeline syntax.
+
+    *base_cwd* is the cwd the command actually starts in (the terminal tool's
+    resolved ``workdir`` or recorded session cwd); when omitted, the task
+    workspace stands in, as before.
+    """
+    cwd = base_cwd or "${HERMES_KANBAN_WORKSPACE}"
     pairs: list[tuple[str, str]] = []
     chunks = _outside_quote_split(command, r"\n|&&|;|\|\||\|(?!\|)")
     for raw in chunks:

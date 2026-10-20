@@ -67,11 +67,10 @@ top-level entry — while the destination resolves to the home itself, so the
 per-target check sees no child to name. The sources are re-expressed as home
 children so the same create/allow decision applies.
 """
-_SED_IN_PLACE = re.compile(r"(?:^|\s)-i(?:\s|$)|--in-place")
 _REDIRECT = re.compile(r"(?:>>|>)\s*(\S+)")
 _FD_REDIRECT = re.compile(r"^\d?&[\d()]*$|^\d?&|^[&]|\)$")
 _PY_CREATE = re.compile(
-    r"\b(?:makedirs|mkdir|copytree|move|rename|replace)\s*\(|"
+    r"\b(?:makedirs|mkdir|copytree|copyfile|copy|move|rename|replace)\s*\(|"
     r"\bopen\s*\([^()]*,\s*['\"][waxu+]|"
     r"\b(?:write_text|write_bytes)\s*\(|\brates?_file\(|\bto_csv\s*\(|\bto_json\s*\(|\bsavefig\s*\(|\bdump\s*\("
 )
@@ -170,10 +169,8 @@ def _creation_targets(cwd: str, segment: str) -> list[str]:
                     targets.extend(_copy_into_home_children(cwd, operands[:-1], dest))
             break
         if head == "sed":
-            if _SED_IN_PLACE.search(" ".join(tokens)):
-                for dest in tokens[index + 2:]:
-                    if not dest.startswith("-"):
-                        targets.append(_wwg._join(cwd, dest))
+            for dest in _sed_destinations(tokens, index):
+                targets.append(_wwg._join(cwd, dest))
             break
     for match in _SQLITE3.finditer(unquoted):
         dest = match.group("path")
@@ -184,6 +181,64 @@ def _creation_targets(cwd: str, segment: str) -> list[str]:
         if not dest.startswith("-"):
             targets.append(_wwg._join(cwd, dest))
     return targets
+
+
+def _sed_destinations(tokens: list[str], index: int) -> list[str]:
+    """File operands of an in-place ``sed`` — never the script or the ``-i`` argument.
+
+    ``sed -i '' 's/a/b/' existing.txt`` passes an empty ``-i`` suffix argument and
+    then the script, so the old ``tokens[index + 2:]`` read the *script* as a path
+    and reported ``~/s`` for an edit to an existing file. The operands are parsed
+    instead: options first (``-i`` plus its optional empty suffix, ``-e``/``-f``
+    which consume the script), then the first remaining operand is the script
+    unless ``-e``/``-f`` already supplied one, and the rest are the files.
+    """
+    rest = tokens[index + 1:]
+    in_place = False
+    script_consumed = False
+    operands: list[str] = []
+    position = 0
+    while position < len(rest):
+        token = rest[position]
+        if token == "--in-place" or token.startswith("--in-place="):
+            in_place = True
+        elif token == "-i":
+            in_place = True
+            if position + 1 < len(rest) and rest[position + 1] == "":
+                position += 1
+        elif token.startswith("-i"):
+            in_place = True
+        elif token in ("-e", "--expression", "-f", "--file"):
+            script_consumed = True
+            position += 1
+        elif token.startswith("-e") or token.startswith("-f"):
+            script_consumed = True
+        elif not token.startswith("-") or token == "-":
+            operands.append(token)
+        position += 1
+    if not in_place:
+        return []
+    return operands if script_consumed else operands[1:]
+
+
+def _py_receiver(code: str, start: int) -> str:
+    """Text of the receiver expression immediately left of a matched call.
+
+    ``pathlib.Path('<home>/newfile').write_text('x')`` matches only
+    ``write_text('x')``, so the path lives in the receiver, not in the call
+    body. Return the receiver (``pathlib.Path('<home>/newfile').``) or ``""``
+    when the receiver is a bare name / unresolvable, so the caller falls back to
+    the body literals alone.
+    """
+    window = code[max(0, start - 200):start]
+    tail = re.split(r"[;\n]|\b(?:return|yield)\b|(?<![=!<>])=(?!=)", window)[-1].strip()
+    if not tail.endswith("."):
+        return ""
+    if re.search(r"\b(?:or|and|not|if|else|for|in)\b", tail):
+        return ""
+    if tail.count("(") != tail.count(")"):
+        return ""
+    return tail
 
 
 def _py_creation_literals(code: str) -> list[str]:
@@ -199,7 +254,7 @@ def _py_creation_literals(code: str) -> list[str]:
                 if depth == 0:
                     break
             body.append(char)
-        text = "".join(body)
+        text = _py_receiver(code, match.start()) + "".join(body)
         if "expanduser(" in text:
             text = text[text.index("expanduser(") + len("expanduser("):]
         literals.extend(literal for _, literal in _PY_STRINGS.findall(text))
@@ -216,9 +271,35 @@ def _offending(targets: list[str]) -> Optional[str]:
     return None
 
 
-def terminal_violations(command: str) -> list[str]:
+def _resolved_cwd(args: dict, kwargs: dict) -> Optional[str]:
+    """The cwd the terminal tool will actually run *command* in.
+
+    The tool resolves it as explicit ``workdir`` > the session's recorded cwd >
+    its own default (``tools/terminal_tool.py:_resolve_command_cwd``). Reading
+    only the in-string ``cd`` let a bare ``sqlite3 kanban.db`` run with the cwd
+    at the real home — the exact litter this gate exists for — pass unchecked.
+    Unresolvable (no ``workdir``, no record, tools not importable) returns
+    ``None`` and the caller falls back to the workspace seed.
+    """
+    workdir = str(args.get("workdir") or "").strip()
+    if workdir:
+        return workdir
+    try:
+        from tools.approval_context import get_current_session_key
+        from tools.terminal_tool import get_session_cwd
+    except Exception:
+        return None
+    try:
+        key = (get_current_session_key(default="") or str(kwargs.get("task_id") or "")
+               or str(kwargs.get("session_id") or ""))
+        return get_session_cwd(key)
+    except Exception:
+        return None
+
+
+def terminal_violations(command: str, base_cwd: Optional[str] = None) -> list[str]:
     blanked = _wwg._strip_heredoc_bodies(command)
-    for cwd, segment in _wwg._segments(blanked):
+    for cwd, segment in _wwg._segments(blanked, base_cwd):
         entry = _offending(_creation_targets(cwd, segment))
         if entry:
             return [_MESSAGE.format(tool="terminal", entry="~/" + entry)]
@@ -229,7 +310,7 @@ def terminal_violations(command: str) -> list[str]:
     return []
 
 
-def check(tool_name: str, args: Any) -> Optional[str]:
+def check(tool_name: str, args: Any, **kwargs: Any) -> Optional[str]:
     if not _wwg.is_worker() or not isinstance(args, dict):
         return None
     if tool_name in ("write_file", "patch"):
@@ -241,5 +322,5 @@ def check(tool_name: str, args: Any) -> Optional[str]:
         return _MESSAGE.format(tool=tool_name, entry="~/" + entry) if entry else None
     if tool_name != "terminal":
         return None
-    found = terminal_violations(str(args.get("command") or ""))
+    found = terminal_violations(str(args.get("command") or ""), _resolved_cwd(args, kwargs))
     return found[0] if found else None
