@@ -41,9 +41,9 @@ _MESSAGE = (
     "top-level entry directly under the home directory ({entry}). Workers must "
     "not litter ~/. Keep work inside the task workspace (HERMES_KANBAN_WORKSPACE), "
     "the Hermes scratch dir (~/.hermes/cache/scratch), TMPDIR/tmp or the board's "
-    "kanban attachments directory; repo work goes in ~/git_repos/worktrees/ or "
-    "~/git_repos/ad-hoc/, and the kanban DB lives at ~/.hermes/kanban.db (never a "
-    "bare relative 'kanban.db')."
+    "kanban attachments directory; repo work goes in "
+    "<main-repo>/.worktrees/<task>/ or ~/git_repos/ad-hoc/<task>/, and the kanban "
+    "DB lives at ~/.hermes/kanban.db (never a bare relative 'kanban.db')."
 )
 
 _SQLITE3 = re.compile(r"\bsqlite3\s+(?:-\S+\s+)*(?P<path>\S+)")

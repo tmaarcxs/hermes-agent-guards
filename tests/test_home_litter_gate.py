@@ -162,6 +162,28 @@ def test_message_names_safe_targets(monkeypatch):
     assert "kanban.db" in message
 
 
+def test_message_names_canonical_repo_work_paths(monkeypatch):
+    """The advice must not teach the superseded ~/git_repos/worktrees/ path."""
+    message = worker_terminal("cd ~ && mkdir scratch")
+    assert "<main-repo>/.worktrees/<task>/" in message
+    assert "~/git_repos/ad-hoc/<task>/" in message
+    assert "~/git_repos/worktrees/" not in message
+
+
+def test_git_worktree_add_under_main_repo_allowed(monkeypatch, tmp_path):
+    """`git worktree add <main-repo>/.worktrees/<task>` is not a direct child of ~."""
+    main = tmp_path / "main-repo"
+    main.mkdir()
+    assert worker_terminal(
+        "git worktree add %s/.worktrees/t_x -b t_x origin/main" % main) is None
+
+
+def test_git_worktree_add_path_under_home_direct_child_blocked(monkeypatch):
+    """A worktree dir that IS a direct child of ~ is still litter (nested is not)."""
+    assert "home_litter_gate" in worker_terminal("mkdir ~/wt")
+    assert worker_terminal("mkdir -p ~/wt/t_x") is None
+
+
 def test_production_entry_point_pre_tool_call_blocks(monkeypatch):
     """Drive the real plugin entry point, not the module check."""
     result = guard._pre_tool_call(
