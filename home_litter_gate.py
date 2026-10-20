@@ -134,6 +134,22 @@ _MULTI_TARGET_CALLS = frozenset({"makedirs", "mkdir"})
 _SQLITE3_ARG_OPTIONS = frozenset({"-cmd", "-separator", "-nullvalue", "-newline", "-init"})
 """sqlite3 options that consume a separate argument, so the DB operand is after them."""
 
+_MKDIR_ARG_OPTIONS = frozenset({"-m", "--mode", "-Z"})
+"""mkdir options that consume a separate argument (``mkdir -m 755 dir``).
+
+BSD ``mkdir`` accepts ``-m mode`` with the mode as its own token, so ``755``
+would otherwise read as a directory name and report ``~/755`` as litter —
+blocking a legitimate ``mkdir -m 755 ~/git_repos/proj`` and naming a path that
+does not exist.
+"""
+
+_TOUCH_ARG_OPTIONS = frozenset({"-t", "--time", "-d", "--date", "-r", "--reference", "-A"})
+"""touch options that consume a separate argument (``touch -t STAMP file``).
+
+``touch -t 202001010000 existing.txt`` creates nothing new, but the stamp would
+otherwise read as a path and block the call, naming ``~/202001010000``.
+"""
+
 
 def _home() -> Path:
     return _wwg._home()
@@ -255,7 +271,11 @@ def _creation_targets(cwd: str, segment: str) -> list[str]:
     head_index = _head_index(tokens)
     head = tokens[head_index].lower() if head_index < len(tokens) else ""
     if head in _CREATE_HEADS:
-        operands = [dest for dest in tokens[head_index + 1:] if not dest.startswith("-")]
+        if head in ("mkdir", "touch"):
+            arg_options = _MKDIR_ARG_OPTIONS if head == "mkdir" else _TOUCH_ARG_OPTIONS
+            operands = _operands_after(tokens, head_index, arg_options)
+        else:
+            operands = [dest for dest in tokens[head_index + 1:] if not dest.startswith("-")]
         if operands:
             if head in ("mkdir", "touch"):
                 for dest in operands:

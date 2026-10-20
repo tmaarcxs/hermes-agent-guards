@@ -186,6 +186,40 @@ def test_multi_operand_mkdir_one_new_top_level_blocked(monkeypatch):
     assert "home_litter_gate" in worker_terminal("cd ~ && mkdir -p a/b c/d")
 
 
+@pytest.mark.parametrize("command", [
+    "cd ~ && mkdir -p -m 755 git_repos/proj",
+    "cd ~ && mkdir -p -m 700 git_repos/proj/.venv",
+    "cd ~ && mkdir -p -m 755 Downloads/new",
+    "cd ~ && mkdir -m 755 existing.txt",
+    "cd ~ && touch -t 202001010000 existing.txt",
+    "cd ~ && touch -d 2020-01-01T00:00:00 existing.txt",
+    "cd ~ && touch --reference existing.txt existing.txt",
+    "cd ~ && touch -r existing.txt existing.txt",
+    "cd ~ && mkdir --mode 755 git_repos/proj",
+])
+def test_mkdir_touch_option_arguments_not_targets_allowed(monkeypatch, command):
+    """A value-consuming option's argument is not a path: allowlisted or
+    existing targets must pass, not be blocked as a fabricated ``~/755``."""
+    assert worker_terminal(command) is None, command
+
+
+@pytest.mark.parametrize("command", [
+    "cd ~ && mkdir -m 755 brandnew",
+    "cd ~ && mkdir --mode=755 brandnew",
+    "cd ~ && mkdir -p -m 755 brandnew/deep",
+    "cd ~ && touch -t 202001010000 newfile.txt",
+])
+def test_mkdir_touch_option_arguments_real_target_still_blocked(monkeypatch, command):
+    """Skipping the option's argument must not hide the real create target."""
+    assert "home_litter_gate" in worker_terminal(command), command
+
+
+def test_mkdir_option_argument_block_names_real_path(monkeypatch):
+    """On a genuine block the message must name the created path, not ``~/755``."""
+    message = worker_terminal("cd ~ && mkdir -m 755 brandnew")
+    assert "brandnew" in message and "~/755" not in message
+
+
 def test_hermes_tree_untouched(monkeypatch):
     assert worker_terminal("mkdir -p ~/.hermes/cache/scratch/probe") is None
     assert worker_terminal("echo x > ~/.hermes/kanban/attachments/t_self/r.md") is None
