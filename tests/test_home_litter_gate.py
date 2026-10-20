@@ -268,12 +268,14 @@ def test_production_entry_point_allows_safe_call(monkeypatch):
     assert result is None
 
 
-# --- Structural matrix: every write form x every destination shape -------------
-# R4732-1 was a predicate-coverage hole: `cp <src> ~/` (and mv/rsync/install)
-# creates a brand-new top-level entry while the destination names no child, so
-# the per-target check saw nothing to name. The individual fire/do-not-fire
-# tests above cover the named cases; this matrix makes the NEXT missed form fail
-# a test instead of surviving to review.
+"""Structural matrix: every write form x every destination shape.
+
+R4732-1 was a predicate-coverage hole: `cp <src> ~/` (and mv/rsync/install)
+creates a brand-new top-level entry while the destination names no child, so
+the per-target check saw nothing to name. The individual fire/do-not-fire
+tests above cover the named cases; this matrix makes the NEXT missed form fail
+a test instead of surviving to review.
+"""
 
 _COPY_HEADS = (
     ("cp a.md {d}", "a.md"),
@@ -284,16 +286,12 @@ _COPY_HEADS = (
 """Copy-style heads and the basename each lands when the destination is `~`."""
 
 _COPY_DESTS = (
-    # dest names no child and resolves to the home itself -> the SOURCE basename
-    # becomes a new top-level entry.
     ("~", True),
     ("~/", True),
     ("$HOME", True),
     ("$HOME/", True),
-    # dest names a not-yet-existing child (or nested under one) -> that child.
     ("~/new_entry", True),
     ("~/new_entry/child", True),
-    # dest names an existing entry, a dotted name, or an allowlisted dir.
     ("~/existing.txt", False),
     ("~/.cache/probe", False),
     ("~/.brandnewdot", False),
@@ -303,6 +301,13 @@ _COPY_DESTS = (
     ("~/Documents/x", False),
     ("~/Desktop/x", False),
 )
+"""Destination shapes x whether a copy into them creates a top-level entry.
+
+The `True` group: `~`, `~/`, `$HOME`, `$HOME/` name no child and resolve to the
+home itself, so the SOURCE basename becomes the new entry; `~/new_entry` and
+`~/new_entry/child` name a not-yet-existing child (or a nested path under one).
+The `False` group: an existing entry, a dotted name, or an allowlisted dir.
+"""
 
 _COPY_CASES = []
 for _template, _src_base in _COPY_HEADS:
@@ -333,23 +338,26 @@ def test_copy_head_destination_matrix(monkeypatch, template, source_basename, de
 
 
 _CREATE_DESTS = (
-    # A non-copy creating head that names the home itself creates nothing new.
     ("mkdir {d}", "~", False, None),
     ("mkdir {d}", "~/", False, None),
     ("touch {d}", "~", False, None),
     ("echo x > {d}", "~/", False, None),
-    # A non-copy creating head naming a new child blocks and names it.
     ("mkdir {d}", "~/new_entry", True, "new_entry"),
     ("mkdir -p {d}", "~/new_entry/child", True, "new_entry"),
     ("touch {d}", "~/new_entry", True, "new_entry"),
     ("echo x > {d}", "~/new_entry", True, "new_entry"),
     ("echo x > {d}", "~/new_entry/child", True, "new_entry"),
-    # Existing / dotted / allowlisted destinations stay allowed.
     ("touch {d}", "~/existing.txt", False, None),
     ("echo x > {d}", "~/.cache/probe", False, None),
     ("mkdir {d}", "~/git_repos/x", False, None),
     ("mkdir {d}", "~/Downloads/x", False, None),
 )
+"""Non-copy creating heads x destination shapes.
+
+A head that names the home itself (`mkdir ~`) creates nothing new; one naming a
+new child blocks and names it; existing, dotted and allowlisted destinations
+stay allowed.
+"""
 
 
 @pytest.mark.parametrize(
