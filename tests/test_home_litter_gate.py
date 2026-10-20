@@ -76,6 +76,42 @@ def test_cp_into_new_home_dir_blocked(monkeypatch):
     assert "home_litter_gate" in worker_terminal("cp a.md ~/kanban_tmp")
 
 
+def test_cp_file_onto_home_itself_blocked(monkeypatch):
+    """`cp a.md ~/` lands a brand-new top-level entry even though the
+    destination names no child."""
+    message = worker_terminal("cd /tmp && cp a.md ~/")
+    assert message and "home_litter_gate" in message
+    assert "~/a.md" in message
+
+
+def test_mv_file_onto_home_itself_blocked(monkeypatch):
+    assert "home_litter_gate" in worker_terminal("cd /tmp && mv a.md ~/")
+
+
+def test_rsync_dir_onto_home_itself_blocked(monkeypatch):
+    assert "home_litter_gate" in worker_terminal("cd /tmp && rsync -a src/ ~/")
+
+
+def test_install_onto_home_itself_blocked(monkeypatch):
+    assert "home_litter_gate" in worker_terminal("cd /tmp && install -m644 a ~/")
+
+
+def test_cp_onto_home_via_home_variable_blocked(monkeypatch):
+    assert "home_litter_gate" in worker_terminal("cd /tmp && cp a.md $HOME/")
+
+
+def test_cp_onto_existing_top_level_allowed(monkeypatch):
+    """A destination that already exists stays allowed — no new entry appears."""
+    assert worker_terminal("cd /tmp && cp a.md ~/existing.txt") is None
+    assert worker_terminal("cd /tmp && cp a.md ~/git_repos/") is None
+    assert worker_terminal("cd /tmp && cp a.md ~/Downloads/") is None
+
+
+def test_cp_onto_home_with_glob_fails_open(monkeypatch):
+    """The resulting basename is unknowable, so the shape fails open."""
+    assert worker_terminal("cd /tmp && cp *.md ~/") is None
+
+
 def test_write_file_new_home_path_blocked(monkeypatch):
     assert blocked("write_file", {"path": "~/litter.md", "content": "x"})
 

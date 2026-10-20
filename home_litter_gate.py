@@ -9,10 +9,11 @@ a brand-new entry at the top of ``~`` and nothing stops it.
 
 This gate blocks ``terminal``/``write_file``/``patch`` calls from worker
 processes when the write target would create a **not-yet-existing top-level
-entry under the real home**. That includes a direct child (``mkdir scratch``)
-and a nested target whose first component under ``~`` does not exist yet
-(``mkdir -p scratch/f3`` from cwd ``~`` creates ``~/scratch`` too). It is
-deliberately narrow:
+entry under the real home**. That includes a direct child (``mkdir scratch``),
+a nested target whose first component under ``~`` does not exist yet
+(``mkdir -p scratch/f3`` from cwd ``~`` creates ``~/scratch`` too), and a
+copy-style head (``cp``/``mv``/``rsync``/``install``) whose destination is ``~``
+itself — ``cp a.md ~/`` lands ``~/a.md``. It is deliberately narrow:
 
 - An entry that already exists is allowed (edits to ``~/.config``,
   ``~/git_repos`` and every existing file keep working).
@@ -58,6 +59,13 @@ _CREATE_HEADS = ("cp", "mv", "rsync", "install", "touch", "mkdir", "tee")
 
 ``rm``/``rmdir`` are excluded on purpose: deleting an entry that does not exist
 is a no-op, not litter, and the lead's own cleanup uses ``rm -rf``.
+"""
+
+_COPY_HEADS = ("cp", "mv", "rsync", "install")
+"""Copy-style heads. ``cp <src> ~/`` lands ``~/<basename(src)>`` — a brand-new
+top-level entry — while the destination resolves to the home itself, so the
+per-target check sees no child to name. The sources are re-expressed as home
+children so the same create/allow decision applies.
 """
 _SED_IN_PLACE = re.compile(r"(?:^|\s)-i(?:\s|$)|--in-place")
 _REDIRECT = re.compile(r"(?:>>|>)\s*(\S+)")
@@ -109,6 +117,34 @@ def _new_top_level_entry(path: str) -> Optional[str]:
     return name
 
 
+def _copy_into_home_children(cwd: str, sources: list[str], dest: str) -> list[str]:
+    """Children ``cp``/``mv``/``rsync``/``install`` would create when the
+    destination is the home directory itself.
+
+    ``cp a.md ~/`` writes ``~/a.md``; the destination resolves to ``~`` so the
+    per-target check has no child to name. Re-express each source as its
+    would-be home child so the same create/allow decision applies. Unknowable
+    shapes (globs, variables, ``.``/``..``) fail open.
+    """
+    home = _home()
+    joined = _wwg._join(cwd, dest)
+    if not joined:
+        return []
+    try:
+        resolved = Path(joined).expanduser().resolve(strict=False)
+    except (OSError, ValueError):
+        return []
+    if resolved != home:
+        return []
+    children: list[str] = []
+    for source in sources:
+        name = source.rstrip("/").rsplit("/", 1)[-1].strip("\"'")
+        if not name or name in (".", "..") or name.startswith("$") or "*" in name or "?" in name:
+            continue
+        children.append(str(home / name))
+    return children
+
+
 def _creation_targets(cwd: str, segment: str) -> list[str]:
     """Shell write targets that CREATE a path (never ``rm``/``rmdir``)."""
     unquoted = re.sub(r"'[^']*'|\"(?:[^\"\\]|\\.)*\"", "''", segment)
@@ -124,8 +160,14 @@ def _creation_targets(cwd: str, segment: str) -> list[str]:
             operands = [dest for dest in tokens[index + 1:] if not dest.startswith("-")]
             if not operands:
                 break
-            for dest in operands if head.lower() in ("mkdir", "touch") else operands[-1:]:
+            if head.lower() in ("mkdir", "touch"):
+                for dest in operands:
+                    targets.append(_wwg._join(cwd, dest))
+            else:
+                dest = operands[-1]
                 targets.append(_wwg._join(cwd, dest))
+                if head.lower() in _COPY_HEADS:
+                    targets.extend(_copy_into_home_children(cwd, operands[:-1], dest))
             break
         if head == "sed":
             if _SED_IN_PLACE.search(" ".join(tokens)):
