@@ -367,7 +367,7 @@ def _loop_sweep_for(board: Optional[str]):
     def run(state: dict) -> dict:
         conn = _ro_conn(board)
         try:
-            return loop_sweep(conn, state, inject, load=_file_load())
+            return loop_sweep(conn, state, inject, load=_file_load)
         finally:
             conn.close()
 
