@@ -302,18 +302,43 @@ def _creation_targets(cwd: str, segment: str) -> list[str]:
     return targets
 
 
+def _option_consumes_next(token: str, arg_options: frozenset) -> bool:
+    """Whether *token* is an option that consumes the following token as its value.
+
+    Exact membership catches the spaced short form (``-m``, ``-t``) and the long
+    form (``--mode``). A *clustered* short option (``-pm``, ``-mt``, ``-vm``,
+    ``-dt``) is a single token that is not in the set, yet its value-consuming
+    letter still takes the next token: ``mkdir -pm 755 dir`` and
+    ``touch -mt STAMP file`` put ``755``/``STAMP`` where a create target would
+    otherwise be read, fabricating ``~/755``. Membership is therefore decided by
+    letter for a purely alphabetic cluster; a cluster carrying the value itself
+    (``-m755``) is alphabetic-plus-digits, consumes nothing extra, and leaves
+    the real operand in place.
+    """
+    if token in arg_options:
+        return True
+    if not token.startswith("-") or token.startswith("--"):
+        return False
+    cluster = token[1:]
+    if not cluster.isalpha():
+        return False
+    return any("-" + letter in arg_options for letter in cluster)
+
+
 def _operands_after(tokens: list[str], index: int, arg_options: frozenset) -> list[str]:
     """Non-option operands after *index*, skipping options that consume a value.
 
     ``sqlite3 -cmd '.timer on' kanban.db`` names ``kanban.db`` as the database;
     the option and its separate argument must not be read as the path. An
-    attached form (``--separator=,``) consumes nothing extra.
+    attached form (``--separator=,``, ``-m755``) consumes nothing extra, and a
+    clustered short option (``-pm 755``) consumes the next token, so neither its
+    argument nor the real operand is misread.
     """
     operands: list[str] = []
     position = index + 1
     while position < len(tokens):
         token = tokens[position]
-        if token in arg_options:
+        if _option_consumes_next(token, arg_options):
             position += 2
             continue
         if token.startswith("-") and token != "-":

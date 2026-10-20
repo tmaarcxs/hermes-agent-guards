@@ -220,6 +220,83 @@ def test_mkdir_option_argument_block_names_real_path(monkeypatch):
     assert "brandnew" in message and "~/755" not in message
 
 
+@pytest.mark.parametrize("command", [
+    "cd ~ && mkdir -pm 755 git_repos/proj",
+    "cd ~ && mkdir -vm 755 git_repos/proj",
+    "cd ~ && mkdir -pm 700 git_repos/proj/.venv",
+    "cd ~ && mkdir -pm 755 Downloads/new",
+    "cd ~ && touch -mt 202001010000 existing.txt",
+    "cd ~ && touch -dt 2020-01-01 existing.txt",
+])
+def test_clustered_option_arguments_not_targets_allowed(monkeypatch, command):
+    """A *clustered* short option (``-pm``, ``-vm``, ``-mt``, ``-dt``) is one
+    token that is not in the option set, yet its value-consuming letter still
+    takes the next token; that value must not be read as a create target. A
+    contract-allowlisted ``~/git_repos`` (and a no-op ``touch`` on an existing
+    file) must pass, not be blocked as a fabricated ``~/755``.
+    """
+    assert worker_terminal(command) is None, command
+
+
+@pytest.mark.parametrize("command,entry", [
+    ("cd ~ && mkdir -pm 755 brandnew", "~/brandnew"),
+    ("cd ~ && mkdir -vm 755 brandnew/deep", "~/brandnew"),
+    ("cd ~ && touch -mt 202001010000 newfile.txt", "~/newfile.txt"),
+    ("cd ~ && touch -dt 2020-01-01 newfile.txt", "~/newfile.txt"),
+])
+def test_clustered_option_arguments_real_target_still_blocked(monkeypatch, command, entry):
+    """Skipping a clustered option's argument must not hide the real create
+    target, and the message must name that path — not the option's value.
+    """
+    message = worker_terminal(command)
+    assert message and "home_litter_gate" in message, command
+    assert entry in message, command
+    assert "~/755" not in message and "~/202001010000" not in message, command
+
+
+_MKDIR_MODE_SPELLINGS = [
+    "-m 755",
+    "-pm 755",
+    "-vm 755",
+    "--mode 755",
+    "--mode=755",
+    "-m755",
+]
+
+_TOUCH_STAMP_SPELLINGS = [
+    "-t 202001010000",
+    "-mt 202001010000",
+    "-dt 2020-01-01",
+    "--time 202001010000",
+    "--time=202001010000",
+    "-t202001010000",
+]
+
+
+@pytest.mark.parametrize("option", _MKDIR_MODE_SPELLINGS)
+def test_mkdir_mode_spelling_does_not_change_the_decision(monkeypatch, option):
+    """Generative guard for the recurring parser-shape hole (R4841-1): every
+    spelling of a value-consuming option — spaced, clustered, long, attached —
+    must leave the create/allow decision on the *operand* unchanged, so the next
+    spelling fails a test instead of reaching review.
+    """
+    assert worker_terminal(f"cd ~ && mkdir {option} git_repos/proj") is None, option
+    message = worker_terminal(f"cd ~ && mkdir {option} brandnew")
+    assert message and "~/brandnew" in message, option
+    assert "~/755" not in message, option
+
+
+@pytest.mark.parametrize("option", _TOUCH_STAMP_SPELLINGS)
+def test_touch_stamp_spelling_does_not_change_the_decision(monkeypatch, option):
+    """The touch twin of the mkdir spelling-invariance guard: a no-op stamp on an
+    existing file allows, and the same stamp must not mask a new top-level file.
+    """
+    assert worker_terminal(f"cd ~ && touch {option} existing.txt") is None, option
+    message = worker_terminal(f"cd ~ && touch {option} newfile.txt")
+    assert message and "~/newfile.txt" in message, option
+    assert "~/202001010000" not in message, option
+
+
 def test_hermes_tree_untouched(monkeypatch):
     assert worker_terminal("mkdir -p ~/.hermes/cache/scratch/probe") is None
     assert worker_terminal("echo x > ~/.hermes/kanban/attachments/t_self/r.md") is None
