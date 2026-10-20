@@ -96,6 +96,49 @@ def test_main_checkout_rejected(convention_home):
     assert "main checkout" in message
 
 
+@pytest.mark.parametrize("kind", ["scratch", "", "dir", "worktree"])
+def test_home_directory_rejected_for_every_kind(convention_home, kind):
+    """A home path is the same home-litter threat for every kind (F1).
+
+    The host uses an explicit ``scratch`` path verbatim and defaults an omitted
+    kind to ``scratch``, so the kind-agnostic rejections must not be scoped to
+    ``dir``/``worktree``.
+    """
+    args = {**BASE, "workspace_path": str(convention_home)}
+    if kind:
+        args["workspace_kind"] = kind
+    assert "home directory itself" in blocked(args)
+
+
+@pytest.mark.parametrize("kind", ["scratch", "", "dir", "worktree"])
+def test_direct_child_of_home_rejected_for_every_kind(convention_home, kind):
+    child = convention_home / "scratchpad"
+    child.mkdir()
+    args = {**BASE, "workspace_path": str(child)}
+    if kind:
+        args["workspace_kind"] = kind
+    assert "direct child of the home directory" in blocked(args)
+
+
+@pytest.mark.parametrize("kind", ["scratch", "", "dir", "worktree"])
+def test_main_checkout_rejected_for_every_kind(convention_home, kind):
+    args = {**BASE, "workspace_path": str(main_checkout(convention_home))}
+    if kind:
+        args["workspace_kind"] = kind
+    assert "main checkout" in blocked(args)
+
+
+def test_scratch_with_conventional_derived_path_stays_allowed(convention_home):
+    """A scratch card whose explicit path is a normal derived scratch is fine."""
+    derived = convention_home / ".hermes" / "kanban" / "workspaces" / "t_9"
+    derived.mkdir(parents=True)
+    allowed({**BASE, "workspace_kind": "scratch", "workspace_path": str(derived)})
+
+
+def test_scratch_without_path_stays_allowed(convention_home):
+    allowed({**BASE, "workspace_kind": "scratch"})
+
+
 def test_dir_at_main_checkout_root_rejected(convention_home):
     message = blocked({**BASE, "workspace_kind": "dir",
                        "workspace_path": str(main_checkout(convention_home))})

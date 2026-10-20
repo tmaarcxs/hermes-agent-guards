@@ -15,10 +15,14 @@ placement (user-mandated)"):
   (``workspace_kind=scratch``), which needs no path.
 
 The check rejects a ``dir`` or ``worktree`` card whose explicit path falls
-outside those roots, is a main checkout (``<path>/.git`` is a directory), or is
-the home directory itself or one of its direct children. Scratch cards and cards
-that let the board derive their path stay untouched, so the deterministic check
-never blocks the default flow. The ad-hoc root is home-relative and overridable
+outside those roots. Independently of the kind, any ``kanban_create`` that
+carries an explicit path which is a main checkout (``<path>/.git`` is a
+directory), the home directory itself, or one of its direct children is rejected
+too: the host uses an explicit ``scratch`` path verbatim and defaults an omitted
+kind to ``scratch``, so those three shapes are the same home-litter threat for
+every kind. Scratch cards and cards that let the board derive their path (no
+``workspace_path``) stay untouched, so the deterministic check never blocks the
+default flow. The ad-hoc root is home-relative and overridable
 with ``AGENT_GUARDS_ADHOC_ROOT`` for tests; the worktree rule is derived from the
 path itself (its ``.worktrees`` segment and the main-checkout prefix above it),
 so it cannot drift from the layout the skill mandates. The check fails open: any
@@ -98,9 +102,15 @@ def _worktree_base(path: Path) -> Optional[Path]:
     return base if _is_main_checkout(base) else None
 
 
-def _reasons(kind: str, path: Path) -> list[str]:
+def _unconditional_reasons(path: Path) -> list[str]:
+    """Reasons that hold for every kind, including ``scratch`` and an omitted one.
+
+    The host uses an explicit ``scratch`` ``workspace_path`` verbatim and
+    defaults an omitted ``workspace_kind`` to ``scratch``, so a home directory,
+    a direct child of it, or a main checkout is the same home-litter threat no
+    matter which kind the call names.
+    """
     home = _home()
-    adhoc = adhoc_root()
     reasons: list[str] = []
     if path == home:
         reasons.append("workspace_path is the home directory itself")
@@ -108,6 +118,13 @@ def _reasons(kind: str, path: Path) -> list[str]:
         reasons.append("workspace_path is a direct child of the home directory")
     if _is_main_checkout(path):
         reasons.append("workspace_path is a main checkout (its .git is a directory)")
+    return reasons
+
+
+def _kind_reasons(kind: str, path: Path) -> list[str]:
+    """Root rules for the conventional kinds only (``dir`` / ``worktree``)."""
+    adhoc = adhoc_root()
+    reasons: list[str] = []
     below_adhoc = _levels_below(adhoc, path)
     in_adhoc = below_adhoc is not None and below_adhoc >= ADHOC_DEPTH
     in_worktree = _worktree_base(path) is not None
@@ -125,13 +142,14 @@ def _reasons(kind: str, path: Path) -> list[str]:
 
 
 def violations(args: dict[str, Any]) -> list[str]:
-    kind = str(args.get("workspace_kind") or "").strip()
-    if kind not in CONVENTIONAL_KINDS:
-        return []
     path = _resolve(str(args.get("workspace_path") or ""))
     if path is None:
         return []
-    return _reasons(kind, path)
+    kind = str(args.get("workspace_kind") or "").strip()
+    reasons = _unconditional_reasons(path)
+    if kind in CONVENTIONAL_KINDS:
+        reasons += _kind_reasons(kind, path)
+    return reasons
 
 
 def message(found: list[str], args: dict[str, Any]) -> str:
