@@ -271,6 +271,20 @@ def test_untouched_multibyte_over_limit_file_is_not_flagged(root):
     assert unchanged(write("terminal", command="echo hi"))
 
 
+def test_post_hoc_and_pre_call_agree_on_units_for_a_multibyte_file(root):
+    skill = root / "cat" / "demo" / "SKILL.md"
+    body = "\u00e9" * 5985
+    skill.write_text(body)
+    assert len(body) == 5985 and len(body.encode("utf-8")) > size.SKILL_LIMIT
+    assert pre("write_file", path=str(skill), content=body) is None
+    guards._pre_tool_call(tool_name="terminal", args={"command": "true"}, session_id="s1", tool_call_id="u1")
+    skill.write_text(body + "x")
+    snapshot = size._snapshot()
+    assert snapshot[str(skill)][1] == len(body + "x") == 5986
+    assert unchanged(guards._transform_tool_result(tool_name="terminal", args={"command": "true"}, result="ok",
+                                                   session_id="s1", tool_call_id="u1"))
+
+
 def test_every_file_left_over_its_limit_is_flagged(root):
     skill = root / "cat" / "demo" / "SKILL.md"
     reference = root / "cat" / "demo" / "references" / "fresh.md"
