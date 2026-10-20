@@ -35,7 +35,10 @@ def home_of(monkeypatch):
 
 
 def blocked(tool, args):
-    return gate.check(tool, args)
+    """Drive the real plugin entry point so the guard-name stamp is exercised
+    (the module returns the bare message; ``_pre_tool_call`` adds ``[name]``)."""
+    result = guard._pre_tool_call(tool_name=tool, args=args, session_id="s-hlg")
+    return result["message"] if result else None
 
 
 def worker_terminal(command, workdir=None):

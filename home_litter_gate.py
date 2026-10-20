@@ -40,8 +40,8 @@ Anything else that does not exist yet is litter.
 """
 
 _MESSAGE = (
-    "agent-guards blocked {tool} [home_litter_gate]: this would create a new "
-    "top-level entry directly under the home directory ({entry}). Workers must "
+    "agent-guards blocked {tool}: this would create a new "
+    "top-level entry under the home directory ({entry}). Workers must "
     "not litter ~/. Keep work inside the task workspace (HERMES_KANBAN_WORKSPACE), "
     "the Hermes scratch dir (~/.hermes/cache/scratch), TMPDIR/tmp or the board's "
     "kanban attachments directory; repo work goes in "
