@@ -20,8 +20,8 @@ itself — ``cp a.md ~/`` lands ``~/a.md``. It is deliberately narrow:
 - Dotted names are allowed (tool dirs: ``~/.cache``, ``~/.codegraph`` …).
 - ``git_repos``, ``Downloads``, ``Documents`` and ``Desktop`` are allowed as
   creation targets.
-- ``~/git_repos/**`` and ``~/.hermes/**`` are never direct children of ``~``,
-  so they are out of scope by construction.
+- ``~/git_repos/**`` and ``~/.hermes/**`` never make a new first component
+  under ``~``, so they are out of scope by construction.
 
 The lead is never affected; only worker processes (``HERMES_KANBAN_TASK`` set)
 are checked. A creating head counts only in command position — ``grep -rn
