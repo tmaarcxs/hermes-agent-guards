@@ -120,9 +120,17 @@ def test_worker_terminal_scratch_and_tmp_targets_allowed(target, monkeypatch):
         assert worker_terminal(template.format(target)) is None, (mechanism, target)
 
 
-def test_worker_terminal_kanban_attachments_copy_allowed():
-    assert worker_terminal(
-        "cp report.md ~/.hermes/kanban/attachments/t_self/report.md") is None
+def test_worker_terminal_kanban_attachments_copy_allowed(monkeypatch, tmp_path):
+    """The board's kanban attachments directory is a writable target.
+
+    Pin the board home to a synthetic dir so the allowed root is derived from the
+    fixture, not the operator's real ``~/.hermes`` layout.
+    """
+    root = tmp_path / "kanban-home"
+    monkeypatch.setenv("HERMES_KANBAN_HOME", str(root))
+    monkeypatch.delenv("HERMES_KANBAN_ATTACHMENTS_ROOT", raising=False)
+    target = root / "kanban" / "attachments" / "t_self" / "report.md"
+    assert worker_terminal("cp report.md %s" % target) is None
 
 
 def test_worker_terminal_repo_outside_home_hermes_git_mutation_blocked_plain_write_allowed():

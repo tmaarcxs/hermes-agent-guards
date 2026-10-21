@@ -60,3 +60,30 @@ def _clear_kanban_worker_env(monkeypatch):
     monkeypatch.delenv("HERMES_KANBAN_DB", raising=False)
     monkeypatch.delenv("HERMES_KANBAN_BOARD", raising=False)
     monkeypatch.delenv("HERMES_SESSION_KEY", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _isolated_kanban_board(monkeypatch, tmp_path):
+    """Point every board-path resolution at a throwaway tmp home.
+
+    ``workspace_scope_gate`` re-queries the board at ``kanban_db_path()`` whenever
+    a lead process carries a messaging session origin (``HERMES_SESSION_PLATFORM``
+    + ``HERMES_SESSION_CHAT_ID``) and a configured worker, and rebuilds the
+    ``kanban_list`` result from that query. With the operator's real
+    ``~/.hermes/kanban.db`` present that read returns live tasks, so a test that
+    asserts ``kanban_list`` passes through unchanged fails on a machine that has a
+    board but passes on one that does not. Hermes core resolves the board through
+    ``HERMES_KANBAN_DB`` (pins the default board file) and ``HERMES_KANBAN_HOME``
+    (the root every named board lives under); pinning BOTH to a tmp home that holds
+    no ``kanban.db`` makes every resolution fail open (``None``) regardless of what
+    the operator's disk holds. This is the strongest level: no test can read the
+    live board even by passing an explicit ``board=`` slug, which bypasses the
+    ``HERMES_KANBAN_DB`` pin. Tests that exercise a real board set
+    ``HERMES_KANBAN_DB``/``HERMES_KANBAN_ATTACHMENTS_ROOT`` themselves after this
+    fixture runs, which overrides the pins.
+    """
+    home = tmp_path / "kanban-home"
+    home.mkdir()
+    monkeypatch.setenv("HERMES_KANBAN_HOME", str(home))
+    monkeypatch.setenv("HERMES_KANBAN_DB", str(home / "kanban.db"))
+    monkeypatch.delenv("HERMES_KANBAN_ATTACHMENTS_ROOT", raising=False)
