@@ -59,3 +59,4 @@ def _clear_kanban_worker_env(monkeypatch):
     monkeypatch.delenv("HERMES_DELEGATED_CHILD_CONTEXT", raising=False)
     monkeypatch.delenv("HERMES_KANBAN_DB", raising=False)
     monkeypatch.delenv("HERMES_KANBAN_BOARD", raising=False)
+    monkeypatch.delenv("HERMES_SESSION_KEY", raising=False)
