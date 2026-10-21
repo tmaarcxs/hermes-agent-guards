@@ -123,14 +123,34 @@ def test_worker_terminal_scratch_and_tmp_targets_allowed(target, monkeypatch):
 def test_worker_terminal_kanban_attachments_copy_allowed(monkeypatch, tmp_path):
     """The board's kanban attachments directory is a writable target.
 
-    Pin the board home to a synthetic dir so the allowed root is derived from the
-    fixture, not the operator's real ``~/.hermes`` layout.
+    Everything is synthetic so the allowed root comes from the pinned board home
+    and not from any ambient root: ``tmp_path`` lives under the runner's real
+    ``TMPDIR``, and ``allowed_roots()`` always allows ``TMPDIR``/``/tmp``, so a
+    target merely inside ``tmp_path`` would pass on the TMPDIR allowance alone
+    and the kanban-attachments branch would go untested. Pin a synthetic real
+    home and a ``TMPDIR`` that does not contain the target, then assert the
+    negative control: the same path is blocked once the board home points
+    elsewhere, proving the attachment allowance — not an ambient root — is what
+    permits the write.
     """
-    root = tmp_path / "kanban-home"
+    real_home = tmp_path / "home"
+    (real_home / ".hermes").mkdir(parents=True)
+    fake_tmp = tmp_path / "fake-tmp"
+    fake_tmp.mkdir()
+    monkeypatch.setenv("HERMES_REAL_HOME", str(real_home))
+    monkeypatch.setenv("HOME", str(real_home))
+    monkeypatch.setenv("TMPDIR", str(fake_tmp))
+    root = real_home / ".hermes"
     monkeypatch.setenv("HERMES_KANBAN_HOME", str(root))
     monkeypatch.delenv("HERMES_KANBAN_ATTACHMENTS_ROOT", raising=False)
     target = root / "kanban" / "attachments" / "t_self" / "report.md"
     assert worker_terminal("cp report.md %s" % target) is None
+
+    other = tmp_path / "other-kanban-home"
+    other.mkdir()
+    monkeypatch.setenv("HERMES_KANBAN_HOME", str(other))
+    assert "agent-guards blocked terminal" in worker_terminal(
+        "cp report.md %s" % target)
 
 
 def test_worker_terminal_repo_outside_home_hermes_git_mutation_blocked_plain_write_allowed():
