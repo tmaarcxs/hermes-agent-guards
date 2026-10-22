@@ -27,7 +27,7 @@ import shlex
 from pathlib import Path
 from typing import Any, Optional
 
-from . import kanban_policy
+from . import _policy
 
 _MESSAGE = (
     "agent-guards blocked {tool}: this write targets a protected path outside the "
@@ -176,7 +176,7 @@ def is_worker() -> bool:
     if not (os.environ.get("HERMES_KANBAN_TASK") or "").strip():
         return False
     try:
-        return bool(kanban_policy.configured_worker())
+        return bool(_policy.configured_worker())
     except Exception:
         return True
 
@@ -289,10 +289,6 @@ def _write_targets(cwd: str, segment: str) -> list[str]:
     return targets
 
 
-def _pipe_targets(segment: str) -> list[str]:
-    return []
-
-
 def _py_paths(code: str) -> list[str]:
     starts: list[int] = []
     for pattern in (_PY_CALL, _PY_WRITE_CALL):
@@ -384,7 +380,7 @@ def terminal_violations(command: str) -> list[str]:
                 if _protected(_join(" ", token)):
                     return [_MESSAGE.format(tool="terminal")]
     for cwd, segment in _segments(_strip_heredoc_bodies(command)):
-        for target in _write_targets(cwd, segment) + _pipe_targets(segment):
+        for target in _write_targets(cwd, segment):
             if target and _protected(target):
                 return [_MESSAGE.format(tool="terminal")]
         message = _git_message_for(cwd, segment)
