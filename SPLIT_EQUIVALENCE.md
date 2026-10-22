@@ -7,8 +7,9 @@ intra-plugin `pre_tool_call` tuple.
 
 This report establishes the split's *structural* equivalence: same hooks, same
 callbacks, same relative check order. It is **not** a claim that the three
-folders are behavior-identical to base — two deliberate behavior changes travel
-with the split (§7 nudge rework, §9 skill-size flag + `pre_verify` enforcement).
+folders are behavior-identical to base — three deliberate behavior changes travel
+with the split (§7 nudge rework, §9 skill-size flag + `pre_verify` enforcement,
+§10 `gh auth` shared-account block).
 Everything else in this document describes the split itself.
 
 ## Registered callbacks per hook
@@ -182,3 +183,21 @@ workspace entries keep theirs).
    `pre_verify` / message tests in `shell-guards/tests/test_skill_size.py`
    (including the concurrent-writer case) and by the host probe showing a
    non-worker chat session gets the continue directive.
+
+10. **`gh auth` shared-account block — a deliberate, non-split behavior change.**
+    `shell-guards/terminal_policy.py` adds `_GH_AUTH` (plus `_gh_auth_blocked`,
+    `_quoted_spans`, `_shell_c_argument`), and `terminal_violations` appends its
+    message after the force-push check. At base `90456b2` a `gh auth switch` was
+    not matched by any guard, so a worker could flip the active gh account for
+    every Hermes process (Hermes reads its Copilot token from `gh auth token`,
+    source `gh_cli`) and leave it flipped — the hazard this branch closes. The
+    block covers `switch`, `login`, `logout` and `refresh` at command-word
+    position (bare, with `--user`/`-u`/`--hostname`, under `env`, after
+    `&&`/`;`/`|`, in `$(...)`) and inside a quoted `bash -c`/`sh -c` argument;
+    `gh auth status` and `gh auth token` stay allowed, as do quoted
+    `echo`/`grep` prose, `python -c` bodies and heredoc bodies — the same
+    matching style and the same exemptions as the other terminal blocks. The
+    message names the required per-command form
+    `GH_TOKEN=$(gh auth token -u <user>) <command>` and the default active
+    account `msanchez19`. Pinned by
+    `shell-guards/tests/test_gh_auth_guard.py`.

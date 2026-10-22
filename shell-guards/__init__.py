@@ -11,7 +11,10 @@ Intent (behaviour identical to the monolithic plugin):
   polling loop holding a ``sleep`` of 15 s or more (run the wait with
   ``background=true`` and a notify channel, or poll once without sleeping);
   ``gh pr merge`` without ``--match-head-commit``; ``osascript``; ``git push``
-  with a bare ``--force``/``-f``; recursive deletion of a live Hermes home
+  with a bare ``--force``/``-f``; ``gh auth switch``/``login``/``logout``/
+  ``refresh`` (they change the shared active account for every Hermes process -
+  act as another account with ``GH_TOKEN=$(gh auth token -u <user>) <command>``,
+  default ``msanchez19``); recursive deletion of a live Hermes home
   (``rm -r``, ``find … -delete``, a ``--delete`` sync, a python delete call);
   a ``paas-promote`` dispatch to ``des`` without the ``auto-approval`` label;
   ``kanban_attach`` with more than 256 characters of inline base64 (the bytes
