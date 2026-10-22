@@ -168,7 +168,8 @@ def test_register_wires_every_hook():
     ctx = types.SimpleNamespace(register_hook=lambda name, fn: hooks.append(name))
     guards.register(ctx)
     assert sorted(hooks) == [
-        "post_tool_call", "pre_tool_call", "transform_terminal_output", "transform_tool_result",
+        "post_tool_call", "pre_tool_call", "pre_verify", "transform_terminal_output",
+        "transform_tool_result",
     ]
 
 

@@ -7,9 +7,9 @@ intra-plugin `pre_tool_call` tuple.
 
 This report establishes the split's *structural* equivalence: same hooks, same
 callbacks, same relative check order. It is **not** a claim that the three
-folders are behavior-identical to base — one deliberate behavior change travels
-with the split (§7). Everything else in this document describes the split
-itself.
+folders are behavior-identical to base — two deliberate behavior changes travel
+with the split (§7 nudge rework, §9 skill-size flag + `pre_verify` enforcement).
+Everything else in this document describes the split itself.
 
 ## Registered callbacks per hook
 
@@ -17,16 +17,16 @@ itself.
 |---|---|---|---|---|
 | `pre_tool_call` | 1 (`__init__._pre_tool_call`) | 1 | 1 | 1 |
 | `post_tool_call` | 2 (`__init__._post_tool_call`, `wakes._wake_poke`) | 2 (same two) | 1 (no-op placeholder) | 0 |
-| `pre_verify` | 1 (`stop_gate.check`) | 1 (`stop_gate.check`) | 0 | 0 |
+| `pre_verify` | 1 (`stop_gate.check`) | 1 (`stop_gate.check`) | 1 (`skill_size.verify_check`) | 0 |
 | `transform_tool_result` | 1 (`__init__._transform_tool_result`) | 1 | 1 | 0 |
 | `transform_terminal_output` | 0 | 0 | 1 | 0 |
 | `on_kanban_dispatch_tick` | 6 (the six `wakes` ticks) | 6 (same six) | 0 | 0 |
 
-Total registered callbacks: OLD 11, NEW 11 + 4 + 1 = 16 (kanban 11, shell 4,
+Total registered callbacks: OLD 11, NEW 11 + 5 + 1 = 17 (kanban 11, shell 5,
 workspace 1). The old root registered 11 callbacks on 5 hooks; the new folders
-register 16 because the no-op `shell-guards._post_tool_call` placeholder and
-`shell-guards`' own `transform_terminal_output` seam exist per plugin. Hook totals
-per plugin match each `plugin.yaml`.
+register 17 because the no-op `shell-guards._post_tool_call` placeholder,
+`shell-guards`' own `transform_terminal_output` seam, and its `pre_verify`
+enforcement exist per plugin. Hook totals per plugin match each `plugin.yaml`.
 
 ## Intra-plugin `pre_tool_call` check order
 
@@ -121,8 +121,10 @@ workspace entries keep theirs).
    regression is pinned by
    `tests/test_block_attribution_all_plugins.py::test_raising_guard_stays_fail_open`.
 
-5. **`pre_verify` / `on_kanban_dispatch_tick` unchanged.** Both remain only in
-   `kanban-guards` with the same callbacks as the monolith.
+5. **`pre_verify` / `on_kanban_dispatch_tick`.** `on_kanban_dispatch_tick` remains
+   only in `kanban-guards` with the same callbacks as the monolith.
+   `pre_verify` stays in `kanban-guards` (`stop_gate.check`, unchanged) and is
+   **added** to `shell-guards` — a deliberate behavior change, see §9.
 
 6. **`post_tool_call`.** OLD had `__init__._post_tool_call` (recording into
    `review_gate`, `stop_gate`, `checkpoint_gate`) plus `wakes._wake_poke`.
@@ -151,3 +153,32 @@ workspace entries keep theirs).
    over the 2026-10-18 worker corpus), so they were **kept** — moved verbatim to
    `docs/` rather than deleted. Nothing in the code, tests or docs references
    them; they are reference material, not live documentation.
+
+9. **Skill-size flag rewritten and enforced on `pre_verify` — a deliberate,
+   non-split behavior change.** At base `90456b2` the over-limit flag was a
+   message appended to the tool result and nothing more: a model could read it
+   as someone else's task and end the turn. Two problems made that easy. The
+   snapshot in `record` attributes ANY growth of a skill markdown file to the
+   current call, so when another session or worker writes the file concurrently
+   the flag lands on an unrelated call, and the model correctly says "I did not
+   cause this". And the message itself gave no reason to act anyway.
+
+   This branch changes both, on top of the §2 seam move:
+   - the message now leads with the required action in one imperative sentence,
+     states the file is over its limit NOW regardless of what caused the growth,
+     says who caused it does not matter, says shrinking an over-limit file is
+     always allowed, forbids replying that the file is unrelated, and keeps the
+     tree-split instruction (`shell-guards/skill_size.py` `_post_message`);
+   - `shell-guards` now registers `pre_verify` (`skill_size.verify_check`): while
+     a file flagged in THIS session is still over its limit the turn cannot end —
+     a continue directive names the file and the action. It re-measures at check
+     time (a file already back under its limit clears its flag silently) and caps
+     at two continuations per file per session (`_MAX_CONTINUATIONS`), so a model
+     that cannot fix the file cannot loop forever.
+
+   The flag itself is still raised on the same condition as before (a growth past
+   the limit caused by a watched call) — the false attribution is not "fixed",
+   it is made irrelevant by the message and by enforcement. Pinned by the
+   `pre_verify` / message tests in `shell-guards/tests/test_skill_size.py`
+   (including the concurrent-writer case) and by the host probe showing a
+   non-worker chat session gets the continue directive.

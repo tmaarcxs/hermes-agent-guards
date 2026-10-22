@@ -1,4 +1,5 @@
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -22,11 +23,13 @@ def root(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _clear_caches():
-    for cache in (getattr(size, "_PENDING", None), getattr(size, "_TREE", None)):
+    for cache in (getattr(size, "_PENDING", None), getattr(size, "_TREE", None),
+                  getattr(size, "_FLAGGED", None)):
         if cache is not None:
             cache.clear()
     yield
-    for cache in (getattr(size, "_PENDING", None), getattr(size, "_TREE", None)):
+    for cache in (getattr(size, "_PENDING", None), getattr(size, "_TREE", None),
+                  getattr(size, "_FLAGGED", None)):
         if cache is not None:
             cache.clear()
 
@@ -325,3 +328,126 @@ def test_pending_snapshot_is_bounded(root):
         guards._pre_tool_call(tool_name="terminal", args={"command": "true"}, session_id="s1",
                               tool_call_id=f"c{index}")
     assert len(size._PENDING) == size._MAX_PENDING
+
+
+def _grow(root, *, path=None, body="y" * 7000):
+    """A watched terminal call that leaves one skill file oversized."""
+    skill = path or (root / "cat" / "demo" / "SKILL.md")
+    guards._pre_tool_call(tool_name="terminal", args={"command": "cat >> x"}, session_id="s1",
+                          tool_call_id="m1")
+    skill.write_text(skill.read_text() + body)
+    return guards._transform_tool_result(tool_name="terminal", args={"command": "cat >> x"},
+                                         result="ok", session_id="s1", tool_call_id="m1")
+
+
+def test_message_leads_with_the_required_action_in_one_imperative_sentence(root):
+    out = _grow(root)
+    lead = out[len("ok"):].strip().split(". ")[0]
+    assert lead.startswith("Shrink "), lead
+    assert "now, in this turn" in lead
+    assert "It is over the limit NOW" not in lead, f"the lead must be ONE sentence: {lead!r}"
+
+
+def test_message_says_over_the_limit_now_and_cause_does_not_matter(root):
+    out = _grow(root)
+    assert "It is over the limit NOW" in out
+    assert "regardless of what caused the growth" in out
+    assert "who caused it does not matter" in out
+
+
+def test_message_says_shrinking_is_always_allowed(root):
+    assert "Shrinking an over-limit file is always allowed" in _grow(root)
+
+
+def test_message_forbids_the_unrelated_claim(root):
+    out = _grow(root)
+    assert "Do not reply that the file is unrelated to your task" in out
+
+
+def test_message_keeps_the_tree_split_instruction(root):
+    out = _grow(root)
+    assert "Distribute the content as a tree instead" in out
+    assert "references/<topic>.md" in out and "Move text verbatim" in out
+
+
+def test_message_states_the_limit_and_the_char_count(root):
+    out = _grow(root)
+    assert "over the limit for SKILL.md" in out
+    assert "at 7,150 characters" in out
+
+
+def _verify(**kwargs):
+    """The host's ``pre_verify`` entry point for this plugin."""
+    kwargs.setdefault("session_id", "s1")
+    return guards._pre_verify(**kwargs)
+
+
+def test_pre_verify_continues_while_the_flagged_file_is_over_the_limit(root):
+    _grow(root)
+    directive = _verify()
+    assert directive and directive["action"] == "continue"
+    assert "SKILL.md" in directive["message"]
+    assert "still over its size limit" in directive["message"]
+
+
+def test_pre_verify_clears_silently_once_the_file_is_fixed(root):
+    _grow(root)
+    assert _verify() is not None
+    (root / "cat" / "demo" / "SKILL.md").write_text(SMALL)
+    assert _verify() is None
+    assert "s1" not in size._FLAGGED
+
+
+def test_pre_verify_stops_after_the_cap(root):
+    _grow(root)
+    for _ in range(size._MAX_CONTINUATIONS):
+        assert _verify() is not None
+    assert _verify() is None, "the continuation must be capped per file per session"
+
+
+def test_pre_verify_never_fires_for_a_file_that_was_never_flagged(root):
+    (root / "cat" / "demo" / "SKILL.md").write_text("x" * 9000)
+    assert _verify() is None
+    assert _verify(session_id="another") is None
+
+
+def test_pre_verify_is_scoped_to_the_session_that_saw_the_flag(root):
+    _grow(root)
+    assert _verify(session_id="other") is None
+    assert _verify(session_id="s1") is not None
+
+
+def test_pre_verify_fails_open_on_internal_errors(root, monkeypatch):
+    _grow(root)
+    monkeypatch.setattr(size, "_over_limit", lambda _p: (_ for _ in ()).throw(RuntimeError("boom")))
+    assert _verify() is None
+
+
+def test_the_concurrent_writer_case_is_enforced_and_cleared(root):
+    """Card step 1: a second writer grows the file during an unrelated call.
+
+    The flag is produced (false attribution, unchanged) — but now the turn cannot end
+    while the file is still over its limit, and the flag clears once it is fixed.
+    """
+    guards._pre_tool_call(tool_name="terminal", args={"command": "echo hi"}, session_id="s1",
+                          tool_call_id="w1")
+    skill = root / "cat" / "demo" / "SKILL.md"
+    subprocess.run([sys.executable, "-c", f"open({str(skill)!r}, 'a').write('y' * 7000)"], check=True)
+    out = guards._transform_tool_result(tool_name="terminal", args={"command": "echo hi"}, result="hi",
+                                        session_id="s1", tool_call_id="w1")
+    assert out and "over the limit" in out
+    assert _verify() is not None, "the flag must now be enforced, not merely reported"
+    skill.write_text(SMALL)
+    assert _verify() is None
+
+
+def test_flagged_file_removed_from_disk_clears_the_flag(root):
+    _grow(root)
+    (root / "cat" / "demo" / "SKILL.md").unlink()
+    assert _verify() is None
+
+
+def test_flagging_is_bounded_per_session(root):
+    for index in range(size._MAX_FLAGGED_SESSIONS + 2):
+        size._remember_flag(f"s{index}", "/x/SKILL.md")
+    assert len(size._FLAGGED) == size._MAX_FLAGGED_SESSIONS

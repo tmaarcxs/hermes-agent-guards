@@ -12,7 +12,7 @@ on ``pre_tool_call`` for ``terminal``, ``execute_code`` and ``patch`` and takes 
 snapshot of every markdown file under the skill roots — its byte size by ``stat``,
 and its character count only for a file already over its limit in bytes, since a
 file under the limit in bytes cannot be over it in characters. The flag is
-delivered by one of two seams, both built on ``_flag_messages``: a ``terminal``
+delivered by one of two seams, both built on ``_flag``: a ``terminal``
 call is flagged on ``transform_terminal_output``, which the terminal tool runs
 INSIDE the tool, before ``transform_tool_result``; every other watched tool
 (``execute_code``, unified-diff ``patch``) is flagged on ``transform_tool_result``.
@@ -23,6 +23,17 @@ the snapshot. Unified-diff ``patch`` calls and writes through
 ``terminal``/``execute_code`` (shell redirects, python scripts, ``sed -i``,
 ``cp``/``mv``) are therefore measured too. Nothing is reverted, deleted or backed
 up: the write stands and the model is told to fix it in the same turn.
+
+The flag message alone was not enough: a model can read it as someone else's
+task, because the snapshot attributes any growth to the current call even when
+another session or worker wrote the file concurrently. So the message leads with
+the required action and says outright that the cause does not matter and that the
+file is over its limit NOW. And the flag is enforced deterministically: ``verify_check``
+runs on ``pre_verify`` and refuses to end the turn while a file flagged in THIS
+session is still over its limit, returning a continue directive that names the
+file and the action. It re-measures at check time (a file already back under its
+limit clears the flag silently) and caps at ``_MAX_CONTINUATIONS`` continuations
+per file per session, so a model that cannot fix it cannot loop forever.
 
 The terminal seam exists because the host keeps only the FIRST non-``None``
 ``transform_tool_result`` string across plugins (``model_tools.py``
@@ -45,12 +56,15 @@ from typing import Any, Optional
 
 SKILL_LIMIT = 6000
 REFERENCE_LIMIT = 12000
+_MAX_CONTINUATIONS = 2
+_MAX_FLAGGED_SESSIONS = 200
 
 _WATCHED_TOOLS = frozenset({"terminal", "execute_code", "patch"})
 _MAX_PENDING = 8
 _MAX_TREE = 4096
-_PENDING: "OrderedDict[str, dict[str, tuple[int, Optional[int], float]]]" = OrderedDict()
+_PENDING: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
 _TREE: "dict[str, tuple[float, list[str], list[str]]]" = {}
+_FLAGGED: "OrderedDict[str, dict[str, int]]" = OrderedDict()
 
 _TREE_SPLIT = (
     "Distribute the content as a tree instead: keep SKILL.md as the index (frontmatter, when to use, "
@@ -59,6 +73,19 @@ _TREE_SPLIT = (
     "index pointing to references/<topic>-<subtopic>.md files. Move text verbatim, keep existing file "
     "paths, then retry."
 )
+
+_CONTINUE = (
+    "[System: agent-guards. This turn cannot end yet: {files} is still over its size limit. "
+    "Shrink it now, in this same response — move text verbatim into references/<topic>.md files and "
+    "keep SKILL.md as the short index. Shrinking an over-limit file is always allowed. "
+    "Do not reply that the file is unrelated to your task.]"
+)
+
+
+def reset() -> None:
+    """Clear per-session state (used by the test suite)."""
+    _PENDING.clear()
+    _FLAGGED.clear()
 
 
 def _hermes_home() -> Path:
@@ -255,20 +282,35 @@ def _snapshot() -> dict[str, tuple[int, Optional[int], float]]:
     return found
 
 
+def _session_of(**kwargs) -> str:
+    """The session key the flag and the ``pre_verify`` check both key on.
+
+    ``pre_tool_call`` (``record``) and ``transform_tool_result`` carry ``session_id``;
+    ``pre_verify`` carries only ``session_id``. The ``task_id`` fallback keeps a worker
+    whose hook payload lacks a session id from losing its flags.
+    """
+    return str(kwargs.get("session_id") or kwargs.get("task_id") or "")
+
+
+def _snapshot_pending(key: str, session: str) -> None:
+    _PENDING[key] = {"session": session, "before": _snapshot()}
+    _PENDING.move_to_end(key)
+    while len(_PENDING) > _MAX_PENDING:
+        _PENDING.popitem(last=False)
+
+
 def record(tool_name: str = "", args: Any = None, **kwargs) -> None:
     """``pre_tool_call``: remember the skill-markdown sizes before a call that can write them.
 
     Keyed by ``tool_call_id`` so concurrent tool calls in one turn cannot shadow each
-    other; the oldest entries are dropped once ``_MAX_PENDING`` is exceeded.
+    other; the oldest entries are dropped once ``_MAX_PENDING`` is exceeded. The session
+    key travels with the snapshot because the ``transform_terminal_output`` seam does not
+    receive a session id — only ``pre_tool_call`` does.
     """
     try:
         if tool_name not in _WATCHED_TOOLS:
             return
-        key = str(kwargs.get("tool_call_id") or "")
-        _PENDING[key] = _snapshot()
-        _PENDING.move_to_end(key)
-        while len(_PENDING) > _MAX_PENDING:
-            _PENDING.popitem(last=False)
+        _snapshot_pending(str(kwargs.get("tool_call_id") or ""), _session_of(**kwargs))
     except Exception:
         return
 
@@ -276,21 +318,27 @@ def record(tool_name: str = "", args: Any = None, **kwargs) -> None:
 def _post_message(tool_name: str, target: Path, chars: int, limit: int) -> str:
     kind = "SKILL.md" if limit == SKILL_LIMIT else "a skill reference file"
     return (
-        f"agent-guards: {tool_name} left {target} at {chars:,} characters, over the limit for {kind} "
-        f"({limit:,}; SKILL.md {SKILL_LIMIT:,}, other skill .md files {REFERENCE_LIMIT:,}). "
-        "Fix it now, in this turn. " + _TREE_SPLIT
+        f"Shrink {target} now, in this turn: agent-guards: {tool_name} left it at {chars:,} characters, "
+        f"over the limit for {kind} ({limit:,}; SKILL.md {SKILL_LIMIT:,}, other skill .md files "
+        f"{REFERENCE_LIMIT:,}). It is over the limit NOW, regardless of what caused the growth — who "
+        "caused it does not matter. Shrinking an over-limit file is always allowed. Do not reply that "
+        "the file is unrelated to your task. " + _TREE_SPLIT
     )
 
 
-def _flag(tool_name: str, result: str, key: str) -> Optional[str]:
+def _flag(tool_name: str, result: str, key: str, session: str = "") -> Optional[str]:
     """Append one tree-split instruction per skill markdown this call left oversized.
 
     Pops the call's ``_PENDING`` snapshot, so the first seam to run wins and the
-    second sees ``None`` — one call is never flagged twice.
+    second sees ``None`` — one call is never flagged twice. Every flagged file is
+    remembered against the session so ``pre_verify`` can refuse to end the turn
+    while it is still over its limit.
     """
-    before = _PENDING.pop(key, None)
-    if before is None:
+    pending = _PENDING.pop(key, None)
+    if pending is None:
         return None
+    before = pending["before"]
+    session = session or pending["session"]
     messages = []
     for path, (_size, chars, _mtime) in _snapshot().items():
         limit = _snapshot_limit(path)
@@ -300,9 +348,68 @@ def _flag(tool_name: str, result: str, key: str) -> Optional[str]:
         if previous is not None and previous[1] is not None and chars <= previous[1]:
             continue
         messages.append(_post_message(tool_name, Path(path), chars, limit))
+        _remember_flag(session, path)
     if not messages:
         return None
     return result + "\n\n" + "\n\n".join(messages)
+
+
+def _remember_flag(session: str, path: str) -> None:
+    if not session:
+        return
+    flags = _FLAGGED.setdefault(session, {})
+    flags.setdefault(path, 0)
+    _FLAGGED.move_to_end(session)
+    while len(_FLAGGED) > _MAX_FLAGGED_SESSIONS:
+        _FLAGGED.popitem(last=False)
+
+
+def _over_limit(path: str) -> bool:
+    """Is ``path`` still over its limit right now? Re-measured, never cached."""
+    limit = _limit(Path(path))
+    if limit is None:
+        return False
+    try:
+        chars = len(Path(path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError):
+        return False
+    return chars > limit
+
+
+def verify_check(**kwargs) -> Optional[dict[str, str]]:
+    """``pre_verify``: refuse to end the turn while a flagged file is still over its limit.
+
+    Re-measures every file flagged in THIS session: a file already back under its limit
+    (or gone) clears its flag silently. For a file still over, one continue directive
+    naming it is returned — at most ``_MAX_CONTINUATIONS`` times per file per session, so
+    a model that cannot fix it cannot loop forever. Fails open.
+
+    The host consults ``pre_verify`` only after a ``write_file``/``patch`` landed in the
+    turn (``agent/turn_stop_gates.py`` ``_pre_verify_nudge``: ``_edited and has_hook(...)``)
+    and bounds the directives itself by ``agent.max_verify_nudges``; this check is not
+    worker-scoped, so a main chat session gets it too.
+    """
+    try:
+        session = _session_of(**kwargs)
+        flags = _FLAGGED.get(session)
+        if not flags:
+            return None
+        outstanding = []
+        for path in list(flags):
+            if not _over_limit(path):
+                flags.pop(path, None)
+                continue
+            if flags[path] >= _MAX_CONTINUATIONS:
+                continue
+            flags[path] += 1
+            outstanding.append(path)
+        if not flags:
+            _FLAGGED.pop(session, None)
+        if not outstanding:
+            return None
+        return {"action": "continue", "message": _CONTINUE.format(files=", ".join(outstanding))}
+    except Exception:
+        return None
 
 
 def transform(tool_name: str = "", args: Any = None, result: Any = None, **kwargs) -> Optional[str]:
@@ -320,7 +427,7 @@ def transform(tool_name: str = "", args: Any = None, result: Any = None, **kwarg
     try:
         if tool_name not in _WATCHED_TOOLS or not isinstance(result, str):
             return None
-        return _flag(tool_name, result, str(kwargs.get("tool_call_id") or ""))
+        return _flag(tool_name, result, str(kwargs.get("tool_call_id") or ""), _session_of(**kwargs))
     except Exception:
         return None
 

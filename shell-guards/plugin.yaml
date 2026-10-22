@@ -22,9 +22,12 @@ description: >
   task), and doubled `skill_view` names `x:x` into `x`; and keep skill markdown
   files under their size limit - blocks a `skill_manage`/`write_file`/`patch`
   call that would push one over (SKILL.md 6000, other skill .md files 12000
-  characters) and flags after the fact a `terminal`/`execute_code`/unified-diff
-  `patch` call that left one oversized, appending the tree-split instruction to
-  the tool result without reverting. Matches commands at command-word position
+  characters), flags after the fact a `terminal`/`execute_code`/unified-diff
+  `patch` call that left one oversized (appending the required action and the
+  tree-split instruction to the tool result without reverting), and refuses on
+  `pre_verify` to end the turn while a flagged file is still over its limit
+  (re-measured at check time; at most two continuations per file per session).
+  Matches commands at command-word position
   outside quoted strings, so mentions in strings, grep patterns and python
   bodies pass; it catches slips, not deliberate evasion, and fails open.
 author: "shard-guard"
@@ -32,10 +35,12 @@ kind: standalone
 hooks:
   - pre_tool_call
   - post_tool_call
+  - pre_verify
   - transform_tool_result
   - transform_terminal_output
 provides_hooks:
   - pre_tool_call
   - post_tool_call
+  - pre_verify
   - transform_tool_result
   - transform_terminal_output

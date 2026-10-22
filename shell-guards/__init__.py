@@ -24,9 +24,11 @@ Intent (behaviour identical to the monolithic plugin):
   doubled ``skill_view`` name ``x:x`` becomes ``x``;
 - sizes: blocks ``skill_manage``/``write_file``/``patch`` calls that would push
   a skill markdown file over its limit (SKILL.md 6000, other skill ``.md``
-  12000 characters), and flags after the fact a ``terminal``/``execute_code``/
-  ``patch`` call that left one over its limit (instruction appended to the
-  result, no revert).
+  12000 characters), flags after the fact a ``terminal``/``execute_code``/
+  ``patch`` call that left one over its limit (required action + tree-split
+  instruction appended to the result, no revert), and refuses on ``pre_verify``
+  to end the turn while a file this session flagged is still over its limit
+  (re-measured at check time, at most two continuations per file per session).
 
 Matches commands at command-word position outside quoted strings, so mentions
 in strings, grep patterns and python -c bodies pass. It catches slips, not
@@ -56,6 +58,7 @@ except ImportError:
 def register(ctx) -> None:
     ctx.register_hook("pre_tool_call", _pre_tool_call)
     ctx.register_hook("post_tool_call", _post_tool_call)
+    ctx.register_hook("pre_verify", _pre_verify)
     ctx.register_hook("transform_tool_result", _transform_tool_result)
     ctx.register_hook("transform_terminal_output", _transform_terminal_output)
 
@@ -67,6 +70,18 @@ def _post_tool_call(**kwargs) -> None:
     registered so the plugin's hook surface is stable across the split.
     """
     return None
+
+
+def _pre_verify(**kwargs) -> Optional[dict]:
+    """Refuse to end the turn while a file this session flagged is still over its limit.
+
+    See ``skill_size.check``: re-measures at check time, clears a fixed file silently,
+    caps at two continuations per file per session, fails open.
+    """
+    try:
+        return skill_size.verify_check(**kwargs)
+    except Exception:
+        return None
 
 
 def _transform_tool_result(**kwargs) -> Optional[str]:
