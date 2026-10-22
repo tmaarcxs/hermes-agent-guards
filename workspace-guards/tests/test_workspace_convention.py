@@ -20,7 +20,7 @@ gate = guards.workspace_convention
 
 @pytest.fixture(autouse=True)
 def convention_home(monkeypatch, tmp_path):
-    monkeypatch.setattr(guards.kanban_policy, "configured_worker", lambda: "worker")
+    monkeypatch.setattr(guards.workspace_convention._policy, "configured_worker", lambda: "worker")
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("HERMES_REAL_HOME", str(home))
@@ -217,11 +217,15 @@ def test_message_names_every_allowed_location_and_scratch_default(convention_hom
 
 
 def test_message_carries_the_retry_instruction(convention_home):
-    from test_retry_instruction import assert_retry_instruction
-
+    INSTRUCTION = "retry the lifecycle call in this same response"
+    VIOLATION_CLAUSE = "protocol violation"
+    # Same assertion the repo-wide tests/test_retry_instruction.py makes; the
+    # file itself belongs to the kanban-guards lane, so the two-line helper is
+    # copied here instead of importing across plugin folders.
     message = blocked({**BASE, "workspace_kind": "dir",
                        "workspace_path": str(convention_home)})
-    assert_retry_instruction(message)
+    assert INSTRUCTION in message, message
+    assert VIOLATION_CLAUSE in message, message
 
 
 def test_block_is_attributed_to_the_guard(convention_home):
@@ -231,7 +235,7 @@ def test_block_is_attributed_to_the_guard(convention_home):
 
 
 def test_inactive_without_configured_worker(monkeypatch, convention_home):
-    monkeypatch.setattr(guards.kanban_policy, "configured_worker", lambda: "")
+    monkeypatch.setattr(guards.workspace_convention._policy, "configured_worker", lambda: "")
     assert gate.check("kanban_create", {**BASE, "workspace_kind": "dir",
                                         "workspace_path": str(convention_home)}) is None
 

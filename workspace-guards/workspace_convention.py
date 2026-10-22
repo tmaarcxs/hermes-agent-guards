@@ -33,7 +33,7 @@ import os
 from pathlib import Path
 from typing import Any, Optional
 
-from . import kanban_policy
+from . import _policy
 
 CONVENTIONAL_KINDS = ("dir", "worktree")
 ADHOC_DEPTH = 1
@@ -168,14 +168,14 @@ def message(found: list[str], args: dict[str, Any]) -> str:
         + ". "
         + allowed
         + " Use scratch by default. Fix the call and retry — "
-        + kanban_policy.RETRY_INSTRUCTION
+        + _policy.RETRY_INSTRUCTION
     )
 
 
 def check(tool_name: str, args: Any) -> Optional[str]:
     if tool_name != "kanban_create" or not isinstance(args, dict):
         return None
-    if not kanban_policy.configured_worker():
+    if not _policy.configured_worker():
         return None
     found = violations(args)
     if not found:
