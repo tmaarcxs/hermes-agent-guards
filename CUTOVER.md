@@ -7,7 +7,13 @@ Precondition: `split/integrate` is merged to the default branch, and the three
 folders are reachable at `tmaarcxs/hermes-agent-guards#shell-guards`,
 `#workspace-guards`, `#kanban-guards`.
 
-## Verified current state (read from the live configs, 2026-10-22)
+## Verified current state (read from the live configs on 2026-10-22 — a point-in-time snapshot)
+
+This section is a **point-in-time read taken on 2026-10-22**, not a live or
+maintained description: `plugins.enabled` and `plugins.entries` change as
+plugins are installed, disabled or reconfigured, so re-read both files before
+executing the steps below. The steps themselves are name-based and do not depend
+on the exact lists shown here.
 
 - `~/.hermes/config.yaml` (default profile, a real file):
   - `plugins.enabled` = `['agent-guards', 'disk-cleanup', 'hermes-auto-titler', 'hindsight', 'progress-squash', 'task-retro', 'telegram-mirror', 'time-gap', 'web/firecrawl']`
