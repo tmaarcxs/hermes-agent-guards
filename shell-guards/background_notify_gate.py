@@ -25,14 +25,14 @@ Fails open.
 import re
 from typing import Any, Optional
 
-from . import kanban_policy
+from . import _policy
 
 MESSAGE = (
     "agent-guards blocked terminal: give this background=true job an outcome channel — "
     "add notify=true (or heartbeat>0) or run it foreground."
 )
 
-_RETRY_INSTRUCTION = getattr(kanban_policy, "RETRY_INSTRUCTION", "")
+_RETRY_INSTRUCTION = getattr(_policy, "RETRY_INSTRUCTION", "")
 
 _STMT = re.compile(r"(?:^|[;&|\n(`{]|\$\(|\bthen\b|\bdo\b|\belse\b)[ \t]*")
 
@@ -111,6 +111,6 @@ def check(tool_name: str, args: Any) -> Optional[str]:
         return None
     if _final_statement_is_server(str(args.get("command") or "")):
         return None
-    if not kanban_policy.configured_worker():
+    if not _policy.configured_worker():
         return None
     return MESSAGE + (" " + _RETRY_INSTRUCTION if _RETRY_INSTRUCTION else "")

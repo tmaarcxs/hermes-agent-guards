@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 
-guards = sys.modules["agent_guards"]
+guards = sys.modules["shell_guards"]
 gate = guards.background_notify_gate
 
 
@@ -13,7 +13,7 @@ def call(args: dict[str, Any]) -> Any:
 
 @pytest.fixture(autouse=True)
 def worker_setup(monkeypatch):
-    monkeypatch.setattr(guards.kanban_policy, "configured_worker", lambda: "worker")
+    monkeypatch.setattr(guards._policy, "configured_worker", lambda: "worker")
 
 
 def test_bounded_job_without_notify_is_blocked():
@@ -106,7 +106,7 @@ def test_bounded_jobs_are_still_blocked(command: str):
 
 
 def test_not_a_worker_is_exempt(monkeypatch):
-    monkeypatch.setattr(guards.kanban_policy, "configured_worker", lambda: "")
+    monkeypatch.setattr(guards._policy, "configured_worker", lambda: "")
     assert call({"background": True, "command": "python3 replay.py"}) is None
 
 

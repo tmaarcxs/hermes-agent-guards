@@ -2,7 +2,7 @@ import sys
 
 import pytest
 
-guards = sys.modules["agent_guards"]
+guards = sys.modules["shell_guards"]
 gate = guards.paas_promote_gate
 
 INCIDENT = (

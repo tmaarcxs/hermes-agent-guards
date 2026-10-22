@@ -40,7 +40,6 @@ _HERMES_HOME_DELETE_MESSAGE = (
     '`env HERMES_HOME="$(mktemp -d "$PWD/.hermes-test-home.XXXXXX")" <test cmd>`; '
     "delete the printed directory by its literal path."
 )
-_UNIT_SECONDS = {"": 1, "s": 1, "m": 60, "h": 3600}
 
 
 def _strip_heredocs(command: str) -> str:

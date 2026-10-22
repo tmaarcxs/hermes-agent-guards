@@ -3,12 +3,12 @@ import sys
 import pytest
 import re
 
-guards = sys.modules["agent_guards"]
+guards = sys.modules["shell_guards"]
 
 
 @pytest.fixture(autouse=True)
 def _no_configured_worker(monkeypatch):
-    monkeypatch.setattr(guards.kanban_policy, "configured_worker", lambda: "")
+    monkeypatch.setattr(guards._policy, "configured_worker", lambda: "")
 
 
 def run(command, background=False):
@@ -167,7 +167,21 @@ def test_register_wires_every_hook():
     hooks = []
     ctx = types.SimpleNamespace(register_hook=lambda name, fn: hooks.append(name))
     guards.register(ctx)
-    assert sorted(hooks) == ["on_kanban_dispatch_tick"] * 6 + ["post_tool_call"] * 2 + ["pre_tool_call", "pre_verify", "transform_tool_result"]
+    assert sorted(hooks) == ["post_tool_call", "pre_tool_call", "transform_tool_result"]
+
+
+def test_register_registers_exactly_the_plugin_yaml_hooks():
+    import types
+    from pathlib import Path
+
+    import yaml
+
+    declared = yaml.safe_load((Path(__file__).parents[1] / "plugin.yaml").read_text())["hooks"]
+    hooks = []
+    ctx = types.SimpleNamespace(register_hook=lambda name, fn: hooks.append(name))
+    guards.register(ctx)
+    assert sorted(hooks) == sorted(declared)
+    assert len(hooks) == len(declared)
 
 
 def test_large_inline_attach_blocked():

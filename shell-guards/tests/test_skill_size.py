@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-guards = sys.modules["agent_guards"]
+guards = sys.modules["shell_guards"]
 size = guards.skill_size
 
 SMALL = "---\nname: demo\ndescription: Use when testing.\n---\n" + "x" * 100

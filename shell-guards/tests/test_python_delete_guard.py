@@ -2,12 +2,12 @@ import sys
 
 import pytest
 
-guards = sys.modules["agent_guards"]
+guards = sys.modules["shell_guards"]
 
 
 @pytest.fixture(autouse=True)
 def _no_configured_worker(monkeypatch):
-    monkeypatch.setattr(guards.kanban_policy, "configured_worker", lambda: "")
+    monkeypatch.setattr(guards._policy, "configured_worker", lambda: "")
 
 
 def run(command, background=False):

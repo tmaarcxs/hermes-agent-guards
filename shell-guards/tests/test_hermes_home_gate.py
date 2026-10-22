@@ -3,7 +3,7 @@ import sys
 
 import pytest
 
-guards = sys.modules["agent_guards"]
+guards = sys.modules["shell_guards"]
 
 
 def run(command, background=False):
@@ -255,7 +255,7 @@ def test_hermes_home_same_command_var_assignment_stays_blocked():
 
 
 def test_hermes_home_block_message_recipe_allowed_by_guard():
-    from agent_guards.hermes_home_gate import _HERMES_HOME_DELETE_MESSAGE
+    from shell_guards.hermes_home_gate import _HERMES_HOME_DELETE_MESSAGE
     match = re.search(r'`env HERMES_HOME=.*?<test cmd>`', _HERMES_HOME_DELETE_MESSAGE)
     assert match, _HERMES_HOME_DELETE_MESSAGE
     recipe = match.group(0).strip("`")
@@ -263,6 +263,6 @@ def test_hermes_home_block_message_recipe_allowed_by_guard():
 
 
 def test_hermes_home_block_message_single_trailing_period():
-    from agent_guards.hermes_home_gate import _HERMES_HOME_DELETE_MESSAGE
+    from shell_guards.hermes_home_gate import _HERMES_HOME_DELETE_MESSAGE
     assert _HERMES_HOME_DELETE_MESSAGE.endswith(".")
     assert not _HERMES_HOME_DELETE_MESSAGE.endswith("..")
