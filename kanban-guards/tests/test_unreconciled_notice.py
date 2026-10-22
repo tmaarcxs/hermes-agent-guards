@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-guards = sys.modules["agent_guards"]
+guards = sys.modules["kanban_guards"]
 reconcile = guards.wakes
 
 

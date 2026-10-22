@@ -33,10 +33,10 @@ try:
 except ImportError:
     if __name__ != "__init__":
         raise
-    # Bare ``pytest`` (no test path) can import this file as the top-level
-    # module ``__init__`` where the relative import has no parent package; the
-    # package body is dead weight there, so swallow the ImportError only in
-    # that synthetic shape and re-raise everywhere else.
+    """Bare ``pytest`` (no test path) can import this file as the top-level
+    module ``__init__`` where the relative import has no parent package; the
+    package body is dead weight there, so swallow the ImportError only in
+    that synthetic shape and re-raise everywhere else."""
 
 
 _MODULES = None  # bound lazily so the bare-pytest synthetic shape stays inert

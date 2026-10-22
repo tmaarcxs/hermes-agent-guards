@@ -3,7 +3,7 @@ import sqlite3
 
 import sys
 
-from agent_guards import board_watch
+from kanban_guards import board_watch
 
 CLOCK = 1_000_000.0
 

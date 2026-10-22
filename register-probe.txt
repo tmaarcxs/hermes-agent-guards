@@ -1,3 +1,0 @@
-declared:   ['pre_tool_call']
-registered: ['pre_tool_call']
-OK: register() registers exactly the hooks declared in plugin.yaml

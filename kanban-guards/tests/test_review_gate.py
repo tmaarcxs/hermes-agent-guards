@@ -3,7 +3,7 @@ import sys
 
 import pytest
 
-guards = sys.modules["agent_guards"]
+guards = sys.modules["kanban_guards"]
 gate = guards.review_gate
 
 EIGHT = (

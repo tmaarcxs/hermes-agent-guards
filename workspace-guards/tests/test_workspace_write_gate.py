@@ -3,7 +3,7 @@ import sys
 
 import pytest
 
-guard = sys.modules["agent_guards"]
+guard = sys.modules["workspace_guards"]
 gate = guard.workspace_write_gate
 
 WS = "/tmp/fake-task-workspace"

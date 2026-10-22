@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-guards = sys.modules["agent_guards"]
+guards = sys.modules["kanban_guards"]
 gate = guards.handoff_gate
 
 FINISHED = [

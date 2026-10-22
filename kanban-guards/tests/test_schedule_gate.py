@@ -2,7 +2,7 @@ import sys
 
 import pytest
 
-guards = sys.modules["agent_guards"]
+guards = sys.modules["kanban_guards"]
 
 WASHOUT = {"reason": "WASHOUT_UNTIL=2099-01-01T10:00:00+02:00 backend fix needs release+deploy"}
 

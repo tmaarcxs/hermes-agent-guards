@@ -14,7 +14,6 @@ if "kanban_guards" not in sys.modules:
     _module = importlib.util.module_from_spec(_spec)
     sys.modules["kanban_guards"] = _module
     _spec.loader.exec_module(_module)
-sys.modules.setdefault("agent_guards", sys.modules["kanban_guards"])
 
 collect_ignore = [str(_root / "__init__.py")]
 

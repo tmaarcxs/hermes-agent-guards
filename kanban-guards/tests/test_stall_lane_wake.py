@@ -1,7 +1,7 @@
 import sqlite3
 import sys
 
-guards = sys.modules["agent_guards"]
+guards = sys.modules["kanban_guards"]
 wake = guards.wakes
 
 NOW = 1_000_000.0

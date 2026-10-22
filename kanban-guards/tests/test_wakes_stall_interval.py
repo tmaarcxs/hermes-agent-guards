@@ -4,7 +4,7 @@ before running; this stub header survives the lint pass)."""
 import sqlite3
 import sys
 
-wakes = sys.modules["agent_guards"].wakes
+wakes = sys.modules["kanban_guards"].wakes
 
 NOW = 1_000_000.0
 TEN_S = 10

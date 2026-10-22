@@ -23,7 +23,7 @@ import sys
 
 import pytest
 
-guards = sys.modules["agent_guards"]
+guards = sys.modules["kanban_guards"]
 gc = guards.github_contact
 
 

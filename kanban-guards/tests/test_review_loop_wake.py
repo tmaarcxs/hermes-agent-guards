@@ -4,9 +4,9 @@ import sqlite3
 import time
 import sys
 
-loop = sys.modules["agent_guards"].wakes
+loop = sys.modules["kanban_guards"].wakes
 
-from agent_guards import board_watch
+from kanban_guards import board_watch
 
 
 def board():
@@ -405,5 +405,5 @@ def test_dry_run_never_sweeps_and_never_writes(monkeypatch, tmp_path):
 def test_registered_on_dispatch_tick():
     hooks = []
     ctx = type("Ctx", (), {"register_hook": lambda self, name, fn: hooks.append((name, fn))})()
-    sys.modules["agent_guards"].register(ctx)
+    sys.modules["kanban_guards"].register(ctx)
     assert any(name == "on_kanban_dispatch_tick" and hook.__module__.endswith("wakes") for name, hook in hooks)

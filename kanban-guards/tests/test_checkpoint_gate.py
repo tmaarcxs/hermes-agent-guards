@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-guards = sys.modules["agent_guards"]
+guards = sys.modules["kanban_guards"]
 gate = guards.checkpoint_gate
 
 BASE = 420

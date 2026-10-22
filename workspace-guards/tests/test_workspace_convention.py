@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-guards = sys.modules["agent_guards"]
+guards = sys.modules["workspace_guards"]
 gate = guards.workspace_convention
 
 
@@ -219,9 +219,9 @@ def test_message_names_every_allowed_location_and_scratch_default(convention_hom
 def test_message_carries_the_retry_instruction(convention_home):
     INSTRUCTION = "retry the lifecycle call in this same response"
     VIOLATION_CLAUSE = "protocol violation"
-    # Same assertion the repo-wide tests/test_retry_instruction.py makes; the
-    # file itself belongs to the kanban-guards lane, so the two-line helper is
-    # copied here instead of importing across plugin folders.
+    """Same assertion the repo-wide tests/test_retry_instruction.py makes; the
+    file itself belongs to the kanban-guards lane, so the two-line helper is
+    copied here instead of importing across plugin folders."""
     message = blocked({**BASE, "workspace_kind": "dir",
                        "workspace_path": str(convention_home)})
     assert INSTRUCTION in message, message

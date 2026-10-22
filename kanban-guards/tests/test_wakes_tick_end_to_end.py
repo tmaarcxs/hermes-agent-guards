@@ -23,8 +23,8 @@ import types
 
 import pytest
 
-wake = sys.modules["agent_guards"].wakes
-board_watch = sys.modules["agent_guards"].board_watch
+wake = sys.modules["kanban_guards"].wakes
+board_watch = sys.modules["kanban_guards"].board_watch
 
 
 def _board(tmp_path, monkeypatch):

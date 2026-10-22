@@ -3,7 +3,7 @@ import os
 
 import pytest
 
-guards = pytest.importorskip("agent_guards")
+guards = pytest.importorskip("kanban_guards")
 
 gate = guards.kanban_show_slim_gate
 

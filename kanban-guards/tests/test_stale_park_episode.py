@@ -20,7 +20,7 @@ import sqlite3
 
 import sys
 
-wake = sys.modules["agent_guards"].wakes
+wake = sys.modules["kanban_guards"].wakes
 
 NOW = 1_000_000.0
 HOUR = 3600

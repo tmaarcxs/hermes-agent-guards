@@ -6,9 +6,9 @@ from pathlib import Path
 
 import sys
 
-wake = sys.modules["agent_guards"].wakes
+wake = sys.modules["kanban_guards"].wakes
 
-from agent_guards import board_watch
+from kanban_guards import board_watch
 
 NOW = 1_000_000.0
 HOUR = 3600

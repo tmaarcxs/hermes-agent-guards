@@ -3,7 +3,7 @@ import sys
 
 import pytest
 
-guards = sys.modules["agent_guards"]
+guards = sys.modules["kanban_guards"]
 gate = guards.completion_gate
 
 URL_CONTRACT = "https://github.com/atlas/spa-demosuite/pull/223"

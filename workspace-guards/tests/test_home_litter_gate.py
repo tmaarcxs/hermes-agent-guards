@@ -3,7 +3,7 @@ import sys
 
 import pytest
 
-guard = sys.modules["agent_guards"]
+guard = sys.modules["workspace_guards"]
 gate = guard.home_litter_gate
 
 WS = "/tmp/fake-task-workspace"

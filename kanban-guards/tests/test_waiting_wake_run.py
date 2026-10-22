@@ -3,7 +3,7 @@ import sqlite3
 import sys
 import time
 
-guards = sys.modules["agent_guards"]
+guards = sys.modules["kanban_guards"]
 wake = guards.wakes
 board_watch = guards.board_watch
 
@@ -336,7 +336,7 @@ def test_on_tick_is_unthrottled_state_is_its_own_file_and_it_fails_open(monkeypa
 def test_registered_on_dispatch_tick():
     hooks = []
     ctx = type("Ctx", (), {"register_hook": lambda self, name, fn: hooks.append((name, fn))})()
-    sys.modules["agent_guards"].register(ctx)
+    sys.modules["kanban_guards"].register(ctx)
     registered = [hook for name, hook in hooks if name == "on_kanban_dispatch_tick"]
     for hook in (wake.stale_on_tick, wake.loop_on_tick, wake.churn_on_tick, wake.waiting_on_tick, wake.stall_on_tick, wake.reconcile_on_tick):
         assert hook in registered

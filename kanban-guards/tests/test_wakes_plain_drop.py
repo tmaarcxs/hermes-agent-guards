@@ -7,7 +7,7 @@ suppresses already gated)."""
 import sqlite3
 import sys
 
-wakes = sys.modules["agent_guards"].wakes
+wakes = sys.modules["kanban_guards"].wakes
 
 NOW = 1_000_000.0
 HOUR = 3600

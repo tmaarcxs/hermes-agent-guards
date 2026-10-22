@@ -8,7 +8,7 @@ Self-contained agent-guards plugin for terminal command hygiene.
 - `gh pr merge` without `--match-head-commit` — merges must pin the verified head.
 - `osascript` — desktop automation goes through ego-browser.
 - `git push` with a bare `--force`/`-f` — use `--force-with-lease`.
-- Recursive deletion of a live Hermes home (`rm -r`, `find -delete`, `rsync --delete` on a protected destination, python `rmtree`-family calls in `-c` payloads or heredocs) aimed at `$HERMES_HOME`, `~/.hermes`, any user's literal absolute form, the `profiles` subtree or an ancestor of these, including stages reached through a runner chain after a pipe. Deeper nests and quoted/heredoc prose stay allowed; for tests create a throwaway home with `mktemp -d` inside the scratch workspace and delete the printed directory by its literal path.
+- Recursive deletion of a live Hermes home (`rm` with a recursive flag, `find -delete`, `rsync --delete` on a protected destination, python `rmtree`-family calls in `-c` payloads or heredocs) aimed at `$HERMES_HOME`, `~/.hermes`, any user's literal absolute form, the `profiles` subtree or an ancestor of these, including stages reached through a runner chain after a pipe. Deeper nests and quoted/heredoc prose stay allowed; for tests create a throwaway home with `mktemp -d` inside the scratch workspace and delete the printed directory by its literal path.
 - A `paas-promote` workflow dispatch targeting `des` without the `auto-approval` label in `LABELS` — the deployment pull request would stay open until someone notices. The block message names the corrected `-f LABELS=...` flag.
 - `kanban_attach` with more than 256 characters of inline base64 — the model transcribes those bytes and corrupts them; attach by path (`artifacts=[absolute path]`).
 

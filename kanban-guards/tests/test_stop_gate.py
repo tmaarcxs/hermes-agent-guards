@@ -2,7 +2,7 @@ import sys
 
 import pytest
 
-guards = sys.modules["agent_guards"]
+guards = sys.modules["kanban_guards"]
 gate = guards.stop_gate
 
 NUDGE_TEXT = "kanban_complete"

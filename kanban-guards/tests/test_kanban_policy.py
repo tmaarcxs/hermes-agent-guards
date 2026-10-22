@@ -2,7 +2,7 @@ import sys
 
 import pytest
 
-guard = sys.modules["agent_guards"]
+guard = sys.modules["kanban_guards"]
 policy = guard.kanban_policy
 
 

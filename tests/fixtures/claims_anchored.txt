@@ -1,0 +1,2 @@
+pytest exit 0 (receipt .task/x.log) and files identical, sha a1b2c3d
+1 passed, 0 failed (receipt: reports/run.log)

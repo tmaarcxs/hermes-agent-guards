@@ -1,84 +1,112 @@
-# agent-guards
+# hermes-agent-guards
 
-A Hermes Agent plugin that blocks recurring agent mistakes before a tool runs and keeps delegated Kanban work moving. Every check fails open: an internal error never blocks a tool call.
+A monorepo of three self-contained Hermes Agent plugins that block recurring
+agent mistakes before a tool runs and keep delegated Kanban work moving. Every
+check fails open: an internal error never blocks a tool call.
 
-## What it does
+These guards used to ship as one monolithic `agent-guards` plugin. They are now
+three independent folders, each with its own `plugin.yaml`, its own
+`register()`, and no imports into a sibling folder. Install and enable the ones
+you want; they do not depend on each other.
 
-Terminal blocks:
-- foreground `sleep` of 30 s or more, or a `for`/`while`/`until` loop holding a `sleep` of 15 s or more (run the wait in the background with a notification, or poll once and re-issue without sleeping; heredoc bodies and quoted strings are exempt);
-- `gh pr merge` without `--match-head-commit`;
-- `osascript`;
-- `git push --force`/`-f` without `--force-with-lease`;
-- recursive deletion of a live Hermes home (`hermes_home_gate`): a recursive delete (`rm` with a recursive flag), `find ... -delete` (or `-exec` recursive delete), `rsync --delete` (destination only; a home as SOURCE stays allowed) or `shutil.rmtree` and the `os`/`pathlib` delete family inside `python -c` payloads and python heredoc bodies, aimed at the Hermes home, its profiles directory, or an ANCESTOR of these (the home root, a user's home directory, or the filesystem root), each quoted or not and with or without a trailing slash. Deeper nests below an ancestor stay allowed when they exclude the home; an ancestor walk with a `-name` filter narrows to below it, never on the home itself. A deletion stage through a runner chain (`sudo`, `env`, `xargs`, …) after a pipe blocks, while a single-quoted mention of a recursive delete of the home never contributes a pipe stage; quoted prose in `echo`/`grep` arguments and heredoc prose stay exempt. Correct shape for disposable test homes: `mktemp -d` inside the scratch workspace, run as `env HERMES_HOME="$(mktemp -d "$PWD/.hermes-test-home.XXXXXX")" <test cmd>`, delete the printed directory by its literal path;
-- in a worker process, `github_contact`: commands that contact people on GitHub — review requests (`gh pr edit --add-reviewer`, `gh pr create --reviewer`, `gh api` POST to `.../requested_reviewers`, every `gh pr review`), issue assignees and comments whose body `@mentions` a user or org/team (inline or via a readable body file). Mention-free comments stay allowed; `@me`/`@copilot` and removal flags are exempt; on assignee flags the authenticated login is also exempt (self-assignment contacts nobody — resolved once via `gh api user` and cached; unresolvable login fails closed). Message: contacting people needs the owner's approval — when the setup documents a merge command (env `AGENT_GUARDS_MERGE_HINT`), the message names it for a CODEOWNERS-only gap on a green exact head; otherwise, and if the card forbids merging or the diff needs independent review, `kanban_block` with `kind=needs_input` — do not just wait.
+## The three plugins
 
-Attachment block:
-- `kanban_attach` with more than 256 characters of inline base64. Models transcribe those bytes and corrupt them; attach by path (`artifacts=[absolute path]` at handoff, or `hermes kanban attach <task_id> <path>`).
+### `shell-guards` — terminal command hygiene
 
-Argument normalization (the call proceeds with corrected arguments):
-- empty optional Kanban arguments become absent;
-- `skill_view` names of the form `x:x` become `x`;
-- a Kanban `task_id` sent as the literal `$HERMES_KANBAN_TASK` becomes absent, so the worker's own task is used.
+Answers: *is this shell command safe to run?*
 
-Other guards:
-- `paas_promote_gate`: in every process, blocks a terminal command that dispatches the `paas-promote` workflow (`gh workflow run paas-promote`/`paas-promote.yml`) when the target environments (`-f/--field SUPRAENVS=...`, defaulting to `des` when the field is absent) include `des` while the `-f/--field LABELS=...` value does not carry the `auto-approval` label — the shape that leaves the generated deployment pull request open because only that label makes the bot merge it. The block message names the missing label and the exact corrected flag. Values are read from `-f KEY=VALUE`, `--field KEY=VALUE` and quoted forms plus leading `KEY=VALUE` assignments; PRE-only or PRO-only dispatches, other workflows, other gh commands, mentions inside echo/quoted strings, and any unanalyzable shape (shell expansion, unbalanced quotes, env-wrapped dispatches) pass — it catches slips, not deliberate evasion, and fails open.
-- `checkpoint_gate`: in a worker process, once the run passes 400 API calls (read from the `api_request_id` tail) without a successful Kanban checkpoint comment (or review/complete/block), non-checkpoint tool calls are blocked until one is written; the duty re-arms every 25 calls, so a long run keeps leaving board-visible progress instead of dying at the iteration cap holding everything in hand.
-- `skill_size`: blocks any write that grows a skill markdown file past its limit (`SKILL.md` 6000 characters, other `.md` files 12000). Shrinking is always allowed, so oversized skills can be split into an index plus a reference tree. Writes the pre-call check cannot see coming are caught after the fact: for every `terminal`, `execute_code` and `patch` call the guard records the skill markdown sizes before and after (byte size by `stat`, plus a character count for any file already over its limit in bytes), and when the call left one or more files over their character limit and larger than (or new since) the snapshot it appends the same tree-split instruction to the tool result for each such file, so the model must fix it in the same turn. Nothing is reverted, deleted or backed up — the write stands. Both surfaces fail open.
+- Blocks a foreground `sleep` of 30 s or more, or a polling loop holding a
+  `sleep` of 15 s or more (run the wait in the background with a notification
+  channel, or poll once and re-issue without sleeping).
+- Blocks `gh pr merge` without `--match-head-commit` (merges must pin the
+  verified head), `osascript`, and a bare `git push --force`/`-f` (use
+  `--force-with-lease`).
+- Blocks recursive deletion of a live Hermes home (`rm` with a recursive flag,
+  `find -delete`, `rsync --delete` on a protected destination, python
+  `rmtree`-family calls), including through a runner chain after a pipe.
+- Requires a bounded `background=true` terminal job to declare an outcome
+  channel (`notify=true`, a notify pattern list, or a positive `heartbeat`).
+- Blocks a `paas-promote` dispatch to `des` without the `auto-approval` label.
+- Blocks `kanban_attach` with more than 256 characters of inline base64
+  (attach by path instead) and normalizes known-bad optional arguments.
+- Keeps skill markdown files under their size limit (blocks a call that would
+  push one over; flags after the fact one that landed over).
 
-Worker setups (only when `kanban.default_assignee` is set in the profile config):
-- `kanban_policy`: `kanban_create` must use that assignee, must not use triage and must not override execution settings; `kanban_request_review` may only name that worker as reviewer.
-- `home_litter_gate`: in a worker process, blocks `terminal`/`write_file`/`patch` calls that would create a new top-level entry under the real home (`~/kanban.db`, `~/scratch`, `~/scratch/f3`, `~/wt`, `~/ad-hoc` …). The blocked shapes are a bare relative `sqlite3 <db>` whose **resolved command cwd** is `~` (which silently creates the file), and any creating write — redirect, `tee`, `cp`/`mv`/`rsync`/`install`/`touch`/`mkdir`/`sed -i`, `curl -o`/`curl -O`/`wget -O`, or a python `makedirs`/`open(...,'w')`/`write_text`/`copy`/`copyfile`/`rename` — whose first component under `~` does not exist yet, so `mkdir -p scratch/f3` is caught alongside `mkdir scratch`. The cwd is the terminal tool's own resolution — the explicit `workdir` argument first, then the session's recorded cwd, then the tool's configured default (`terminal.cwd`, else the process cwd) — not just an in-string `cd`, so a bare `sqlite3 kanban.db` after a `cd ~`, with `workdir=~`, or on a worker's very first command from a home-cwd process is blocked even though the command names no directory. An in-place `sed -i` takes its destinations from the file operands, never the sed script or the `-i` suffix, so editing an existing top-level file passes while `sed -i` on a not-yet-existing one is caught. A creating head is recognised only in **command position** (after skipping leading wrappers like `sudo`/`env`, each wrapper's own options and any argument those consume, and `VAR=value` words — so `sudo -u root mkdir x`, `nice -n 5 mkdir x`, `env -i mkdir x` and `timeout 5 mkdir x` are caught while `sudo -u root grep -rn mkdir src` reads), so a read-only or non-creating command that merely mentions one — `grep -rn mkdir src`, `pip install requests`, `echo sqlite3 kanban.db`, `man install` — is not blocked even with the cwd at `~`. A `sqlite3` option that consumes a separate argument (`-cmd`, `-separator`, `-init` …) is skipped, so the database operand is still read from the right token; the same holds for `mkdir`'s mode (`-m`/`--mode`) and `touch`'s stamp/reference options (`-t`/`-d`/`-r`), in every spelling — spaced (`-m 755`), long (`--mode 755`, `--mode=755`), attached (`-m755`) and *clustered* (`-pm 755`, `-mt STAMP`, `-vm 755`) — so `mkdir -m 755 ~/git_repos/proj`, `mkdir -pm 755 ~/git_repos/proj` and `touch -t 202001010000 existing.txt` pass while `mkdir -m 755 brandnew` and `mkdir -pm 755 brandnew` still name `~/brandnew` (never the option's own value, `~/755`). A copy-style head (`cp`/`mv`/`rsync`/`install`) whose destination is `~` itself is blocked too: it lands `~/<basename(source)>`, so `cp a.md ~/` is a brand-new top-level entry even though the destination names no child. Existing entries (edits to `~/.config`, `~/git_repos`, any existing file), dotted names (tool dirs like `~/.cache`), and the allowlisted `git_repos`/`Downloads`/`Documents`/`Desktop` creation targets pass; `~/git_repos/**` and `~/.hermes/**` are never a first component under `~`, so they are out of scope by construction. `rm`/`rmdir` of an absent entry is a no-op and passes (deleting litter is not creating it). The message names the workspace, scratch, TMPDIR and attachments alternatives, the canonical repo-work paths (`<main-repo>/.worktrees/<task>/`, `~/git_repos/ad-hoc/<task>/`) and the real DB location (`~/.hermes/kanban.db`).
-- `workspace_convention`: `kanban_create` with `workspace_kind=dir` or `worktree` and an explicit `workspace_path` is blocked unless the path follows the placement convention (single source of truth: the `git-ops` skill): repo work at `<main-checkout>/.worktrees/<task>/` (a linked worktree inside the repository's verified main checkout, exactly one `.worktrees` segment), work with no repo under `~/git_repos/ad-hoc/<name>/`. A path that is a main checkout (`<path>/.git` is a directory), the home directory itself, or a direct child of it is rejected for every kind — including an explicit `scratch` path and a call that omits `workspace_kind`, since the host uses an explicit `scratch` path verbatim and defaults an omitted kind to `scratch`; a central sibling root (`~/git_repos/worktrees/<repo>/<task>/`) and any path nested inside another `.worktrees` are rejected too. Cards with no `workspace_path` (the board derives it) stay allowed. The ad-hoc root is home-relative, overridable with `AGENT_GUARDS_ADHOC_ROOT` for tests; the worktree rule is derived from the path itself, and `tests/test_workspace_convention.py` pins it to the `git-ops` skill document so the two cannot desync.
-- `lead_delegation`: in the lead process (no `HERMES_KANBAN_TASK`), blocks `write_file`/`patch` under repository roots (`~/git_repos`, override with `AGENT_GUARDS_REPO_ROOTS`) and `git commit`, `git push` and `gh pr create` aimed at them. The lead investigates, writes issues and cards, reviews and integrates; implementation and delivery go to a worker card.
-- `lead_work_nudge`: in the lead process, appends one nudge to the tool result of the call that crosses 5 work calls in a user turn when the lead has not called `kanban_create` in that turn: split the remaining work across as many parallel cards as possible instead of continuing itself. Work calls are every tool call except `kanban_*`, `clarify`, `memory`, `skill_view`/`skills_list`/`skill_manage`, `todo`/`todo_list`, `hindsight_*` and `process_manage`. It rides `transform_tool_result`, so it never blocks; the counter is per user turn, the nudge fires once per turn, and worker processes are never counted.
-- `completion_gate`: in a worker process, blocks `kanban_complete` on a card whose body has a numbered `Acceptance` list until `metadata.acceptance` maps every item number to its evidence. An item that cannot be met calls for `kanban_block`, not completion. Evidence that itself admits an item is unmet ("not yet", "not met", "pending merge/review/deploy", "remains open") also blocks. Reviewer completions (run claimed from review, or `metadata.review_verdict`) are blocked too when unevidenced Acceptance items name post-review steps (merge, deploy, close): the approval must record its verdict as a card comment and hand the card back to the implementer through `kanban_request_review` with the implementer provenance as reviewer — a ready-for-review event, never `kanban_request_changes`, which would deliver the approval to the lead as a rejection (completion from review closes the whole card, and there is no approved-and-returned state). Reviews whose remaining items do not name post-review steps complete as before.
-- `review_gate`: `kanban_request_review` is blocked until the session's latest `todo_list` holds one closed item per pre-review check (Contract coverage, Failure lifecycle, Model evidence, Claims within evidence, Real boundary, Stale siblings, Self reproduction, Claims anchored): completed with a receipt anchor in the item text (a receipt path, artifact file, file:line reference, hash, exit code or test count), or cancelled with `N/A: <reason>`.
-- `stop_gate`: after a blocked lifecycle call (review gate, policy, any tool error), a final text-only reply like "Building the todo list, then requesting review:" is answered with a `pre_verify` continue directive telling the worker to actually call `kanban_complete`/`kanban_request_review`/`kanban_block`; the nudge also names the rejected tool and the first 120 characters of its error so the worker fixes the named cause. Without it the core stop-guard counts the blocked call as done and the run exits rc=0 as a protocol violation. `pre_verify` only fires in turns that edited files (`write_file`/`patch`), so pure-read runs get no nudge from this gate alone.
-- Retry instruction: every guard block of a lifecycle call (`kanban_policy`, `workspace_convention`, `completion_gate`, `review_gate`, `handoff_gate`, `schedule_gate`) ends with the same demand — retry the lifecycle call in this same response; a text-only reply ends the run as a protocol violation. This is the one lever a block message controls, and it covers read-only runs that `stop_gate` cannot reach.
-- `handoff_gate`: the first `kanban_block` of a session whose reason says the worker's part is finished and only lead-owned steps remain (merge, deployment, publication, approval) is bounced with advice to hand off through `kanban_complete` or `kanban_request_review`; repeating the call lets a genuine decision block through.
-- `backup_copy_gate`: in a worker process, blocks `kanban_complete`/`kanban_request_review` whose summary, result or metadata declares a kept/preserved backup, rollback, pristine or pre-task copy of prior state ("backup kept", "backup kept at /tmp/x", "rollback copy preserved", "defective versions backed up in worker scratch"). A claim inside quotes still states the claim and blocks. Rollback is git: the worker deletes the copy and recovers prior state from git history instead. Statements that no copy was kept, or rollback done via git, pass; a compound naming the copy only by a dropped family lexeme ("prior state tree backed up") or a family word living inside a path segment (".backup captures …", "snapshot/report retain", filenames ending `before-….py`) needs a natural-language locator (path or at/in/under) to count.
-- `schedule_gate`: in a worker process, blocks `kanban_schedule`. Scheduling ends the run and sets no timer, so a self-scheduled card stops until someone notices. Workers wait for CI, deployments or executions with background processes and notifications; a real external dependency is a `kanban_block` with its release condition.
-- `completion_gate` also carries the published-PR completion duty: when the card's persisted `completion_contract` names a GitHub publication, a `kanban_show` of the worker's own card gains one reminder stating that `kanban_complete` must carry `metadata.published_pr` (and what value satisfies it), and a `kanban_complete` rejected as "PR acceptance missing" gains the exact fix on the rejection text.
+### `workspace-guards` — where writes and card workspaces may live
 
+Answers: *is this path one the agent may write to?*
 
-Stale-park wake (`wakes.stale_parks`): it wakes each chat subscribed to a parked card — `blocked` or `triage` carrying a `block_kind` record — whose last state change is at least 5 min old, once per parked state. A `capability` wall on a blocked card and any `triage` escalation are skipped (the park's own notification already carried the state and the unblocking is outside the lead's reach); `needs_input`/`transient` parks, plain parks without a record, and unparked cards with a lingering record keep the wake (the record deliberately survives an unblock). The plain open-card stale class is gone: its 17 recorded wakes in the 14-day census produced zero acting turns. It needs gateway injection to be allowed:
+- Blocks writes (`write_file`, `patch`, terminal commands, git mutations,
+  inline python file writes) that target anything outside the card's own task
+  workspace: the protected Hermes tree (`~/.hermes` config, plugins, kanban
+  state), the host's main checkouts, other workers' workspaces.
+- Blocks creating a new top-level entry directly under the home directory,
+  resolving the command's real cwd from the terminal tool's `workdir` argument
+  and the session's recorded cwd, not only an in-string `cd`.
+- When the profile config sets `kanban.default_assignee`, rejects a
+  `kanban_create` whose `dir`/`worktree` workspace_path leaves the placement
+  convention.
 
-Review-loop wake (`wakes.loop`): it wakes each chat subscribed to an open card that has reached 3, 6, 9... review rounds with changes requested, once per threshold, with the latest requested change and a four-item decision menu the lead picks from: narrow the contract and send the card back (when the recent findings are sentence or number integrity only, the message carries the convergence contract that worked before), continue over the real defects, split the card, or take it over. Rather than one vague "decide here" nudge, the menu names the real escape routes so the lead cannot answer without committing to one, and the loop breaks at that turn instead of after another silent threshold. Each threshold is flushed to the durable state before the injection runs, so a gateway restart cannot replay a threshold that may already have woken a lead. It uses the same gateway injection setting.
+### `kanban-guards` — Kanban worker, lead and wake discipline
 
-Churn corner warning (`wakes.churn_corner`): it warns each chat subscribed to a non-archived, non-done card whose change-requests have reached 10 — once per ungated crossing (a warned card does not warn again until the count falls back below the point and crosses fresh), with the last three change-request reasons, so the lead decides to split the card, narrow the acceptance or confirm continue. The runs-count family and its 10/20/40 ladder are gone (one churn fire in the 14-day census). It is a warning only: nothing is blocked. It uses the same gateway injection setting.
+Answers: *is this lifecycle call, board read or wake legitimate?*
 
-Waiting-on-external-gate wake (`wakes.waiting_run`): it watches each running card's `heartbeat` notes since the run boundary (the newest `spawned`/`claimed` event) for an admission of waiting on something outside the worker's control — a merge bot or auto-merge, a CODEOWNERS/review approval, a deploy, rollout, promotion, release or CI run. It keys on the run's wait streak: the consecutive wait-admitting notes counted back from the newest non-empty heartbeat (empty heartbeats neither start nor break the streak, a normal progress note ends it). When the newest non-empty note admits a wait and the first note of that streak is 15 minutes old (the worker is still waiting, not past it) every chat subscribed to the card is woken once, quoting the latest note and how long the streak has run, so the card's owner decides: intervene (merge, approve, re-run the pipeline), take the card over, or tell the worker to `kanban_block(kind="needs_input")`. Heartbeat notes reach nobody, a waiting worker cannot unblock itself, and a running card is never stale-checked, so without this wake the wait is silent. The external actor must follow the wait phrase (rate cooldowns and local-tooling waits never count) and a note that merely discusses waits can slip through: the bound is one short injected turn per run, quoting the note for the owner to judge. It uses the same gateway injection setting.
+- Worker gates: force a budget checkpoint comment before a run is cut at the
+  iteration cap; keep delegated cards on the configured worker profile; block
+  `kanban_complete` until `metadata.acceptance` maps every numbered Acceptance
+  item to evidence; keep the published-PR completion duty visible; block
+  contacts with people on GitHub from worker terminals; block
+  `kanban_request_review` until the eight pre-review checks are closed; bounce
+  a narrated stop after a blocked lifecycle call; block `kanban_schedule`;
+  refuse a handoff that preserves a backup copy of the delivered work.
+- Lead gates: block the lead from editing repository files or running
+  `git commit`/`git push`/`gh pr create` there; nudge the lead once per user
+  turn after more than 5 exploration calls without a `kanban_create`; scope a
+  lead chat's `kanban_list` result to the cards its own chat thread is
+  subscribed to; slim the lead's `kanban_show` deterministically.
+- Wakes: run every Kanban wake on one shared event-driven chassis over
+  `board_watch` — stale parked cards, review-loop thresholds, the churn corner,
+  waiting-on-external-gate runs, dispatcher stalls and unreconciled delivery
+  notices — injected into the card's subscribed chat within one dispatcher tick.
+  Wakes need `plugins.entries.kanban-guards.allow_gateway_injection: true`.
 
-```yaml
-plugins:
-  entries:
-    agent-guards:
-      allow_gateway_injection: true
-```
+Each folder's `README.md` documents its own rules in full.
 
-Dispatcher-stall wake (`wakes.stall`): on every dispatcher tick (unthrottled) it wakes each chat subscribed to a todo/ready card whose last 30 task events are all `respawn_guarded` events with `reason=active_pr` — the dispatcher's 24 h PR-URL respawn guard is holding the card out of the ready queue every tick (a full GitHub PR URL in a comment reads as "a worker already opened a PR"). It wakes once per guard episode — the trailing run of guard events — and never twice within 10 minutes (the 10-16 storm woke one card 11 times in 15 minutes; episode keying plus the minimum interval prevent a repeat), with the release levers: reword the comment (cite the PR as `owner/repo#N` — the guard only matches full URLs), assign the card explicitly, or archive it if the outcome was delivered elsewhere. It uses the same gateway injection setting.
-
-- The unreconciled notice (`wakes.reconcile`): on the first tick after board activity it checks each out-of-running card whose latest notifiable state event (the kinds the gateway renders a text ping for — completed, blocked, gave_up, crashed, timed_out, status, review_requested, changes_requested, block_loop_detected) was never confirmed delivered: no subscription's `last_ping_event_id` checkpoint covers it, including the no-subscription case. A state inside a 60 s grace window, or one whose subscription still exists, is only recorded (`pending`) — the gateway's own notifier is at-least-once and either delivers it or drops the subscription after repeated failures. When the recorded state's delivery path is gone (subscription deleted while the checkpoint still lags) the hook sends one terse notice per state through the same gateway injection, naming the event kind and its recorded cause, to the remembered subscriber origins; later uncovered transitions of the card notify once each too, keyed on the event id in `~/.hermes/state/kanban-notify-reconcile.json`. First sight of an uncovered card without any record is adopted silently (its delivery history is unknowable once the subscription row is gone), an unchanged state never re-notifies, a failed injection retries on the next sweep, and delivered/closed states drop out of the record. It never touches worker processes or the board database, and never restarts anything.
 ## Install
 
-```bash
-hermes plugins install shard-guard/hermes-agent-guards --enable
 ```
+hermes plugins install tmaarcxs/hermes-agent-guards#shell-guards
+hermes plugins install tmaarcxs/hermes-agent-guards#workspace-guards
+hermes plugins install tmaarcxs/hermes-agent-guards#kanban-guards
+```
+
+The `#<subdir>` fragment is the CLI's subdirectory syntax (see
+`_resolve_git_url` in `hermes_cli/plugins_cmd.py`): the repository is cloned
+once and only the named folder is installed. The `owner/repo/<subdir>` form
+resolves the same way.
+
+## Layout
+
+```
+shell-guards/       one self-contained plugin (modules + plugin.yaml + tests)
+workspace-guards/   one self-contained plugin
+kanban-guards/      one self-contained plugin
+tests/              cross-plugin checks (helper-copy divergence, transform winner)
+pytest.ini          runs all three folders plus tests/ in one command
+CUTOVER.md          ordered activation steps for replacing the old plugin
+```
+
+The two small shared-library helpers (`RETRY_INSTRUCTION`, `configured_worker()`)
+are deliberately duplicated per folder instead of shared: a common plugin would
+re-introduce a load-order dependency across three otherwise independent plugins.
+`tests/test_helper_copies_agree.py` fails when the copies drift apart.
 
 ## Tests
 
-The test suite needs the Hermes host repository's `hermes_cli` package importable and a
-Python 3.10+ interpreter (a `pytest_configure` guard in `tests/conftest.py` aborts the
-session with an explicit error on older interpreters: below 3.10 the host's PEP-604
-annotations fail at import, the worker gates silently turn inert and 100+ tests fail
-misleadingly). On a machine with Hermes installed, run:
-
-```bash
-PYTHONPATH="$HOME/.hermes/hermes-agent" python3 -m pytest -q tests
+```
+PYTHONPATH="$HOME/.hermes/hermes-agent" ~/.hermes/hermes-agent/venv/bin/python -m pytest
 ```
 
-A bare `pytest` at the plugin root also works: a `pytest.ini` at the root limits
-collection to `tests`, and the suite's `conftest.py` appends `~/.hermes/hermes-agent`
-to `sys.path` when it finds the `hermes_cli` package there.
-
-Updates: installs without `--ref` follow `main`; with `plugins.auto_apply: true` Hermes pulls new commits on its update-check cadence (`plugins.auto_update_check_hours`). A private fork needs read access for the Hermes host, for example a read-only deploy key.
+Run from the repo root; the suite needs Python 3.10+ and the Hermes checkout on
+`PYTHONPATH`. A `pytest.ini` at the root collects all three plugin folders plus
+`tests/` in one command.

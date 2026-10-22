@@ -10,7 +10,7 @@ import json
 import sqlite3
 import sys
 
-wakes = sys.modules["agent_guards"].wakes
+wakes = sys.modules["kanban_guards"].wakes
 
 
 def board():

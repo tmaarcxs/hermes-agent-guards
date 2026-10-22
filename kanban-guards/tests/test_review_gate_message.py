@@ -8,7 +8,7 @@ The closure format is spelled out exactly once in the message, not once per chec
 
 import sys
 
-guards = sys.modules["agent_guards"]
+guards = sys.modules["kanban_guards"]
 
 EIGHT = (
     "Contract coverage", "Failure lifecycle", "Model evidence", "Claims within evidence", "Real boundary", "Stale siblings",

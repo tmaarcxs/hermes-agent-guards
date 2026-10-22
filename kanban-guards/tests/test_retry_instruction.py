@@ -9,7 +9,7 @@ guards control, so each path ends with the same demand: retry in this same respo
 
 import sys
 
-guards = sys.modules["agent_guards"]
+guards = sys.modules["kanban_guards"]
 
 INSTRUCTION = "retry the lifecycle call in this same response"
 VIOLATION_CLAUSE = "protocol violation"

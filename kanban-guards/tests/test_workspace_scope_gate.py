@@ -51,7 +51,7 @@ def hermes_modules():
                 cache.clear()
 
 
-guards = sys.modules["agent_guards"]
+guards = sys.modules["kanban_guards"]
 gate = guards.workspace_scope_gate
 
 LIST_BASE = {"tasks": [], "count": 0, "limit": 30, "truncated": False, "next_limit": None,
@@ -295,7 +295,7 @@ def test_missing_subs_table_fails_open(tmp_path, monkeypatch):
     assert gate.transform("kanban_list", {}, list_result(task("t_any"))) is None
 
 
-@pytest.mark.skipif(guards is None, reason="agent_guards not importable without conftest")
+@pytest.mark.skipif(guards is None, reason="kanban_guards not importable without conftest")
 def test_chain_kanban_list_transformed(board, monkeypatch):
     """The registered transform_tool_result chain carries the scoping."""
     ids = board["ids"]

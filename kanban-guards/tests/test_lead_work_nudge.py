@@ -11,7 +11,7 @@ import sys
 
 import pytest
 
-guards = sys.modules["agent_guards"]
+guards = sys.modules["kanban_guards"]
 nudge = guards.lead_work_nudge
 
 THRESHOLD = nudge.WORK_CALL_THRESHOLD
