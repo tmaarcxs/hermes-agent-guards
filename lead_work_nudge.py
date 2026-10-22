@@ -1,12 +1,13 @@
-"""One-time lead nudge to delegate after more than 5 work calls in a user turn.
+"""One-time lead nudge to delegate after more than 5 exploration calls in a user turn.
 
 When a lead process (``HERMES_KANBAN_TASK`` absent and a worker profile configured,
 the plugin's established lead definition in ``lead_delegation.is_lead``) has made
-more than ``WORK_CALL_THRESHOLD`` work calls in one user turn without calling
+more than ``WORK_CALL_THRESHOLD`` exploration calls in one user turn without calling
 ``kanban_create``, the call that crosses the threshold gets one appended nudge
 telling it to stop doing the work itself and split the remaining work across as
 many parallel cards as possible. The nudge fires once per turn, never for a turn
-that already created a card, and never in a worker process.
+that already created a card or already wrote something (a write means the turn has
+committed to a known change), and never in a worker process.
 
 Mechanism: ``transform_tool_result`` (non-blocking). Verified against the running
 Hermes source:
@@ -29,12 +30,17 @@ Hermes source:
   Tool-result iterations inside one turn reuse the same ``turn_id``; a defensive
   double fire of one call is deduped by ``tool_call_id``.
 
-Counting rule: every tool call counts except coordination and bookkeeping —
-``kanban_*``, ``clarify``, ``memory``, ``skill_view``/``skills_list``/
-``skill_manage``, ``todo``/``todo_list``, ``hindsight_*`` and ``process_manage``.
-``kanban_create`` is both excluded from the count and recorded as delegation.
-An unknown tool name counts (the rule is exclusion-based). Blocked calls never
-reach this hook and are never counted.
+Counting rule: only exploration tools count — ``read_file``, ``search_files``,
+``web_search``, ``web_extract``, ``session_search``, ``tool_call`` and
+``terminal``. Everything else is inert (the rule is inclusion-based).
+Known limitation: ``terminal`` cannot be classified — a ``terminal`` call may be
+an edit, a config set or any other known change — so some false positives remain;
+the ``wrote`` exemption below is the compensating control for edits made with
+``patch``/``write_file``, and the nudge text ends with an explicit exit for work
+only the lead can do. ``patch`` and ``write_file`` never count; they set a
+per-turn ``wrote`` flag that silences the nudge for the rest of the turn.
+``kanban_create`` remains both uncounted and recorded as delegation.
+Blocked calls never reach this hook and are never counted.
 
 Fails open: no turn identity, a worker process, or a non-string result leaves the
 result untouched.
@@ -49,25 +55,26 @@ from . import kanban_policy
 _MAX_TRACKED_TURNS = 200
 WORK_CALL_THRESHOLD = 5
 
-_EXCLUDED_TOOLS = frozenset({
-    "clarify",
-    "memory",
-    "skill_view",
-    "skills_list",
-    "skill_manage",
-    "todo",
-    "todo_list",
-    "process_manage",
+WORK_TOOLS = frozenset({
+    "read_file",
+    "search_files",
+    "web_search",
+    "web_extract",
+    "session_search",
+    "tool_call",
+    "terminal",
 })
-_EXCLUDED_PREFIXES = ("kanban_", "hindsight_")
+
+WRITE_TOOLS = frozenset({
+    "patch",
+    "write_file",
+})
 
 NUDGE = (
-    "You have made {count} work calls this turn without delegating. Stop doing the work "
-    "yourself: split the remaining work across as many parallel workers as possible to "
-    "spread the load and maximize parallelism — list every independent part (repos, "
-    "modules, questions, hypotheses, files, data slices, implementation/verification/review "
-    "lanes) and create one kanban_create card per part in this same turn. Use a single card "
-    "only if the work truly cannot be split."
+    "You have made {count} exploration calls this turn without delegating. "
+    "Split the remaining work across parallel workers: create one kanban_create "
+    "card per independent part in this turn. "
+    "If what remains is a known change or something only you can do, continue."
 )
 
 _state: "OrderedDict[tuple[str, str], dict]" = OrderedDict()
@@ -86,17 +93,14 @@ def is_lead() -> bool:
 
 
 def counts_as_work(tool_name: str) -> bool:
-    """True when the tool call is direct work rather than coordination/bookkeeping."""
-    name = str(tool_name or "")
-    if not name or name in _EXCLUDED_TOOLS:
-        return False
-    return not name.startswith(_EXCLUDED_PREFIXES)
+    """True only for exploration tools; writers and everything else do not count."""
+    return str(tool_name or "") in WORK_TOOLS
 
 
 def _bucket(key: tuple[str, str]) -> dict:
     bucket = _state.get(key)
     if bucket is None:
-        bucket = {"calls": 0, "delegated": False, "nudged": False}
+        bucket = {"calls": 0, "delegated": False, "nudged": False, "wrote": False}
         _state[key] = bucket
     _state.move_to_end(key)
     while len(_state) > _MAX_TRACKED_TURNS:
@@ -108,9 +112,15 @@ def hook(tool_name: str = "", args: Any = None, result: Any = None,
          session_id: str = "", turn_id: str = "", **_: Any) -> Optional[str]:
     """``transform_tool_result``: append the one-time delegation nudge.
 
-    Returns the result with the nudge appended when this call is the first work
-    call past the threshold in a turn that has not created a card, else ``None``
-    (the result stays byte-identical and every later transform still runs).
+    Returns the result with the nudge appended when this call is the first
+    exploration call past the threshold in a turn that has not created a card and
+    has not written anything, else ``None`` (the result stays byte-identical and
+    every later transform still runs).
+
+    ``WRITE_TOOLS`` carry a second rule: a ``patch`` or ``write_file`` call never
+    counts as work and sets the turn's ``wrote`` flag instead, which silences the
+    nudge for the whole turn — a turn that has already edited a file must not be
+    pushed to delegate the rest of it.
     """
     if not is_lead():
         return None
@@ -121,11 +131,15 @@ def hook(tool_name: str = "", args: Any = None, result: Any = None,
     if str(tool_name or "") == "kanban_create":
         _bucket(key)["delegated"] = True
         return None
+    if str(tool_name or "") in WRITE_TOOLS:
+        _bucket(key)["wrote"] = True
+        return None
     if not counts_as_work(tool_name):
         return None
     bucket = _bucket(key)
     bucket["calls"] += 1
-    if bucket["delegated"] or bucket["nudged"] or bucket["calls"] <= WORK_CALL_THRESHOLD:
+    if bucket["delegated"] or bucket["nudged"] or bucket["wrote"] \
+            or bucket["calls"] <= WORK_CALL_THRESHOLD:
         return None
     if not isinstance(result, str):
         return None
