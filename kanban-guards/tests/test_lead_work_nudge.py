@@ -1,9 +1,10 @@
 """The one-time lead nudge to split remaining work across parallel cards.
 
-Behaviour pinned here: the counting rule (every tool call counts except
-coordination/bookkeeping), the per-user-turn scoping, the 6th-call threshold and
-its one-shot nature, the ``kanban_create`` opt-out, the worker-process exemption,
-the final nudge text, and the live ``PluginManager`` end-to-end shape.
+Behaviour pinned here: the counting rule (only exploration tools count; writers
+set ``wrote`` and silence the turn), the per-user-turn scoping, the 6th-call
+threshold and its one-shot nature, the ``kanban_create`` opt-out, the
+worker-process exemption, the final nudge text, and the live ``PluginManager``
+end-to-end shape.
 """
 
 import sys
@@ -30,8 +31,8 @@ def transform(tool_name, result="ok", turn_id="turn-1", session_id="lead-session
         tool_name=tool_name, args={}, result=result, session_id=session_id, turn_id=turn_id)
 
 
-def work_calls(count, turn_id="turn-1"):
-    return [transform("read_file", turn_id=turn_id) for _ in range(count)]
+def work_calls(count, turn_id="turn-1", tool_name="search_files"):
+    return [transform(tool_name, turn_id=turn_id) for _ in range(count)]
 
 
 def test_threshold_is_five_module_constant():
@@ -80,9 +81,7 @@ def test_kanban_create_after_threshold_does_not_retract_a_fired_nudge():
 
 @pytest.mark.parametrize(
     "tool_name",
-    ["terminal", "read_file", "search_files", "patch", "write_file", "web_search",
-     "web_extract", "vision_analyze", "session_search", "execute_code", "tool_call",
-     "tool_describe", "tool_search", "some_browser_tool"],
+    nudge.WORK_TOOLS,
 )
 def test_work_calls_count(tool_name):
     assert nudge.counts_as_work(tool_name)
@@ -91,10 +90,29 @@ def test_work_calls_count(tool_name):
 @pytest.mark.parametrize(
     "tool_name",
     ["kanban_create", "kanban_show", "kanban_complete", "clarify", "memory", "skill_view",
-     "skills_list", "skill_manage", "todo", "todo_list", "hindsight_recall", "process_manage", ""],
+     "skills_list", "skill_manage", "todo", "todo_list", "hindsight_recall", "process_manage",
+     "vision_analyze", "execute_code", "tool_describe", "tool_search", "some_browser_tool", ""],
 )
 def test_coordination_calls_do_not_count(tool_name):
     assert not nudge.counts_as_work(tool_name)
+
+
+def test_writes_do_not_count():
+    work_calls(THRESHOLD)
+    for tool in ("patch", "write_file"):
+        before = nudge._bucket(("lead-session", "turn-1"))["calls"]
+        assert transform(tool) is None
+        assert nudge._bucket(("lead-session", "turn-1"))["calls"] == before
+
+
+def test_a_turn_with_a_write_never_nudges():
+    transform("patch")
+    work_calls(THRESHOLD + 3)
+    assert transform("terminal") is None
+    nudge.reset()
+    transform("write_file", turn_id="turn-2")
+    work_calls(THRESHOLD + 3, turn_id="turn-2")
+    assert transform("terminal", turn_id="turn-2") is None
 
 
 def test_coordination_calls_never_reach_the_threshold():
@@ -129,11 +147,10 @@ def test_non_string_result_passes_through():
 def test_nudge_text_pins_the_split_instruction():
     work_calls(THRESHOLD)
     message = transform("terminal")
-    assert "as many parallel workers as possible" in message
-    assert "one kanban_create card per part" in message
-    assert "this same turn" in message
-    assert "Use a single card only if the work truly cannot be split." in message
-    assert "You have made 6 work calls this turn without delegating." in message
+    assert "Split the remaining work across parallel workers" in message
+    assert "one kanban_create card per independent part" in message
+    assert "If what remains is a known change or something only you can do, continue." in message
+    assert "You have made 6 exploration calls this turn without delegating." in message
 
 
 def test_nudge_is_appended_to_the_untouched_result():
@@ -170,7 +187,7 @@ def test_live_plugin_manager_end_to_end(monkeypatch):
 
     for _ in range(THRESHOLD):
         assert call("read_file") == "ok"
-    assert "one kanban_create card per part" in call("terminal")
+    assert "kanban_create" in call("terminal")
     assert call("read_file") == "ok"
 
     monkeypatch.setenv("HERMES_KANBAN_TASK", "t_e2e")

@@ -7,14 +7,13 @@ import pytest
 from pathlib import Path
 
 _root = Path(__file__).parents[1]
-if "kanban_guards" not in sys.modules:
+if "agent_guards" not in sys.modules:
     _spec = importlib.util.spec_from_file_location(
-        "kanban_guards", _root / "__init__.py", submodule_search_locations=[str(_root)]
+        "agent_guards", _root / "__init__.py", submodule_search_locations=[str(_root)]
     )
     _module = importlib.util.module_from_spec(_spec)
-    sys.modules["kanban_guards"] = _module
+    sys.modules["agent_guards"] = _module
     _spec.loader.exec_module(_module)
-sys.modules.setdefault("agent_guards", sys.modules["kanban_guards"])
 
 collect_ignore = [str(_root / "__init__.py")]
 
@@ -24,7 +23,7 @@ def pytest_configure(config):
 
     if sys.version_info < (3, 10):
         raise pytest.UsageError(
-            "kanban-guards suite needs Python 3.10+ (found "
+            "agent-guards suite needs Python 3.10+ (found "
             f"{sys.version.split()[0]}): on older interpreters the Hermes host's "
             "PEP-604 annotations fail at import, the worker gates silently turn "
             "inert and 100+ tests fail misleadingly. Use the Hermes venv interpreter "
