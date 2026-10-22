@@ -16,35 +16,11 @@ the nudge on its output). This test pins the new, narrower behaviour so a future
 reorder cannot silently flip the survivor.
 """
 
-import importlib.util
-import sys
-from pathlib import Path
-
 import pytest
 
-ROOT = Path(__file__).resolve().parent.parent
+from _plugin_loader import load_plugin, ROOT
 
-PLUGINS = {
-    "kanban-guards": ROOT / "kanban-guards",
-    "shell-guards": ROOT / "shell-guards",
-    "workspace-guards": ROOT / "workspace-guards",
-}
-
-
-def _load(name: str, folder: Path):
-    module_name = name.replace("-", "_")
-    for mod in [m for m in list(sys.modules) if m == module_name or m.startswith(module_name + ".")]:
-        del sys.modules[mod]
-    spec = importlib.util.spec_from_file_location(
-        module_name, folder / "__init__.py", submodule_search_locations=[str(folder)]
-    )
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    try:
-        spec.loader.exec_module(module)
-    finally:
-        pass
-    return module
+PLUGINS = ("kanban-guards", "shell-guards", "workspace-guards")
 
 
 def _host_load_order(names):
@@ -53,7 +29,7 @@ def _host_load_order(names):
         from hermes_cli.plugins_manifest import PluginManifest, resolve_plugin_load_order
 
         manifests = {
-            name: PluginManifest(name=name, version="test", source="user", path=str(PLUGINS[name]))
+            name: PluginManifest(name=name, version="test", source="user", path=str(ROOT / name))
             for name in names
         }
         return list(resolve_plugin_load_order(manifests))
@@ -72,8 +48,8 @@ def test_kanban_guards_loads_before_shell_guards():
 def test_first_non_none_string_wins_in_host_order():
     """Simulate the host's transform resolution over both plugins' callbacks."""
     order = _host_load_order(list(PLUGINS))
-    kanban = _load("kanban-guards", PLUGINS["kanban-guards"])
-    shell = _load("shell-guards", PLUGINS["shell-guards"])
+    kanban = load_plugin("kanban-guards")
+    shell = load_plugin("shell-guards")
 
     sentinel_kanban = "KANBAN-TRANSFORM-WINS"
     sentinel_shell = "SHELL-TRANSFORM-WINS"

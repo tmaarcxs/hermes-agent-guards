@@ -125,11 +125,20 @@ _PRE_TOOL_CALL_CHECK_ORDER = tuple(name for name, _ in _PRE_TOOL_CALL_CHECKS)
 
 
 def _pre_tool_call_checks(tool_name, args, kwargs):
-    """The live call's (blocked-message, name) pairs, in the pinned order."""
-    return tuple(
-        (check(tool_name, args, kwargs), name)
-        for name, check in ((name, check) for name, check in _PRE_TOOL_CALL_CHECKS)
-    )
+    """The live call's (blocked-message, name) pairs, in the pinned order.
+
+    Each check is isolated: a guard that raises is treated as not blocking, so a
+    single broken guard can never take the whole chain down (the pre-split root
+    ``_pre_tool_call`` wrapped every ``check()`` call the same way).
+    """
+    pairs = []
+    for name, check in _PRE_TOOL_CALL_CHECKS:
+        try:
+            blocked = check(tool_name, args, kwargs)
+        except Exception:
+            blocked = None
+        pairs.append((blocked, name))
+    return tuple(pairs)
 
 
 def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -> Optional[dict]:

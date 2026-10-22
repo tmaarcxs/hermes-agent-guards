@@ -30,8 +30,8 @@ Registers one hook: `pre_tool_call`.
   siblings. This folder imports nothing from sibling plugins.
 - `workspace_write_gate` and `home_litter_gate` stay in one folder on purpose:
   `home_litter_gate` reuses nine private helpers of `workspace_write_gate`.
-- `tests/conftest.py` registers the package as `agent_guards`-shaped
-  (`sys.modules["agent_guards"]`), so the moved tests run verbatim under the
+- `tests/conftest.py` registers the package under its canonical module name
+  (`sys.modules["workspace_guards"]`), so the moved tests run verbatim under the
   new package name `workspace-guards`. Run with
   `PYTHONPATH="$HOME/.hermes/hermes-agent"` and the Hermes venv python (3.10+):
 

@@ -35,14 +35,22 @@ deliberate evasion. Every gate fails open.
 
 from typing import Optional
 
-from . import (
-    _policy,
-    background_notify_gate,
-    hermes_home_gate,
-    paas_promote_gate,
-    skill_size,
-    terminal_policy,
-)
+try:
+    from . import (
+        _policy,
+        background_notify_gate,
+        hermes_home_gate,
+        paas_promote_gate,
+        skill_size,
+        terminal_policy,
+    )
+except ImportError:
+    if __name__ != "__init__":
+        raise
+    """Bare ``pytest`` (no test path) can import this file as the top-level
+    module ``__init__`` where the relative import has no parent package; the
+    package body is dead weight there, so swallow the ImportError only in
+    that synthetic shape and re-raise everywhere else."""
 
 
 def register(ctx) -> None:
