@@ -167,7 +167,9 @@ def test_register_wires_every_hook():
     hooks = []
     ctx = types.SimpleNamespace(register_hook=lambda name, fn: hooks.append(name))
     guards.register(ctx)
-    assert sorted(hooks) == ["post_tool_call", "pre_tool_call", "transform_tool_result"]
+    assert sorted(hooks) == [
+        "post_tool_call", "pre_tool_call", "transform_terminal_output", "transform_tool_result",
+    ]
 
 
 def test_register_registers_exactly_the_plugin_yaml_hooks():

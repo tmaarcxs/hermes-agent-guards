@@ -11,14 +11,27 @@ Writes that ``check`` cannot see coming are caught after the fact: ``record`` ru
 on ``pre_tool_call`` for ``terminal``, ``execute_code`` and ``patch`` and takes a
 snapshot of every markdown file under the skill roots — its byte size by ``stat``,
 and its character count only for a file already over its limit in bytes, since a
-file under the limit in bytes cannot be over it in characters. ``transform`` runs
-on ``transform_tool_result`` and re-snapshots, then appends the tree-split
-instruction once per skill markdown file that call left over its limit in
-characters and larger than (or new since) the snapshot. Unified-diff ``patch``
-calls and writes through ``terminal``/``execute_code`` (shell redirects, python
-scripts, ``sed -i``, ``cp``/``mv``) are therefore measured too. Nothing is
-reverted, deleted or backed up: the write stands and the model is told to fix it in
-the same turn.
+file under the limit in bytes cannot be over it in characters. The flag is
+delivered by one of two seams, both built on ``_flag_messages``: a ``terminal``
+call is flagged on ``transform_terminal_output``, which the terminal tool runs
+INSIDE the tool, before ``transform_tool_result``; every other watched tool
+(``execute_code``, unified-diff ``patch``) is flagged on ``transform_tool_result``.
+The first seam to run pops the call's snapshot, so a call is never flagged twice.
+Re-snapshotting there catches the tree-split instruction once per skill markdown
+file that call left over its limit in characters and larger than (or new since)
+the snapshot. Unified-diff ``patch`` calls and writes through
+``terminal``/``execute_code`` (shell redirects, python scripts, ``sed -i``,
+``cp``/``mv``) are therefore measured too. Nothing is reverted, deleted or backed
+up: the write stands and the model is told to fix it in the same turn.
+
+The terminal seam exists because the host keeps only the FIRST non-``None``
+``transform_tool_result`` string across plugins (``model_tools.py``
+``_apply_transform_tool_result_hook``), and ``kanban-guards`` loads before
+``shell-guards``. A flag that rode ``transform_tool_result`` alone would be
+silently dropped whenever a Kanban lead's threshold-crossing ``terminal`` call
+also left an oversized skill file — the nudge would win and the flag would
+vanish. Delivering the terminal flag one hook earlier puts it inside the result
+the nudge appends to, so both messages reach the model.
 
 Only markdown inside the skill roots is measured; scripts and data files are not.
 Both surfaces catch slips, not deliberate evasion; ``skill_tree_check.py`` in
@@ -269,32 +282,75 @@ def _post_message(tool_name: str, target: Path, chars: int, limit: int) -> str:
     )
 
 
+def _flag(tool_name: str, result: str, key: str) -> Optional[str]:
+    """Append one tree-split instruction per skill markdown this call left oversized.
+
+    Pops the call's ``_PENDING`` snapshot, so the first seam to run wins and the
+    second sees ``None`` — one call is never flagged twice.
+    """
+    before = _PENDING.pop(key, None)
+    if before is None:
+        return None
+    messages = []
+    for path, (_size, chars, _mtime) in _snapshot().items():
+        limit = _snapshot_limit(path)
+        if limit is None or chars is None or chars <= limit:
+            continue
+        previous = before.get(path)
+        if previous is not None and previous[1] is not None and chars <= previous[1]:
+            continue
+        messages.append(_post_message(tool_name, Path(path), chars, limit))
+    if not messages:
+        return None
+    return result + "\n\n" + "\n\n".join(messages)
+
+
 def transform(tool_name: str = "", args: Any = None, result: Any = None, **kwargs) -> Optional[str]:
     """``transform_tool_result``: flag every skill markdown this call pushed over its limit.
 
     Returns the tool result with one tree-split instruction appended per offending file,
     or ``None`` to leave it untouched. Fails open: an internal error never changes the
     result.
+
+    A ``terminal`` call is normally flagged one hook earlier, by
+    ``transform_terminal_output``; this path covers the calls that hook never saw (a
+    ``background=true`` or yielded call returns before the terminal tool finalizes its
+    output, and an environment without the hook at all).
     """
     try:
         if tool_name not in _WATCHED_TOOLS or not isinstance(result, str):
             return None
+        return _flag(tool_name, result, str(kwargs.get("tool_call_id") or ""))
+    except Exception:
+        return None
+
+
+def transform_terminal_output(command: str = "", output: Any = None, **kwargs) -> Optional[str]:
+    """``transform_terminal_output``: flag a ``terminal`` call that left a skill file oversized.
+
+    The terminal tool runs this hook INSIDE the tool, before ``transform_tool_result``
+    (``tools/terminal_tool_result.py`` ``finalize_foreground_result`` applies the output
+    transform, then ``model_tools._apply_transform_tool_result_hook`` runs after the tool
+    returns). The host keeps only the FIRST non-``None`` ``transform_tool_result`` string
+    across plugins, and ``kanban-guards`` loads before ``shell-guards``, so a flag that
+    rode the later hook alone would be silently dropped whenever a Kanban lead's
+    threshold-crossing ``terminal`` call also left an oversized skill file. Delivering it
+    here puts it inside the output the nudge appends to, so both messages reach the model.
+
+    Fails open: a non-string output or an internal error leaves the output untouched.
+
+    An empty ``tool_call_id`` is skipped: the process-registry result path runs the same
+    hook for ``process_manage`` output, and an unkeyed snapshot must not be stolen by a
+    call that never wrote it. Such a terminal call is still flagged by the
+    ``transform_tool_result`` seam.
+    """
+    try:
+        if not isinstance(output, str):
+            return None
         key = str(kwargs.get("tool_call_id") or "")
-        before = _PENDING.pop(key, None)
-        if before is None:
+        if not key:
             return None
-        messages = []
-        for path, (_size, chars, _mtime) in _snapshot().items():
-            limit = _snapshot_limit(path)
-            if limit is None or chars is None or chars <= limit:
-                continue
-            previous = before.get(path)
-            if previous is not None and previous[1] is not None and chars <= previous[1]:
-                continue
-            messages.append(_post_message(tool_name, Path(path), chars, limit))
-        if not messages:
-            return None
-        return result + "\n\n" + "\n\n".join(messages)
+        return _flag("terminal", output, key)
     except Exception:
         return None
 

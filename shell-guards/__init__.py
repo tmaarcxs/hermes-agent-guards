@@ -57,6 +57,7 @@ def register(ctx) -> None:
     ctx.register_hook("pre_tool_call", _pre_tool_call)
     ctx.register_hook("post_tool_call", _post_tool_call)
     ctx.register_hook("transform_tool_result", _transform_tool_result)
+    ctx.register_hook("transform_terminal_output", _transform_terminal_output)
 
 
 def _post_tool_call(**kwargs) -> None:
@@ -72,6 +73,22 @@ def _transform_tool_result(**kwargs) -> Optional[str]:
     try:
         return skill_size.transform(
             kwargs.get("tool_name") or "", kwargs.get("args"), kwargs.get("result"),
+            tool_call_id=kwargs.get("tool_call_id") or "")
+    except Exception:
+        return None
+
+
+def _transform_terminal_output(**kwargs) -> Optional[str]:
+    """Deliver the skill-size flag for a ``terminal`` call before the result hook runs.
+
+    See ``skill_size.transform_terminal_output``: the host keeps only the first
+    non-``None`` ``transform_tool_result`` string across plugins, so the flag must ride
+    the earlier ``transform_terminal_output`` seam to survive alongside the
+    ``kanban-guards`` delegation nudge.
+    """
+    try:
+        return skill_size.transform_terminal_output(
+            kwargs.get("command") or "", kwargs.get("output"),
             tool_call_id=kwargs.get("tool_call_id") or "")
     except Exception:
         return None

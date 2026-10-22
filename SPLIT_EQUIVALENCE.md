@@ -19,13 +19,14 @@ itself.
 | `post_tool_call` | 2 (`__init__._post_tool_call`, `wakes._wake_poke`) | 2 (same two) | 1 (no-op placeholder) | 0 |
 | `pre_verify` | 1 (`stop_gate.check`) | 1 (`stop_gate.check`) | 0 | 0 |
 | `transform_tool_result` | 1 (`__init__._transform_tool_result`) | 1 | 1 | 0 |
+| `transform_terminal_output` | 0 | 0 | 1 | 0 |
 | `on_kanban_dispatch_tick` | 6 (the six `wakes` ticks) | 6 (same six) | 0 | 0 |
 
-Total registered callbacks: OLD 11, NEW 3 + 4 + 1 = 8 (kanban 11, shell 3,
-workspace 1). The old root registered 11 hooks; the new folders register 15
-across the three plugins because the two placeholder/no-op registrations
-(`shell-guards._post_tool_call`) exist per plugin. Hook totals per plugin match
-each `plugin.yaml`.
+Total registered callbacks: OLD 11, NEW 11 + 4 + 1 = 16 (kanban 11, shell 4,
+workspace 1). The old root registered 11 callbacks on 5 hooks; the new folders
+register 16 because the no-op `shell-guards._post_tool_call` placeholder and
+`shell-guards`' own `transform_terminal_output` seam exist per plugin. Hook totals
+per plugin match each `plugin.yaml`.
 
 ## Intra-plugin `pre_tool_call` check order
 
@@ -73,20 +74,36 @@ workspace entries keep theirs).
    `workspace-guards` one is never reached. Pinned by
    `tests/test_block_winner.py::test_shell_guards_block_message_wins_over_workspace_guards`.
 
-2. **`transform_tool_result` no longer chains across plugins.** OLD ran one
-   callback that chained `completion_gate → workspace_scope_gate →
-   kanban_show_slim_gate → skill_size → lead_work_nudge`. NEW splits that into
-   two plugins: `kanban-guards` keeps
+2. **`transform_tool_result` no longer chains across plugins, so the two appending
+   transforms are joined on two hooks.** OLD ran one callback that chained
+   `completion_gate → workspace_scope_gate → kanban_show_slim_gate → skill_size →
+   lead_work_nudge`. NEW splits that into two plugins: `kanban-guards` keeps
    `completion_gate → workspace_scope_gate → kanban_show_slim_gate →
    lead_work_nudge` (unchanged inside the plugin) and `shell-guards` owns
-   `skill_size.transform`. The host keeps the **first non-`None` string** and
-   drops the rest (`model_tools.py:849-866`). The Kanban and shell transforms are
-   mutually exclusive in practice (Kanban transforms fire on `kanban_show` /
-   completion results; the skill-size transform fires on
-   `terminal`/`execute_code`/`patch` results). The one accepted corner: a lead
-   turn that both crosses the nudge threshold and leaves an oversized skill file
-   keeps only the **kanban-guards** result (it loads first). Pinned by
-   `tests/test_transform_winner.py::test_first_non_none_string_wins_in_host_order`.
+   `skill_size`. The host keeps the **first non-`None` string** and drops the rest
+   (`model_tools.py:849-866`); callbacks do **not** chain — every callback receives
+   the ORIGINAL result, so a plugin cannot build on the previous plugin's output.
+   The Kanban and shell transforms are otherwise mutually exclusive in practice
+   (Kanban transforms fire on `kanban_show` / completion results; the skill-size
+   transform fires on `terminal`/`execute_code`/`patch` results).
+
+   The one call both want is a Kanban lead's threshold-crossing `terminal` call
+   that also left an oversized skill file: `kanban-guards` loads first, so its
+   nudge would win the first-string race and the size flag would be silently
+   dropped. That corner is **closed** by delivering the size flag on
+   `transform_terminal_output` instead of `transform_tool_result` for `terminal`
+   calls. The terminal tool runs that hook INSIDE the tool, before
+   `transform_tool_result` (`tools/terminal_tool_result.py`
+   `finalize_foreground_result` applies the output transform; the result hook runs
+   after the tool returns), so the flag is already part of the result the nudge
+   appends to and one `transform_tool_result` string carries both messages —
+   exactly the OLD composition (size flag first, nudge after). `execute_code` and
+   unified-diff `patch` keep the `transform_tool_result` seam, and a `terminal`
+   call that yields to the background returns before the terminal hook runs, so
+   the result seam still covers it. Both seams pop the same `tool_call_id`-keyed
+   `_PENDING` snapshot, so a call is never flagged twice. Pinned by
+   `tests/test_transform_winner.py` (nudge only, flag only, both with the flag
+   first).
 
 3. **Checkpoint message precedence.** In the monolith `checkpoint_gate.check`
    ran before `kanban_policy.check`. In the split both are still in
