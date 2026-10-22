@@ -15,5 +15,5 @@ nothing from them.
 Run the tests:
 
 ```bash
-PYTHONPATH="$HOME/.hermes/hermes-agent" ~/.hermes/hermes-agent/.venv/bin/python -m pytest -q tests
+PYTHONPATH="$HOME/.hermes/hermes-agent" ~/.hermes/hermes-agent/venv/bin/python -m pytest -q tests
 ```
