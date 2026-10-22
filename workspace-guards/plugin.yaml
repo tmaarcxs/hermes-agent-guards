@@ -1,0 +1,9 @@
+name: workspace-guards
+version: "0.6.9"
+description: Keeps writes and card workspaces where they belong. Blocks writes that target anything outside the card's own task workspace (the protected Hermes tree, the host's main checkouts, other workers' workspaces) across `write_file`, `patch`, terminal commands and inline python file writes; blocks creating new top-level entries directly under the home directory, resolving the command's real cwd from the terminal tool's `workdir` argument and the session's recorded cwd, not only an in-string `cd`; and, when the profile config sets `kanban.default_assignee`, rejects a `kanban_create` whose `dir`/`worktree` workspace_path leaves the placement convention (outside `<main-checkout>/.worktrees/<task>/` or `~/git_repos/ad-hoc/`) and, for every kind including an explicit `scratch` path or an omitted kind, a workspace_path that is a main checkout, the home dir or a direct child of it.
+author: "shard-guard"
+kind: standalone
+hooks:
+  - pre_tool_call
+provides_hooks:
+  - pre_tool_call
