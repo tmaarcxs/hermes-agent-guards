@@ -325,12 +325,12 @@ def test_on_tick_is_unthrottled_state_is_its_own_file_and_it_fails_open(monkeypa
     assert len(calls) == 1 and "[Kanban waiting]" in calls[0][0]
     first = state_file.read_text()
     wake.waiting_on_tick(board=None)
-    wake.on_tick(board=None, dry_run=True)
+    wake.stale_on_tick(board=None, dry_run=True)
     assert len(calls) == 1 and state_file.read_text() == first
 
     monkeypatch.setattr(wake, "waiting_sweep", lambda *a: 1 / 0)
     wake.waiting_on_tick(board=None)
-    wake.on_tick(board=None, dry_run=True)
+    wake.stale_on_tick(board=None, dry_run=True)
 
 
 def test_registered_on_dispatch_tick():

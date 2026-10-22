@@ -398,7 +398,7 @@ def test_dry_run_never_sweeps_and_never_writes(monkeypatch, tmp_path):
     conn.execute("create table task_events (id integer primary key, task_id text, kind text, payload text, created_at integer)")
     conn.commit()
     monkeypatch.setattr(board_watch, "state_path", lambda name: tmp_path / name)
-    loop.on_tick(board=None, dry_run=True)
+    loop.stale_on_tick(board=None, dry_run=True)
     assert not (tmp_path / "kanban-review-loop.json").exists() and not (tmp_path / "kanban-review-loop-cursor.json").exists()
 
 

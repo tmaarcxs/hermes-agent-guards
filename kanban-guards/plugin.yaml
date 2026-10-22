@@ -1,0 +1,44 @@
+name: kanban-guards
+version: "0.1.0"
+description: >-
+  Kanban discipline for worker and lead processes. Worker gates keep a dispatcher-owned
+  run honest: force a budget checkpoint comment before the run is cut at the iteration
+  cap, keep delegated cards on the configured worker profile (right assignee, out of
+  triage, no execution overrides, numbered Acceptance list), block kanban_complete until
+  metadata.acceptance maps every numbered Acceptance item to evidence, keep the
+  published-PR completion duty visible (reminder on kanban_show, fix suffix on the
+  "PR acceptance missing" rejection), block contacts with people on GitHub from worker
+  terminals (review requests, assignees, @mention comments) with owner-approval and
+  needs_input guidance, block kanban_request_review until the eight pre-review checks
+  are closed with receipt anchors, bounce once per session a narrated stop after a
+  blocked lifecycle call, block kanban_schedule (it ends the run with no timer), and
+  refuse a handoff that preserves a backup/rollback copy of the delivered work.
+  Lead gates keep delivery on workers and chats on their own cards: block the lead from
+  editing repository files or running git commit / git push / gh pr create there, nudge
+  the lead once per user turn after more than 5 work calls without a kanban_create to
+  split the remaining work across parallel cards, scope a lead chat's kanban_list result
+  to the cards its own chat thread is subscribed to (worker processes and origin-less
+  calls pass through), and slim the lead's kanban_show deterministically (worker_context
+  dropped, text-free bookkeeping events dropped, text-bearing fields byte-identical).
+  Wakes run every Kanban wake on one shared event-driven chassis over board_watch —
+  stale parked cards once per parked stretch, review-loop change-request thresholds at
+  3/6/9..., the 10-change-request churn corner, waiting-on-external-gate runs, dispatcher
+  stalls, and unreconciled delivery notices — injected into the card's subscribed chat
+  within one dispatcher tick (requires
+  plugins.entries.kanban-guards.allow_gateway_injection: true). Block messages name the
+  producing guard and tell lifecycle calls to retry in the same response; every guard
+  fails open on its own error.
+author: "shard-guard"
+kind: standalone
+hooks:
+  - pre_tool_call
+  - post_tool_call
+  - pre_verify
+  - transform_tool_result
+  - on_kanban_dispatch_tick
+provides_hooks:
+  - pre_tool_call
+  - post_tool_call
+  - pre_verify
+  - transform_tool_result
+  - on_kanban_dispatch_tick
