@@ -40,12 +40,6 @@ from typing import Any, Optional
 
 from . import kanban_policy
 
-MESSAGE = (
-    "Contacting people needs the owner's approval. "
-    "{merge_hint}"
-    "If the card forbids merging or the diff needs independent review, "
-    "kanban_block with kind=needs_input — do not just wait."
-)
 _MERGE_HINT_BODY = (
     "For a CODEOWNERS/review-only gap on a green exact head, merge it yourself with the "
     "documented merge command: {hint}. "

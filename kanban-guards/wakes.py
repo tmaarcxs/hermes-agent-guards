@@ -93,7 +93,7 @@ _ACTOR = re.compile(
     r"|\bworkflow\b|\brun\s+\d+\b|\bpr\s*#?\s*\d+\b|\bpr\b|\bbot\b|\bchecks?\b|\bdisposition\b"
     r"|\bverdicts?\b|\bcode/\w+|\bverify\b|\bintegration\b|\bsonar\b|\bsha\b|\bwatcher\b"
 )
-_CLAUSE_BOUND = _LOOK_AHEAD = 80
+_CLAUSE_BOUND = 80
 _BOUNDARY_KINDS = ("spawned", "claimed")
 
 
@@ -398,13 +398,9 @@ def churn_cards(conn: sqlite3.Connection) -> list[dict]:
     by_id = {}
     order = []
     for tid, status, title, crs in rows:
-        card = by_id.get(tid)
-        if card is None:
-            card = {"id": tid, "status": status, "title": title or "", "crs": crs}
-            by_id[tid] = card
-            order.append(card)
-        else:
-            card["crs"] = max(card["crs"], crs)
+        card = {"id": tid, "status": status, "title": title or "", "crs": crs}
+        by_id[tid] = card
+        order.append(card)
     return [card for card in order if card["crs"] >= CHURN_MIN_CHANGE_REQUESTS]
 
 
@@ -743,7 +739,6 @@ def reconcile_on_tick(board: Optional[str] = None, dry_run: bool = False, **_: A
 
 
 
-on_tick = stale_on_tick
 EVENT_TICKS = (stale_on_tick, loop_on_tick, churn_on_tick)
 UNTHROTTLED_TICKS = (waiting_on_tick, stall_on_tick, reconcile_on_tick)
 

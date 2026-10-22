@@ -202,18 +202,18 @@ def test_tick_sweeps_only_on_relevant_activity(monkeypatch, tmp_path):
     calls = []
     monkeypatch.setattr(wake, "stale_sweep", lambda *a: calls.append(a) or {})
     monkeypatch.setattr(board_watch, "state_path", lambda name: tmp_path / name)
-    wake.on_tick(board=None)  # no cursor yet: one initialization sweep, then quiet
-    wake.on_tick(board=None)
+    wake.stale_on_tick(board=None)  # no cursor yet: one initialization sweep, then quiet
+    wake.stale_on_tick(board=None)
     assert len(calls) == 1
     conn.execute("insert into task_events (task_id, kind) values ('t_x', 'heartbeat')")
     conn.commit()
-    wake.on_tick(board=None)
+    wake.stale_on_tick(board=None)
     assert len(calls) == 1  # heartbeat is not state movement: skipped
     conn.execute("insert into task_events (task_id, kind) values ('t_x', 'blocked')")
     conn.commit()
-    wake.on_tick(board=None)
+    wake.stale_on_tick(board=None)
     assert len(calls) == 2
-    wake.on_tick(board=None)  # no new relevant activity: skipped
+    wake.stale_on_tick(board=None)  # no new relevant activity: skipped
     assert len(calls) == 2
 
 def test_a_poke_forces_the_sweep_despite_an_unchanged_cursor(monkeypatch, tmp_path):
@@ -237,10 +237,10 @@ def test_a_poke_forces_the_sweep_despite_an_unchanged_cursor(monkeypatch, tmp_pa
     calls = []
     real_sweep = wake.stale_sweep
     monkeypatch.setattr(wake, "stale_sweep", lambda conn, state, inject, now: calls.append(1) or real_sweep(conn, state, inject, now))
-    wake.on_tick(board=None)
+    wake.stale_on_tick(board=None)
     assert len(calls) == 1  # initialization sweep already spent the wake
     board_watch.write_state(board_watch.POKE_FILE, {"at": time.time() + 10})
-    wake.on_tick(board=None)
+    wake.stale_on_tick(board=None)
     assert len(calls) == 2
 
 
@@ -277,17 +277,17 @@ def test_quiet_board_wakes_when_a_ready_card_crosses_five_minutes(monkeypatch, t
     )
     conn.commit()
 
-    wake.on_tick(board=None, now=t0 + 1)  # installed-guard primer: init sweep wakes nothing, arms due_at
+    wake.stale_on_tick(board=None, now=t0 + 1)  # installed-guard primer: init sweep wakes nothing, arms due_at
     assert rec.calls == []
     assert json.loads((tmp_path / "kanban-stale-wake-cursor.json").read_text())["due_at"] == t0 + 300
-    wake.on_tick(board=None, now=t0 + 299)
+    wake.stale_on_tick(board=None, now=t0 + 299)
     assert rec.calls == []  # quiet, before due: no sweep, no wake
     assert json.loads((tmp_path / "kanban-stale-wake-cursor.json").read_text())["swept_at"] == t0 + 1
-    wake.on_tick(board=None, now=t0 + 299)
+    wake.stale_on_tick(board=None, now=t0 + 299)
     assert rec.calls == []
-    wake.on_tick(board=None, now=t0 + 301)
+    wake.stale_on_tick(board=None, now=t0 + 301)
     assert woken(rec) == ["t_q"]  # first tick past STALE_AFTER: swept and woken exactly once
-    wake.on_tick(board=None, now=t0 + 600)
+    wake.stale_on_tick(board=None, now=t0 + 600)
     assert woken(rec) == ["t_q"]  # later quiet ticks re-wake nothing
     assert len(rec.calls) == 1
     assert json.loads((tmp_path / "kanban-stale-wake-cursor.json").read_text())["due_at"] is None
@@ -305,16 +305,16 @@ def test_a_new_state_event_rearms_the_stale_park_wake_on_a_quiet_board(monkeypat
     )
     conn.commit()
 
-    wake.on_tick(board=None, now=t0 + 301)
-    wake.on_tick(board=None, now=t0 + 601)
+    wake.stale_on_tick(board=None, now=t0 + 301)
+    wake.stale_on_tick(board=None, now=t0 + 601)
     assert len(rec.calls) == 1  # once per state: the second quiet tick does not re-wake
     at = t0 + 601
     conn.execute("insert into task_events (task_id, kind, created_at) values ('t_r', 'unblocked', ?)", (at,))
     conn.execute("update tasks set status = 'ready' where id = 't_r'")  # unparked, residue record: wakeable again
     conn.commit()
-    wake.on_tick(board=None, now=t0 + 602)
+    wake.stale_on_tick(board=None, now=t0 + 602)
     assert len(rec.calls) == 1  # a state event re-arms: next crossing is 5 min after it
-    wake.on_tick(board=None, now=at + 301)
+    wake.stale_on_tick(board=None, now=at + 301)
     assert len(rec.calls) == 2  # woken again exactly 5 min after the new state event
 
 def test_dumping_sweep_or_dispatcher_crash_keeps_the_cursor_honest(monkeypatch, tmp_path):
@@ -332,12 +332,12 @@ def test_dumping_sweep_or_dispatcher_crash_keeps_the_cursor_honest(monkeypatch, 
     conn.commit()
 
     monkeypatch.setattr(wake, "stale_sweep", lambda *a: 1 / 0)
-    wake.on_tick(board=None)  # sweep raised: driver still records the cursor
+    wake.stale_on_tick(board=None)  # sweep raised: driver still records the cursor
     cursor = json.loads((tmp_path / "kanban-stale-wake-cursor.json").read_text())
     assert cursor["event_id"] == 1
 
     monkeypatch.setattr(wake, "stale_sweep", lambda *a: {})
-    wake.on_tick(board=None)  # new activity? no — cursor already past it: skipped
+    wake.stale_on_tick(board=None)  # new activity? no — cursor already past it: skipped
     assert json.loads((tmp_path / "kanban-stale-wake-cursor.json").read_text()) == cursor
 
 def test_dry_run_never_sweeps_and_never_writes(tmp_path, monkeypatch):
@@ -351,7 +351,7 @@ def test_dry_run_never_sweeps_and_never_writes(tmp_path, monkeypatch):
     conn.execute("create table task_events (id integer primary key, task_id text, kind text, payload text, created_at integer)")
     conn.commit()
     monkeypatch.setattr(board_watch, "state_path", lambda name: tmp_path / name)
-    wake.on_tick(board=None, dry_run=True)
+    wake.stale_on_tick(board=None, dry_run=True)
     assert not (tmp_path / "kanban-stale-wake.json").exists() and not (tmp_path / "kanban-stale-wake-cursor.json").exists()
 
 
