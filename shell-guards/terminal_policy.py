@@ -21,7 +21,7 @@ _PUSH = re.compile(_START + r"git\s+push\b")
 _BARE_FORCE = re.compile(r"\s(?:--force|-f)(?=\s|$)")
 _GH_AUTH = re.compile(
     _START
-    + r"(?:env\s+(?:-\S+\s+)*)?(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*"
+    + r"(?:env\s+(?:[-\w]+(?:=\S*)?\s+)*)?(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*"
     + r"gh\s+auth\s+(switch|login|logout|refresh)\b"
 )
 _SHELL_C = re.compile(r"(?:bash|sh)\s+-c\s+")
