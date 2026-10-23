@@ -338,9 +338,9 @@ def test_registered_on_dispatch_tick():
     ctx = type("Ctx", (), {"register_hook": lambda self, name, fn: hooks.append((name, fn))})()
     sys.modules["kanban_guards"].register(ctx)
     registered = [hook for name, hook in hooks if name == "on_kanban_dispatch_tick"]
-    for hook in (wake.stale_on_tick, wake.loop_on_tick, wake.churn_on_tick, wake.waiting_on_tick, wake.stall_on_tick, wake.reconcile_on_tick, guards.active_pr_unblock.tick):
+    for hook in (wake.stale_on_tick, wake.loop_on_tick, wake.churn_on_tick, wake.waiting_on_tick, wake.stall_on_tick, wake.reconcile_on_tick, guards.active_pr_unblock.tick, guards.delivered_pr_park.tick):
         assert hook in registered
-    assert len(registered) == 7
+    assert len(registered) == 8
 
 
 def test_streak_wake_keys_on_the_newest_nonempty_note_not_the_run_first():
