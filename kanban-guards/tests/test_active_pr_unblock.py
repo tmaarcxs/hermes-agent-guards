@@ -103,6 +103,17 @@ def comments(conn, tid):
     return [r[0] for r in conn.execute("select body from task_comments where task_id = ?", (tid,))]
 
 
+def backdate(conn, tid, seconds=60):
+    """Make the PR comment older than the hop, so the hop's ``assigned`` events
+    land strictly after it. Timestamps are second-granular: without this the hop
+    can tie the comment's second and core's guard fails closed on the tie."""
+    conn.execute(
+        "UPDATE task_comments SET created_at = created_at - ? WHERE task_id = ?",
+        (seconds, tid),
+    )
+    conn.commit()
+
+
 def guard(conn, tid):
     from hermes_cli.kanban_db_dispatch import check_respawn_guard
 
@@ -112,12 +123,34 @@ def guard(conn, tid):
 def test_unblock_after_pr_comment_lifts_the_guard(board):
     tid = card(board, "t_card")
     comment(board, tid, f"opened {PR_URL}")
+    backdate(board, tid)
     event(board, tid, "unblocked", at=NOW + 1)
     run(board, (tid, "active_pr"))
     hops = assigned(board, tid)
     assert len(hops) == 2
     assert hops[1]["from"] != hops[1]["assignee"]
     assert guard(board, tid) is None
+
+
+def test_same_second_hop_stays_held_and_alerts_once(board, monkeypatch):
+    """The one-second edge: a hop in the comment's own second is not a handoff,
+    so core still holds the card. That must surface as one human alert, not a
+    silent strand."""
+    fixed = int(time.time())
+    monkeypatch.setattr(time, "time", lambda: float(fixed))
+    tid = card(board, "t_card")
+    comment(board, tid, f"opened {PR_URL}", at=fixed)
+    event(board, tid, "unblocked", at=fixed + 1)
+    run(board, (tid, "active_pr"))
+    assert len(assigned(board, tid)) == 2
+    assert guard(board, tid) == "active_pr"
+    run(board, (tid, "active_pr"))
+    assert guard(board, tid) == "active_pr"
+    assert len(comments(board, tid)) == 2
+    alert = comments(board, tid)[-1]
+    assert "human must decide" in alert
+    assert "same clock second" in alert
+    assert "automatic lifts" not in alert
 
 
 def test_pr_comment_without_unblock_is_left_held(board):
