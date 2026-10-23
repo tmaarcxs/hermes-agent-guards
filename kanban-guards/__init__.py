@@ -31,7 +31,13 @@ Worker-process gates:
 - ``schedule_gate`` blocks ``kanban_schedule``: it ends the run without a timer, so a
   self-scheduled card silently stops;
 - ``backup_copy_gate`` blocks a ``kanban_complete`` (or block/comment) handoff whose
-  summary or metadata keeps or preserves a backup/rollback copy of the delivered work.
+  summary or metadata keeps or preserves a backup/rollback copy of the delivered work;
+- ``active_pr_unblock`` runs on ``on_kanban_dispatch_tick`` and lifts the ``active_pr``
+  respawn guard automatically when the newest event is a committed ``unblocked`` strictly
+  newer than the newest PR-URL comment: a real profile hop (other existing profile, then
+  back) gives core's own guard the handoff event it wants, so the card spawns without a
+  human lifting it by hand. One hop per task per 10 min, 3 per hour, persisted in
+  ``plugin-data``; at the cap it posts one comment asking a human to decide.
 
 Lead-process gates:
 - ``lead_work_nudge`` appends one nudge to the tool result of the call that crosses
@@ -90,7 +96,7 @@ try:
     from typing import Optional
 
 
-    from . import backup_copy_gate, board_watch, checkpoint_gate, completion_gate, github_contact, handoff_gate, kanban_policy, kanban_show_slim_gate, lead_work_nudge, pr_link_gate, review_gate, schedule_gate, stop_gate, wakes, workspace_scope_gate
+    from . import active_pr_unblock, backup_copy_gate, board_watch, checkpoint_gate, completion_gate, github_contact, handoff_gate, kanban_policy, kanban_show_slim_gate, lead_work_nudge, pr_link_gate, review_gate, schedule_gate, stop_gate, wakes, workspace_scope_gate
 except ImportError:
     if __name__ != "__init__":
         raise
@@ -108,6 +114,7 @@ def register(ctx) -> None:
     ctx.register_hook("pre_verify", stop_gate.check)
     ctx.register_hook("transform_tool_result", _transform_tool_result)
     wakes.register(ctx)
+    active_pr_unblock.register(ctx)
 
 
 _PRE_TOOL_CALL_CHECKS = (

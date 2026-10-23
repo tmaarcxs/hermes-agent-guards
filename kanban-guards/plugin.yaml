@@ -13,6 +13,11 @@ description: >-
   are closed with receipt anchors, bounce once per session a narrated stop after a
   blocked lifecycle call, block kanban_schedule (it ends the run with no timer), and
   refuse a handoff that preserves a backup/rollback copy of the delivered work.
+  A dispatcher-tick observer auto-lifts the active_pr respawn guard when a human
+  unblocked the card after its PR comment: it hops the card to another existing
+  profile and back, so core's own guard sees a real handoff and the card spawns;
+  loop protection is persisted in plugin-data and the cap posts one comment
+  asking a human to decide.
   Lead gates keep chats on their own cards: nudge the lead once per user turn after more than
   8 work calls without a kanban_create to
   split the remaining work across parallel cards, scope a lead chat's kanban_list result
