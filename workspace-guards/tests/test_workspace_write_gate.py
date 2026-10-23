@@ -180,7 +180,7 @@ def test_worker_terminal_testhome_suite_command_allowed():
 
 
 def test_worker_terminal_python_env_style_write_blocked():
-    command = "env FOO=1 python3 -c \"open('/Users/marcos.sanchez/.hermes/plugins/agent-guards/x.py','w').write('x')\""
+    command = "env FOO=1 python3 -c \"open('/home/user/.hermes/plugins/agent-guards/x.py','w').write('x')\""
     assert "agent-guards blocked terminal" in worker_terminal(command)
 
 

@@ -41,14 +41,14 @@ def allowed(args):
 BASE = {"title": "t", "assignee": "worker"}
 
 
-def main_checkout(home, name="mic-auditqc"):
+def main_checkout(home, name="acme-orders"):
     """A repo whose ``.git`` is a real directory (a main checkout)."""
     repo = home / "git_repos" / name
     (repo / ".git").mkdir(parents=True)
     return repo
 
 
-def canonical_worktree(home, task="t_1", name="mic-auditqc"):
+def canonical_worktree(home, task="t_1", name="acme-orders"):
     """``<main-checkout>/.worktrees/<task>/`` — the convention's repo path."""
     return main_checkout(home, name) / ".worktrees" / task
 
@@ -65,7 +65,7 @@ def test_allowed_canonical_worktree_kind_passes(convention_home):
 
 def test_allowed_canonical_worktree_any_repo_passes(convention_home):
     allowed({**BASE, "workspace_kind": "dir",
-             "workspace_path": str(canonical_worktree(convention_home, "t_2", "spa-auditqc"))})
+             "workspace_path": str(canonical_worktree(convention_home, "t_2", "acme-web"))})
 
 
 def test_allowed_adhoc_path_passes(convention_home):
@@ -167,7 +167,7 @@ def test_direct_child_of_home_rejected(convention_home):
 def test_central_sibling_worktrees_root_rejected(convention_home):
     """The old ``~/git_repos/worktrees/<repo>/<task>/`` is NOT the convention."""
     message = blocked({**BASE, "workspace_kind": "dir",
-                       "workspace_path": str(convention_home / "git_repos" / "worktrees" / "mic-auditqc" / "t_1")})
+                       "workspace_path": str(convention_home / "git_repos" / "worktrees" / "acme-orders" / "t_1")})
     assert "workspace_kind=dir must live at" in message
 
 
@@ -201,7 +201,7 @@ def test_bare_dot_worktrees_root_rejected(convention_home):
 
 
 def test_hermes_tmp_study_dir_rejected(convention_home):
-    tmp_study = convention_home / ".hermes" / "tmp" / "jev-auditqc-study"
+    tmp_study = convention_home / ".hermes" / "tmp" / "acme-orders-study"
     message = blocked({**BASE, "workspace_kind": "dir", "workspace_path": str(tmp_study)})
     assert "workspace_kind=dir must live at" in message
 

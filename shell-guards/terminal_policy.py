@@ -57,7 +57,7 @@ _GH_AUTH_MESSAGE = (
     "gh auth switch (also login/logout/refresh) is not allowed: it changes the shared "
     "active account for every Hermes process. To act as another account, set it in the "
     "command itself: GH_TOKEN=$(gh auth token -u <user>) <command>. The default active "
-    "account is msanchez19."
+    "account is acme-bot."
 )
 
 

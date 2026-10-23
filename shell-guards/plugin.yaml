@@ -9,7 +9,7 @@ description: >
   `gh auth login`, `gh auth logout` and `gh auth refresh` (they change the
   shared active account for every Hermes process - to act as another account
   set it in the command: `GH_TOKEN=$(gh auth token -u <user>) <command>`, the
-  default active account is `msanchez19`), block bare `git push
+  default active account is `acme-bot`), block bare `git push
   --force`/`-f` (use `--force-with-lease`), and block recursive deletion of a
   live Hermes home (`rm -r`, `find -delete`, `rsync --delete`, python delete
   calls aimed at `$HERMES_HOME`, `~/.hermes` or its profiles subtree, an

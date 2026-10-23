@@ -10,11 +10,11 @@ design: stdlib only.
 The pattern is assembled from fragments so this file and the hook do not match
 themselves, which would otherwise make the guard reject its own installation.
 
-``LEGACY_LINE_HASHES`` freezes the exact offending lines that already shipped
-before the guard existed, so the suite stays green while those files are tracked
-for scrubbing by a separate card. Each entry is a hash of ``path + NUL + line``,
-so no identifier appears here, and a NEW offending line inside one of the frozen
-files hashes differently and still fails the run.
+``LEGACY_LINE_HASHES`` froze the exact offending lines that shipped before the
+guard existed, so the suite stayed green while those files were scrubbed. The
+scrub is done and the set is empty; the mechanism stays for the next pre-guard
+migration. Each entry is a hash of ``path + NUL + line``, so no identifier
+appears here, and a NEW offending line hashes differently and still fails.
 """
 
 import hashlib
@@ -39,35 +39,7 @@ _PAIRS = [
 ]
 PRIVACY_RE = re.compile("|".join(a + b for a, b in _PAIRS), re.IGNORECASE)
 
-LEGACY_LINE_HASHES = {
-    "00909d42a133735a",
-    "3623d3d4d990a0fa",
-    "9f86a4c70afb46af",
-    "b907ea75ba74fd42",
-    "399613ab7ffaf761",
-    "9dd78cd47f1250ae",
-    "461a9fedd1edf13e",
-    "baadfe2b2a655f74",
-    "a807d9da12de948b",
-    "da61bac4091e0d5c",
-    "8e6ef4b3ea2976c6",
-    "ce8fe163d1a2d587",
-    "9e01bff9732c1bb6",
-    "3ce4073ab4eadc34",
-    "616bf8b5ca7be943",
-    "5b048085aaf1cef3",
-    "286bf1a4660cc479",
-    "f253724dce999637",
-    "046935e24435a8ce",
-    "a7dde1fd475db877",
-    "e759a68646425112",
-    "de4d5f0ebf91daba",
-    "181224aef9172abc",
-    "c273bc39d7ea0311",
-    "c428d3439c44a7cc",
-    "a355c347f5acd7de",
-    "235dfaf2783fceeb",
-}
+LEGACY_LINE_HASHES: set[str] = set()
 
 
 def _line_hash(name: str, stripped: str) -> str:

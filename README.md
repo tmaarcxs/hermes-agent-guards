@@ -27,7 +27,7 @@ Answers: *is this shell command safe to run?*
 - Blocks `gh auth switch`/`login`/`logout`/`refresh`: they change the shared
   active gh account for every Hermes process, so act as another account with
   `GH_TOKEN=$(gh auth token -u <user>) <command>` instead (default
-  `msanchez19`); `gh auth status`/`token` stay allowed.
+  `acme-bot`); `gh auth status`/`token` stay allowed.
 - Blocks recursive deletion of a live Hermes home (`rm` with a recursive flag,
   `find -delete`, `rsync --delete` on a protected destination, python
   `rmtree`-family calls), including through a runner chain after a pipe.
