@@ -73,13 +73,23 @@ def test_audit_msg_3644_review_passes_once_every_item_carries_a_receipt():
 
 
 def test_prose_only_item_still_blocks_for_lack_of_receipt():
-    """Preservation test — green on base and on the candidate. A completed item that matches
-    a check name but carries no receipt token (no count, hash, path or exit code) still
-    blocks: widening RECEIPT did not turn prose into evidence."""
-    todo([{"id": "0", "content": "Contract coverage: every acceptance item walked and met",
-           "status": "completed"}])
+    """Preservation test — green on base and on the candidate. Two identical item lists, both
+    with a real receipt on every check, differ in exactly one thing: item 1's receipt is
+    removed. The first passes; the second blocks naming that check. So the block is caused by
+    the missing receipt alone, not by a missing check name or any other check."""
+    with_receipts = [
+        text + (" (rc=0)" if not gate.RECEIPT.search(text) else "") for text in AUDIT_ITEMS
+    ]
+    items = [{"id": str(i), "content": text, "status": "completed"} for i, text in enumerate(with_receipts)]
+    todo(items)
+    assert review() is None
+
+    stripped = list(with_receipts)
+    stripped[1] = "Failure lifecycle: transient failures all retried and resolved"
+    assert not gate.RECEIPT.search(stripped[1])
+    todo([{"id": str(i), "content": text, "status": "completed"} for i, text in enumerate(stripped)])
     result = review()
-    assert result is not None and "Contract coverage" in result["message"]
+    assert result is not None and "Failure lifecycle" in result["message"]
 
 
 def test_verified_read_only_paths_is_not_a_receipt():
@@ -89,6 +99,7 @@ def test_verified_read_only_paths_is_not_a_receipt():
     would make the gate a password any worker can type and pass silently."""
     items = list(AUDIT_ITEMS)
     items[4] = "Real boundary: verified read-only paths"
+    items[1] = items[1] + " (rc=0, exit 0)"
     todo([{"id": str(i), "content": text, "status": "completed"} for i, text in enumerate(items)])
     result = review()
     assert result is not None and "Real boundary" in result["message"]
