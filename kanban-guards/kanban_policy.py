@@ -38,7 +38,11 @@ def violations(tool_name: str, args: dict[str, Any], worker: str) -> list[str]:
         found += [f"remove execution override '{key}'" for key in EXECUTION_OVERRIDES if key in args]
         return found
     if tool_name == "kanban_request_review" and args.get("reviewer") not in (None, worker):
-        return [f"reviewer must be '{worker}' or omitted, got {args['reviewer']!r}"]
+        return [
+            f"reviewer must be '{worker}' (the configured kanban.default_assignee, the only reviewer "
+            f"profile this setup has) or omitted, got {args['reviewer']!r}; {args['reviewer']!r} is not a "
+            f"profile that exists"
+        ]
     return []
 
 

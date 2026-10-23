@@ -36,8 +36,9 @@ Worker-process gates:
 Lead-process gates:
 - ``lead_delegation`` blocks the lead from editing files under repository roots and from
   ``git commit``/``git push``/``gh pr create`` there: delivery goes to workers;
-- ``lead_work_nudge`` appends one nudge to the tool result of the call that crosses 5 work
-  calls in a user turn when the lead has not called ``kanban_create`` in that turn: split
+- ``lead_work_nudge`` appends one nudge to the tool result of the call that crosses
+  ``lead_work_nudge.WORK_CALL_THRESHOLD`` (8) work calls in a user turn when the lead has not
+  called ``kanban_create`` in that turn: split
   the remaining work across as many parallel cards as possible instead of continuing itself;
 - ``workspace_scope_gate`` scopes a lead ``kanban_list`` result to the cards the calling
   chat thread is subscribed to (``kanban_notify_subs`` platform/chat_id/thread_id): other

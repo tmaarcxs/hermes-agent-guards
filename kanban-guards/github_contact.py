@@ -71,6 +71,9 @@ _ENV_ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _PREFIX = {"env", "sudo", "command", "nohup", "time"}
 _NOT_PEOPLE = {"@me", "@copilot"}
 _NOT_PEOPLE_TEXT = re.compile(r"(?<![\w@./])@(?:me|copilot)\b", re.I)
+_BOT_LOGIN = re.compile(r"(?:\[bot\]|^copilot)$", re.I)
+"""Bot logins carry no ``@``: the API form passes ``copilot-pull-request-reviewer[bot]``, and an
+``owner/team`` slug ending in ``[bot]`` is GitHub's app unit (``apps/vercel[bot]``), not a person."""
 _CREATE_FLAGS = {"-r": "reviewer", "--reviewer": "reviewer", "-a": "assignee", "--assignee": "assignee"}
 _EDIT_FLAGS = {"--add-reviewer": "reviewer", "--add-assignee": "assignee"}
 _ASSIGN_FLAGS = {"--assignee", "-a", "--add-assignee"}
@@ -242,7 +245,8 @@ def _contacts(values: list[Optional[str]], flag: str = "") -> bool:
             if me:
                 users = [u for u in users if u.lstrip("@").lower() != me.lower()]
             return any(u.strip().lower() not in _NOT_PEOPLE for u in users)
-    return any(str(value).strip().lower() not in _NOT_PEOPLE for value in present)
+    people = [u for u in (str(value).strip() for value in present) if u.lower() not in _NOT_PEOPLE]
+    return any(not _BOT_LOGIN.search(u) for u in people)
 
 
 def _read(ref: Optional[str], workdir: str) -> Optional[str]:
@@ -293,6 +297,21 @@ def _comment_body(parts: list[tuple[str, bool]], workdir: str) -> Optional[str]:
     return inline
 
 
+def _api_reviewers_are_people(parts: list[tuple[str, bool]]) -> bool:
+    """Whether a POSTed reviewer list names someone who is not a bot.
+
+    ``-f 'reviewers[]=x'`` fields carry the logins; no readable value at all (``--input`` a file
+    this cannot read, a body-free request) keeps the block, fail closed.
+    """
+    names = [
+        parts[i + 1][0].partition("=")[2] for i, (text, quoted) in enumerate(parts)
+        if not quoted and text in ("-f", "--raw-field")
+        and i + 1 < len(parts) and parts[i + 1][0].partition("=")[0] == "reviewers[]"
+    ] + [text.partition("=")[2] for text, quoted in parts
+         if not quoted and text.startswith(("-f=reviewers[]=", "--raw-field=reviewers[]="))]
+    return not names or _contacts([name for name in names if name])
+
+
 def _api_violation(parts: list[tuple[str, bool]], workdir: str) -> str:
     """One ``gh api`` call: blocked review request, or @mention in a POSTed comment body."""
     endpoint, method, hint = "", "", False
@@ -336,7 +355,7 @@ def _api_violation(parts: list[tuple[str, bool]], workdir: str) -> str:
         method = "POST" if hint else "GET"
     if method not in ("POST", "PUT", "PATCH"):
         return ""
-    if endpoint.endswith("/requested_reviewers"):
+    if endpoint.endswith("/requested_reviewers") and _api_reviewers_are_people(parts):
         return "gh api " + method + " .../requested_reviewers requests a review from people"
     if endpoint.endswith("/comments"):
         if file_ref is not None:

@@ -1,4 +1,4 @@
-"""One-time lead nudge to delegate after more than 5 exploration calls in a user turn.
+"""One-time lead nudge to delegate after more than WORK_CALL_THRESHOLD exploration calls in a user turn.
 
 When a lead process (``HERMES_KANBAN_TASK`` absent and a worker profile configured,
 the plugin's established lead definition in ``lead_delegation.is_lead``) has made
@@ -44,6 +44,9 @@ Blocked calls never reach this hook and are never counted.
 
 Fails open: no turn identity, a worker process, or a non-string result leaves the
 result untouched.
+
+Threshold: the audit found 48 nudges, only 17% led to a ``kanban_create``; 5 calls was ordinary
+exploration, so the threshold is 8.
 """
 
 import os
@@ -53,7 +56,10 @@ from typing import Any, Optional
 from . import kanban_policy
 
 _MAX_TRACKED_TURNS = 200
-WORK_CALL_THRESHOLD = 5
+WORK_CALL_THRESHOLD = 8
+"""Guards audit (2026-10-09..23): 48 nudges, only 17% led to a ``kanban_create``, so the old
+5-call threshold fired on ordinary exploration; 8 keeps the nudge for turns clearly doing the
+work themselves."""
 
 WORK_TOOLS = frozenset({
     "read_file",
