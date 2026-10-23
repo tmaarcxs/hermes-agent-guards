@@ -92,6 +92,35 @@ def test_prose_only_item_still_blocks_for_lack_of_receipt():
     assert result is not None and "Failure lifecycle" in result["message"]
 
 
+@pytest.mark.parametrize("receipt", ["rc=0", "rc 0", "rc:1", "exit 0", "exit=0", "exit: 0"])
+def test_exit_and_rc_need_a_value(receipt):
+    """The word must carry its measurement: bare 'exit'/'rc' is prose, not a receipt."""
+    assert gate.RECEIPT.search(receipt)
+
+
+@pytest.mark.parametrize("text", ["no early exit, all good", "exits cleanly", "rc", "exit"])
+def test_bare_exit_or_rc_is_not_a_receipt(text):
+    """Each is a single token so nothing else in the string can match."""
+    assert not gate.RECEIPT.search(text)
+
+
+def test_prose_exit_blocks_and_rc_value_passes():
+    """Differential: two all-green lists differ only in item 4's text — the bare-word item
+    blocks naming it, the rc=0 item passes. So the block comes from the receipt alone."""
+    all_green = [text + (" (rc=0)" if not gate.RECEIPT.search(text) else "") for text in AUDIT_ITEMS]
+
+    prose = list(all_green)
+    prose[4] = "Real boundary: no early exit, all good"
+    todo([{"id": str(i), "content": text, "status": "completed"} for i, text in enumerate(prose)])
+    result = review()
+    assert result is not None and "Real boundary" in result["message"]
+
+    valued = list(all_green)
+    valued[4] = "Real boundary: rc=0"
+    todo([{"id": str(i), "content": text, "status": "completed"} for i, text in enumerate(valued)])
+    assert review() is None
+
+
 def test_verified_read_only_paths_is_not_a_receipt():
     """Deliberate decision (card item 1, lead review R1): "verified read-only paths" is prose
     about the work, not a measurement of it — it names no path, count or hash. An item reading
