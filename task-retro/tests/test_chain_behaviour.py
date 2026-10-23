@@ -389,3 +389,69 @@ def test_completed_hook_sweeps_a_parked_retro_on_a_real_board(temp_board):
         task_id=source_b, board="default", run_id=run_b, summary="did B")
     assert kb.get_task(conn, retro_a.id).status == "archived"
     assert str(db_path) != str(kb.kanban_db_path())
+
+
+def test_age_cap_archives_an_old_queued_retro_on_a_real_board(temp_board):
+    """An OPEN retro past the cap is archived with a comment; its child promotes.
+
+    Drives the real ``archive_task`` + ``add_comment`` against the temp board.
+    """
+    import time as _time
+
+    db_path, conn = temp_board
+    mod = _load_plugin()
+    mod._config_cache = {
+        "plugin": {"min_duration_seconds": 0, "queue_max_age_seconds": 3600},
+        "default_assignee": "worker",
+    }
+
+    source, run_id = _complete_a_source_card(conn, "Build the widget")
+    mod._on_kanban_task_completed(
+        task_id=source, board="default", run_id=run_id, summary="did it")
+    retro = _retro_cards(conn)[0]
+    # Age it past the cap and queue a child behind it.
+    conn.execute("UPDATE tasks SET created_at = ? WHERE id = ?",
+                 (int(_time.time()) - 7200, retro.id))
+    conn.commit()
+    child = kb.create_task(conn, title="retro: queued child", assignee="worker",
+                           parents=[retro.id])
+    assert kb.get_task(conn, child).status == "todo"
+
+    source2, run2 = _complete_a_source_card(conn, "Build the other widget")
+    mod._on_kanban_task_completed(
+        task_id=source2, board="default", run_id=run2, summary="did it")
+
+    assert kb.get_task(conn, retro.id).status == "archived"
+    assert kb.get_task(conn, child).status == "ready"
+    rows = conn.execute(
+        "SELECT body FROM task_comments WHERE task_id = ?", (retro.id,)).fetchall()
+    assert rows, "the archive reason must be recorded on the card"
+    assert "skipped for age" in rows[0]["body"]
+    assert source in rows[0]["body"], "the reason must name the parent card"
+
+
+def test_age_cap_leaves_a_running_retro_alone_on_a_real_board(temp_board):
+    import time as _time
+
+    db_path, conn = temp_board
+    mod = _load_plugin()
+    mod._config_cache = {
+        "plugin": {"min_duration_seconds": 0, "queue_max_age_seconds": 3600},
+        "default_assignee": "worker",
+    }
+
+    source, run_id = _complete_a_source_card(conn, "Build the widget")
+    mod._on_kanban_task_completed(
+        task_id=source, board="default", run_id=run_id, summary="did it")
+    retro = _retro_cards(conn)[0]
+    kb.claim_task(conn, retro.id)
+    assert kb.get_task(conn, retro.id).status == "running"
+    conn.execute("UPDATE tasks SET created_at = ? WHERE id = ?",
+                 (int(_time.time()) - 7200, retro.id))
+    conn.commit()
+
+    source2, run2 = _complete_a_source_card(conn, "Build the other widget")
+    mod._on_kanban_task_completed(
+        task_id=source2, board="default", run_id=run2, summary="did it")
+
+    assert kb.get_task(conn, retro.id).status == "running"

@@ -47,6 +47,11 @@ Behaviour:
 - a retro is created only once per completed task, even if a retro for that
   task was later archived (``create_task``'s own idempotency check ignores
   archived rows, so the plugin checks the key itself first).
+- the completion sweep also retires OPEN retros (``todo``/``ready``) older than
+  ``queue_max_age_seconds``: each is archived with a comment naming its parent
+  card, which releases its queued children. A ``running`` retro is live work and
+  is never aged out; ``0`` disables the sweep. Without it a busy board grows an
+  unbounded ``todo`` backlog behind the three lanes.
 - every failure is logged and swallowed — this hook never raises and never
   blocks a completion. In particular, when the transaction, the lane lookup,
   the link call or the archive fails, the retro card is still created
@@ -402,16 +407,24 @@ def _archive_parked_retros(conn: Any, kb: Any) -> int:
 
 
 def _retro_parent_label(conn: Any, kb: Any, task: Any) -> str:
-    """The completed card this retro belongs to, for an archive reason."""
+    """The completed card this retro belongs to, for an archive reason.
+
+    The retro's own parent is the completed work card recorded in
+    ``idempotency_key`` (``retro:<task_id>``); a lane link names the retro it
+    was queued behind. Both are reported when present.
+    """
     task_id = str(_field(task, "id") or "")
-    try:
-        parents = [str(p) for p in kb.parent_ids(conn, task_id) if p]
-    except Exception:
-        parents = []
-    if parents:
-        return parents[0]
     key = str(_field(task, "idempotency_key") or "")
-    return key[len(_TITLE_PREFIX):] if key.startswith(_TITLE_PREFIX) else ""
+    card = key[len(_TITLE_PREFIX):] if key.startswith(_TITLE_PREFIX) else ""
+    try:
+        behind = [str(p) for p in kb.parent_ids(conn, task_id) if p]
+    except Exception:
+        behind = []
+    if card and behind:
+        return f"{card} (queued behind {behind[0]})"
+    if card:
+        return card
+    return behind[0] if behind else ""
 
 
 def _archive_stale_retros(conn: Any, kb: Any, max_age_seconds: float) -> int:
