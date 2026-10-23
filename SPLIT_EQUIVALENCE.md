@@ -199,5 +199,5 @@ workspace entries keep theirs).
     matching style and the same exemptions as the other terminal blocks. The
     message names the required per-command form
     `GH_TOKEN=$(gh auth token -u <user>) <command>` and the default active
-    account `msanchez19`. Pinned by
+    account `acme-bot`. Pinned by
     `shell-guards/tests/test_gh_auth_guard.py`.

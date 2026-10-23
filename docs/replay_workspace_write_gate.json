@@ -7,7 +7,7 @@
    "fp": "0376219dc5c2",
    "tool": "terminal",
    "attributed_task": "t_74cbf0f9",
-   "text_head": "env -i HOME=\"$HOME\" PATH=/usr/bin:/bin HERMES_KANBAN_TASK=t_fenced HERMES_DELEGATED_CHILD_CONTEXT=1 /Users/marcos.sanchez/.hermes/hermes-agent/venv/bin/python -B -c \"\nimport sqlite3, pathlib, os\np = p",
+   "text_head": "env -i HOME=\"$HOME\" PATH=/usr/bin:/bin HERMES_KANBAN_TASK=t_fenced HERMES_DELEGATED_CHILD_CONTEXT=1 /home/user/.hermes/hermes-agent/venv/bin/python -B -c \"\nimport sqlite3, pathlib, os\np = p",
    "class": "by-design-probe (clean-env spawn test; path literals in subprocess args)"
   },
   {
@@ -15,7 +15,7 @@
    "fp": "ea53a772ffbe",
    "tool": "terminal",
    "attributed_task": "t_efb9f7a4",
-   "text_head": "cd /Users/marcos.sanchez/.hermes/kanban/workspaces/t_efb9f7a4/repo/tests && /Users/marcos.sanchez/git_repos/mic-auditqc/code/.venv/bin/python << 'EOF'\n# Live battery: SHIPPED module (init) vs WORKTREE",
+   "text_head": "cd /home/user/.hermes/kanban/workspaces/t_efb9f7a4/repo/tests && /home/user/git_repos/acme-orders/code/.venv/bin/python << 'EOF'\n# Live battery: SHIPPED module (init) vs WORKTREE",
    "class": "by-design-probe (audit-collection heredoc listing plugin path literal; reads only)"
   },
   {
@@ -23,7 +23,7 @@
    "fp": "591e080f2131",
    "tool": "terminal",
    "attributed_task": "t_efb9f7a4",
-   "text_head": "cd /Users/marcos.sanchez/.hermes/kanban/workspaces/t_efb9f7a4/repo/tests && /Users/marcos.sanchez/git_repos/mic-auditqc/code/.venv/bin/python << 'EOF'\n# Live battery: SHIPPED module (init, pre-fix) vs",
+   "text_head": "cd /home/user/.hermes/kanban/workspaces/t_efb9f7a4/repo/tests && /home/user/git_repos/acme-orders/code/.venv/bin/python << 'EOF'\n# Live battery: SHIPPED module (init, pre-fix) vs",
    "class": "by-design-probe (same)"
   },
   {
@@ -31,7 +31,7 @@
    "fp": "3f1968b44d80",
    "tool": "terminal",
    "attributed_task": "t_efb9f7a4",
-   "text_head": "cd /Users/marcos.sanchez/.hermes/kanban/workspaces/t_efb9f7a4/repo/tests && /Users/marcos.sanchez/git_repos/mic-auditqc/code/.venv/bin/python << 'EOF'\n# Live battery v2: SHIPPED (pre-fix) vs WORKTREE ",
+   "text_head": "cd /home/user/.hermes/kanban/workspaces/t_efb9f7a4/repo/tests && /home/user/git_repos/acme-orders/code/.venv/bin/python << 'EOF'\n# Live battery v2: SHIPPED (pre-fix) vs WORKTREE ",
    "class": "by-design-probe (same)"
   },
   {
@@ -39,7 +39,7 @@
    "fp": "c2ee56c865e0",
    "tool": "terminal",
    "attributed_task": "t_9ce6e1c6",
-   "text_head": "cd /Users/marcos.sanchez/.hermes/kanban/workspaces/t_9ce6e1c6/hermes-agent-guards && python3 - <<'PY'\nimport re\nsrc = open(\"q_robustness.py\").read()\n# Point the probe at the frozen PR head clone inste",
+   "text_head": "cd /home/user/.hermes/kanban/workspaces/t_9ce6e1c6/hermes-agent-guards && python3 - <<'PY'\nimport re\nsrc = open(\"q_robustness.py\").read()\n# Point the probe at the frozen PR head clone inste",
    "class": "by-design-probe (probe body referencing plugin path for read-only compare)"
   },
   {
@@ -47,7 +47,7 @@
    "fp": "76c7ef9a8789",
    "tool": "terminal",
    "attributed_task": "t_74cbf0f9",
-   "text_head": "cd /Users/marcos.sanchez/.hermes/scratch/vcc-phase0 && rm -f _analysis.json worker-state.copy.db-wal worker-state.copy.db-shm && ls -la",
+   "text_head": "cd /home/user/.hermes/scratch/vcc-phase0 && rm -f _analysis.json worker-state.copy.db-wal worker-state.copy.db-shm && ls -la",
    "class": "true (rm into ~/.hermes/scratch, outside allowed scratch zones)"
   },
   {
@@ -55,7 +55,7 @@
    "fp": "0fcf5ff2459a",
    "tool": "terminal",
    "attributed_task": "t_74cbf0f9",
-   "text_head": "cd /Users/marcos.sanchez/.hermes/scratch/vcc-phase0 && ls -la; git clone https://github.com/agentbox-tech/hermes-vcc hermes-vcc 2>&1 | tail -2; git -C hermes-vcc rev-parse HEAD",
+   "text_head": "cd /home/user/.hermes/scratch/vcc-phase0 && ls -la; git clone https://github.com/agentbox-tech/hermes-vcc hermes-vcc 2>&1 | tail -2; git -C hermes-vcc rev-parse HEAD",
    "class": "true (git clone destination under ~/.hermes/scratch, outside allowed scratch zones)"
   },
   {
@@ -63,7 +63,7 @@
    "fp": "08d3698ea031",
    "tool": "write_file",
    "attributed_task": "t_74cbf0f9",
-   "text_head": "/Users/marcos.sanchez/.hermes/scratch/vcc-phase0/A-audit.md",
+   "text_head": "/home/user/.hermes/scratch/vcc-phase0/A-audit.md",
    "class": "true (write into ~/.hermes/scratch)"
   },
   {
@@ -71,7 +71,7 @@
    "fp": "748e48f3c138",
    "tool": "patch",
    "attributed_task": "t_74cbf0f9",
-   "text_head": "/Users/marcos.sanchez/.hermes/scratch/vcc-phase0/vcc_replay.py",
+   "text_head": "/home/user/.hermes/scratch/vcc-phase0/vcc_replay.py",
    "class": "true (write into ~/.hermes/scratch)"
   },
   {
@@ -95,7 +95,7 @@
    "fp": "ded880591044",
    "tool": "terminal",
    "attributed_task": "t_74cbf0f9",
-   "text_head": "python3 - <<'EOF'\nimport sqlite3, time, json, datetime, os\ndb = sqlite3.connect('/Users/marcos.sanchez/.hermes/scratch/vcc-phase0/state.default.copy.db')\ndb.row_factory = sqlite3.Row\ncur = db.cursor()",
+   "text_head": "python3 - <<'EOF'\nimport sqlite3, time, json, datetime, os\ndb = sqlite3.connect('/home/user/.hermes/scratch/vcc-phase0/state.default.copy.db')\ndb.row_factory = sqlite3.Row\ncur = db.cursor()",
    "class": "true (python write into ~/.hermes/scratch)"
   },
   {
@@ -103,7 +103,7 @@
    "fp": "f2e79da23b10",
    "tool": "write_file",
    "attributed_task": "t_74cbf0f9",
-   "text_head": "/Users/marcos.sanchez/.hermes/scratch/vcc-phase0/E-corpus.md",
+   "text_head": "/home/user/.hermes/scratch/vcc-phase0/E-corpus.md",
    "class": "true (write into ~/.hermes/scratch)"
   },
   {
@@ -111,7 +111,7 @@
    "fp": "51f6f4b04d9d",
    "tool": "terminal",
    "attributed_task": "t_74cbf0f9",
-   "text_head": "rm -f /Users/marcos.sanchez/.hermes/scratch/vcc-phase0/probe*.py /Users/marcos.sanchez/.hermes/scratch/vcc-phase0/ver.py /Users/marcos.sanchez/.hermes/scratch/vcc-phase0/state.default.copy.db-shm /Use",
+   "text_head": "rm -f /home/user/.hermes/scratch/vcc-phase0/probe*.py /home/user/.hermes/scratch/vcc-phase0/ver.py /home/user/.hermes/scratch/vcc-phase0/state.default.copy.db-shm /Use",
    "class": "true (rm into ~/.hermes/scratch)"
   },
   {

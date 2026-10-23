@@ -2,7 +2,7 @@
 
 ``gh auth switch`` flips the active gh account for EVERY Hermes process (Hermes
 reads its Copilot token from ``gh auth token``, source ``gh_cli``), and the
-default account ``msanchez19`` is the one every Inditex repository access needs.
+default account ``acme-bot`` is the one every shared repository access needs.
 The rule is to pin the account per command instead:
 ``GH_TOKEN=$(gh auth token -u <user>) <command>``.
 
@@ -107,7 +107,7 @@ def test_allowed_spellings_pass(command):
 def test_message_names_the_pinned_account_form_and_the_default():
     message = run("gh auth switch --user tmaarcxs")["message"]
     assert "GH_TOKEN=$(gh auth token -u <user>) <command>" in message
-    assert "msanchez19" in message
+    assert "acme-bot" in message
     assert "shared active account" in message
     assert "\n" not in message
 
