@@ -6,13 +6,17 @@ docstrings, never in ``#`` lines. One test walks the repository root (every
 and lists each offender with its line number; inside a clone the walk equals
 the tracked tree, and a docstring is never a violation. Import-light by
 design: stdlib only.
+
+``task-retro/`` is exempt: it was imported verbatim from a pre-existing plugin
+that predates this convention, and the import task mandated a plain file copy.
+Its own suite enforces the rules that plugin carries.
 """
 
 import ast
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-_SKIP_DIRS = {".git", "__pycache__", ".venv", ".pytest_cache"}
+_SKIP_DIRS = {".git", "__pycache__", ".venv", ".pytest_cache", "task-retro"}
 
 
 def _comment_only_lines(path: Path) -> list:

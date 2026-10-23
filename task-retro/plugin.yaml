@@ -1,0 +1,35 @@
+name: task-retro
+version: "1.3.0"
+description: "Auto-create a retrospective card when a worker card completes. Subscribes to kanban_task_completed, writes exactly one idempotent retro card per completed task, keeps at most 3 retros active by chaining each new retro behind the oldest open lane tail inside a single write transaction, archives a retro the moment it is blocked so it never gates its children, never subscribes any chat, and fails open."
+author: "Atenea"
+license: MIT
+kind: standalone
+manifest_version: 2
+api_version: 1
+hooks:
+  - kanban_task_completed
+  - kanban_task_blocked
+provides_hooks:
+  - kanban_task_completed
+  - kanban_task_blocked
+config_schema:
+  enabled:
+    type: bool
+    label: "Enable task-retro"
+    default: true
+    description: "Create a retro card when a worker card completes. Restart Hermes after changing this switch."
+  min_duration_seconds:
+    type: int
+    label: "Minimum card wall (s)"
+    default: 900
+    description: "Skip cards whose TOTAL run wall (sum of all their runs) is shorter than this. Trivial cards get no retrospective."
+  queue_max_age_seconds:
+    type: int
+    label: "Queued retro max age (s)"
+    default: 21600
+    description: "Archive an OPEN retro (todo/ready) queued longer than this, naming its parent; a running retro is never aged out. Keeps the backlog bounded."
+  debug:
+    type: bool
+    label: "Debug log"
+    default: false
+    description: "Append decisions to debug.log next to the plugin."
