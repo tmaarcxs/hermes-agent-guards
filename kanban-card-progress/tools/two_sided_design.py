@@ -10,11 +10,15 @@ isolated instance, and reports leaks / pct visibility / line-1 lines.
 """
 import importlib
 import json
+import os
 import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, "/Users/marcos.sanchez/.hermes/artifacts/ui-probe-instance")
+UI_PROBE = Path(os.environ.get("UI_PROBE_DIR", Path.home() / ".hermes/artifacts/ui-probe-instance"))
+if not UI_PROBE.is_dir():
+    raise SystemExit(f"UI_PROBE_DIR is not a directory: {UI_PROBE}; set UI_PROBE_DIR to the ui-probe-instance directory")
+sys.path.insert(0, str(UI_PROBE))
 from cdp import CDP, page_target  # noqa: E402
 
 PORT = sys.argv[1]
