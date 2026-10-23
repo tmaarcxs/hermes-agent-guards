@@ -1,9 +1,15 @@
 """review_gate must accept the receipt forms workers actually write.
 
 Regression from the guards audit: session ``20261018_181146_417a71`` msg 3644 had all eight
-checks closed, but ``RECEIPT`` rejected three of them — "full suite 608+1" and "verified
-read-only paths" carry real evidence with no ``\\d+ passed`` token. ``AUDIT_ITEMS`` below is
-that list, verbatim.
+checks closed, but ``RECEIPT`` rejected them — the count/reference forms below ("full suite
+608+1") carry real evidence with no ``\\d+ passed`` token. ``AUDIT_ITEMS`` below is that list,
+verbatim.
+
+Card item 1 is scoped to the count/reference forms only: ``N+M`` counts, ``PR #N``,
+``commit <sha>``/``<sha>``, ``RED->GREEN``, ``rc=0``/``exit 0``. The audit's other named
+false negative, the prose item "verified read-only paths", is deliberately NOT accepted: it
+names no path, count or hash, so treating it as evidence would let any worker pass by typing
+the phrase. ``test_verified_read_only_paths_is_not_a_receipt`` pins that decision.
 """
 
 import json
@@ -43,11 +49,18 @@ def review(session="audit"):
     return guards._pre_tool_call(tool_name="kanban_request_review", args={"summary": "s"}, session_id=session)
 
 
-def test_audit_msg_3644_named_false_negatives_pass_receipt():
-    """The two items the card names as false negatives: "full suite 608+1" and "verified
-    read-only paths"."""
-    assert gate.RECEIPT.search(AUDIT_ITEMS[0])
-    assert gate.RECEIPT.search(AUDIT_ITEMS[4])
+@pytest.mark.parametrize("receipt", [
+    "full suite 608+1",   # N+M test count
+    "PR #22",             # pull-request reference
+    "commit 6ba7695",     # commit sha with prefix
+    "6ba7695",            # bare sha
+    "RED->GREEN",         # red-to-green proof
+    "rc=0",               # rc value
+    "exit 0",             # exit code
+])
+def test_audit_msg_3644_fixed_forms_pass_receipt(receipt):
+    """The fixed forms, each a single token so no other token can hide an unmatched one."""
+    assert gate.RECEIPT.search(receipt)
 
 
 def test_audit_msg_3644_review_passes_once_every_item_carries_a_receipt():
@@ -59,22 +72,26 @@ def test_audit_msg_3644_review_passes_once_every_item_carries_a_receipt():
     assert review() is None
 
 
-def test_audit_msg_3644_item_without_receipt_still_blocks():
-    todo([{"id": str(i), "content": text, "status": "completed"} for i, text in enumerate(AUDIT_ITEMS)])
+def test_prose_only_item_still_blocks_for_lack_of_receipt():
+    """Preservation test — green on base and on the candidate. A completed item that matches
+    a check name but carries no receipt token (no count, hash, path or exit code) still
+    blocks: widening RECEIPT did not turn prose into evidence."""
+    todo([{"id": "0", "content": "Contract coverage: every acceptance item walked and met",
+           "status": "completed"}])
     result = review()
-    assert result is not None and "Failure lifecycle" in result["message"]
+    assert result is not None and "Contract coverage" in result["message"]
 
 
-@pytest.mark.parametrize("receipt", [
-    "full suite 608+1",
-    "PR #22 open",
-    "commit 6ba7695",
-    "RED->GREEN",
-    "rc=0",
-    "exit 0",
-])
-def test_widened_receipt_forms(receipt):
-    assert gate.RECEIPT.search(receipt)
+def test_verified_read_only_paths_is_not_a_receipt():
+    """Deliberate decision (card item 1, lead review R1): "verified read-only paths" is prose
+    about the work, not a measurement of it — it names no path, count or hash. An item reading
+    exactly that, with every other check genuinely closed, still BLOCKS; accepting the phrase
+    would make the gate a password any worker can type and pass silently."""
+    items = list(AUDIT_ITEMS)
+    items[4] = "Real boundary: verified read-only paths"
+    todo([{"id": str(i), "content": text, "status": "completed"} for i, text in enumerate(items)])
+    result = review()
+    assert result is not None and "Real boundary" in result["message"]
 
 
 @pytest.mark.parametrize("text", ["Contract coverage", "Claims anchored", "done", "verified"])
