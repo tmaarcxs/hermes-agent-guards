@@ -957,3 +957,21 @@ def test_sqlite3_option_arguments_are_not_the_database(monkeypatch, command, exp
         assert "~/" + entry in message, (command, message)
     else:
         assert message is None, (command, message)
+
+
+def test_sqlite_file_uri_read_allowed(monkeypatch):
+    """`sqlite3 "file:$HOME/.hermes/kanban.db?mode=ro"` reads; it creates nothing."""
+    assert worker_terminal(
+        'cd ~ && sqlite3 "file:$HOME/.hermes/kanban.db?mode=ro" "select 1"') is None
+
+
+def test_sqlite_file_uri_absolute_read_allowed(monkeypatch):
+    home = home_of(monkeypatch)
+    assert worker_terminal(
+        'cd %s && sqlite3 "file:%s/.hermes/kanban.db?mode=ro" "select 1"' % (home, home)) is None
+
+
+def test_mkdir_newthing_still_blocked(monkeypatch):
+    message = worker_terminal("mkdir -p ~/newthing")
+    assert message and "home_litter_gate" in message
+    assert "~/newthing" in message

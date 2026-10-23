@@ -155,8 +155,8 @@ def test_worker_terminal_kanban_attachments_copy_allowed(monkeypatch, tmp_path):
 
 def test_worker_terminal_repo_outside_home_hermes_git_mutation_blocked_plain_write_allowed():
     assert "agent-guards blocked terminal" in worker_terminal(
-        "git -C ~/git_repos/mic-auditqc pull")
-    assert worker_terminal("cp note.md ~/git_repos/mic-auditqc/notes.md") is None
+        "git -C ~/git_repos/sample-repo pull")
+    assert worker_terminal("cp note.md ~/git_repos/sample-repo/notes.md") is None
 
 
 def test_worker_terminal_worktree_sibling_workspace_blocked():
@@ -229,3 +229,113 @@ def test_quoted_target_still_blocked():
 def test_piped_deletion_target_blocked():
     assert "agent-guards blocked terminal" in worker_terminal(
         "echo ~/.hermes/plugins/agent-guards | xargs rm -rf")
+
+
+READ_ONLY_GIT_SHAPES = [
+    "git merge-base main origin/main",
+    "git -C ~/git_repos/sample-repo merge-base main origin/main",
+    "git -C ~/git_repos/sample-repo fetch origin -q",
+    "git fetch origin",
+    "git -C ~/git_repos/sample-repo log --oneline -3",
+    "git -C ~/git_repos/sample-repo rev-parse HEAD",
+    "git -C ~/git_repos/sample-repo ls-remote origin",
+    "git -C ~/git_repos/sample-repo cat-file -p HEAD",
+    "git -C ~/git_repos/sample-repo worktree list",
+    "git worktree list",
+    "git -C ~/git_repos/sample-repo worktree show",
+    "cd ~/git_repos/sample-repo && git fetch origin",
+    "cd ~/git_repos/sample-repo && git merge-base a b",
+]
+
+
+@pytest.mark.parametrize("command", READ_ONLY_GIT_SHAPES)
+def test_read_only_git_outside_workspace_allowed(command):
+    assert worker_terminal(command) is None, command
+
+
+GIT_MUTATION_SHAPES = [
+    "git -C ~/git_repos/sample-repo push",
+    "git -C ~/git_repos/sample-repo commit -m x",
+    "git -C ~/git_repos/sample-repo reset --hard",
+    "git -C ~/git_repos/sample-repo rebase main",
+    "git -C ~/git_repos/sample-repo checkout main",
+    "git -C ~/git_repos/sample-repo merge other",
+    "git -C ~/git_repos/sample-repo rm a",
+    "git -C ~/git_repos/sample-repo mv a b",
+    "git -C ~/git_repos/sample-repo clean -fd",
+    "git -C ~/git_repos/sample-repo stash",
+    "git -C ~/git_repos/sample-repo pull",
+    "cd ~/git_repos/sample-repo && git push",
+]
+
+
+@pytest.mark.parametrize("command", GIT_MUTATION_SHAPES)
+def test_real_git_mutation_outside_workspace_still_blocked(command):
+    assert "agent-guards blocked terminal" in worker_terminal(command), command
+
+
+def test_worktree_add_into_allowed_zone_allowed():
+    assert worker_terminal(
+        "git worktree add $HERMES_KANBAN_WORKSPACE/wt -b t_x origin/main") is None
+    assert worker_terminal("git worktree add ~/.hermes/cache/scratch/wt -b x origin/main") is None
+
+
+def test_worktree_add_outside_allowed_zone_blocked():
+    assert "agent-guards blocked terminal" in worker_terminal(
+        "git worktree add ~/git_repos/sample-repo/wt -b y origin/main")
+
+
+def test_clone_into_allowed_zone_allowed_outside_blocked():
+    assert worker_terminal(
+        "git clone https://github.com/a/b.git $HERMES_KANBAN_WORKSPACE/b") is None
+    assert "agent-guards blocked terminal" in worker_terminal(
+        "git clone https://github.com/a/b.git ~/git_repos/b")
+
+
+def test_worker_own_profile_cache_write_allowed(monkeypatch, tmp_path):
+    """The profile's own ``cache/`` (terminal-output logs) is a legitimate write.
+
+    ``HERMES_HOME`` points at ``<real home>/.hermes/profiles/<own>`` in a worker;
+    the old allowlist covered only ``cache/scratch`` and blocked the sibling
+    ``cache/terminal-output/`` logs.
+    """
+    home = tmp_path / "home"
+    profile = home / ".hermes" / "profiles" / "worker"
+    (profile / "cache" / "terminal-output").mkdir(parents=True)
+    fake_tmp = tmp_path / "fake-tmp"
+    fake_tmp.mkdir()
+    monkeypatch.setenv("HERMES_REAL_HOME", str(home))
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("HERMES_HOME", str(profile))
+    monkeypatch.setenv("TMPDIR", str(fake_tmp))
+    monkeypatch.setattr(gate._policy, "configured_worker", lambda: "worker")
+    target = profile / "cache" / "terminal-output" / "out.log"
+    assert worker_terminal("echo x > %s" % target) is None
+    assert blocked("write_file", {"path": str(target), "content": "x"}) is None
+
+
+def test_reports_dir_write_allowed(monkeypatch, tmp_path):
+    home = tmp_path / "home"
+    (home / ".hermes" / "reports").mkdir(parents=True)
+    fake_tmp = tmp_path / "fake-tmp"
+    fake_tmp.mkdir()
+    monkeypatch.setenv("HERMES_REAL_HOME", str(home))
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("TMPDIR", str(fake_tmp))
+    assert worker_terminal("echo x > %s/.hermes/reports/r.md" % home) is None
+    assert blocked("write_file", {"path": str(home / ".hermes" / "reports" / "r.md"),
+                                  "content": "x"}) is None
+
+
+def test_protected_hermes_paths_still_blocked(monkeypatch, tmp_path):
+    home = tmp_path / "home"
+    (home / ".hermes").mkdir(parents=True)
+    fake_tmp = tmp_path / "fake-tmp"
+    fake_tmp.mkdir()
+    monkeypatch.setenv("HERMES_REAL_HOME", str(home))
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("TMPDIR", str(fake_tmp))
+    for rel in ("config.yaml", ".env", "profiles/lead/config.yaml",
+                "plugins/workspace-guards/x.py"):
+        assert "agent-guards blocked terminal" in worker_terminal(
+            "echo x > %s/.hermes/%s" % (home, rel)), rel
