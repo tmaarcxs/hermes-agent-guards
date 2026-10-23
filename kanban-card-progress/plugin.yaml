@@ -1,0 +1,73 @@
+name: kanban-card-progress
+version: "1.1.2"
+description: >-
+  Deterministic per-card progress block. A gateway-side daemon thread sweeps
+  every RUNNING Kanban card every ~10 s, reads the worker's native Tasklist
+  (the persisted todo_list tool-result row in the worker profile's state.db,
+  resolved from the card's latest owner_admitted event), and writes a two-line
+  block at the head of the card body so the desktop card shows
+  "▶ 3/7 · <current step>" and a 23-wide ASCII bar. The label is cut by the
+  MEASURED pixel budget (209 px smallest card box — a busy lane shows an 8 px
+  scrollbar; 4 px margin — with an embedded per-glyph width table measured in
+  the app's own Blink and pinned against a checked-in reference), on a word
+  boundary when possible, never with an ellipsis, and the bar is sized so NN%
+  (up to 100%) always fits with no trailing ellipsis. The line-2 pad is sized
+  from the 217 px largest box, so it blocks a description word at both boxes.
+  Line 2 ends with an invisible NBSP pad (U+00A0) sized so the card's
+  description can never follow the percent on the card face: it wraps to the
+  clamped third line, and the card shows only the progress block.
+  No LLM, no worker cooperation beyond keeping its Tasklist updated. Writes are
+  a single compare-and-set UPDATE inside one BEGIN IMMEDIATE, retried on a
+  miss, and are skipped entirely when the body would not change; the UPDATE also
+  carries ``AND status = 'running'`` so a card that completes between the read
+  and the write is never given a stranded block. The block is identified by
+  its exact shape (the current #. alphabet plus the earlier v3 #_ and the legacy
+  v2 #= alphabet, bar width 8-40, with an optional NBSP pad at either the v1.1.1
+  or the current length),
+  so a v2 block is replaced in place and human text after it is never touched.
+  Strips the block from a card that stopped running. Disabled by default: add
+  the plugin to plugins.enabled (hermes plugins enable kanban-card-progress) to
+  activate.
+author: "Atenea"
+license: MIT
+kind: standalone
+manifest_version: 2
+api_version: 1
+hooks: []
+provides_hooks: []
+config_schema:
+  enabled:
+    type: bool
+    label: "Enable kanban-card-progress"
+    default: true
+    description: "Write the progress block into running card bodies. The plugin is off until it is added to plugins.enabled (hermes plugins enable kanban-card-progress); this switch — plugins.entries.kanban-card-progress.settings.enabled — then turns it off again without unloading it. Restart Hermes after changing it."
+  interval_seconds:
+    type: float
+    label: "Sweep interval (s)"
+    default: 30
+    description: "Seconds between sweeps of the running cards. Minimum 5."
+  max_cards_per_cycle:
+    type: int
+    label: "Max cards per sweep"
+    default: 40
+    description: "Upper bound on cards touched in one sweep, so a large board cannot stall the thread."
+  sqlite_timeout_seconds:
+    type: float
+    label: "SQLite timeout (s)"
+    default: 5
+    description: "Busy timeout for each SQLite read/write on the sweep."
+  cycle_budget_seconds:
+    type: float
+    label: "Cycle time budget (s)"
+    default: 20
+    description: "Wall-clock budget for one sweep; remaining cards are deferred to the next sweep."
+  max_body_bytes:
+    type: int
+    label: "Max body size (bytes)"
+    default: 262144
+    description: "Cards whose body exceeds this are skipped (never truncated)."
+  debug:
+    type: bool
+    label: "Debug log"
+    default: false
+    description: "Append sweep decisions to debug.log next to the plugin."
