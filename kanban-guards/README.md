@@ -2,7 +2,7 @@
 
 Everything Kanban in one self-contained plugin. Worker gates (checkpoint, completion
 acceptance, review checklist, handoff, stop, schedule, backup-copy, GitHub contact,
-delegation policy), lead gates (lead delegation, work nudge, board output shaping) and
+delegation policy), lead gates (work nudge, board output shaping) and
 the dispatcher wake chassis (`wakes` + `board_watch`).
 
 Extracted from the monolithic `agent-guards` plugin; registration order inside this
