@@ -90,7 +90,7 @@ try:
     from typing import Optional
 
 
-    from . import backup_copy_gate, board_watch, checkpoint_gate, completion_gate, github_contact, handoff_gate, kanban_policy, kanban_show_slim_gate, lead_work_nudge, pr_link_gate, review_gate, schedule_gate, stop_gate, wakes, workspace_scope_gate
+    from . import active_pr_unblock, backup_copy_gate, board_watch, checkpoint_gate, completion_gate, github_contact, handoff_gate, kanban_policy, kanban_show_slim_gate, lead_work_nudge, pr_link_gate, review_gate, schedule_gate, stop_gate, wakes, workspace_scope_gate
 except ImportError:
     if __name__ != "__init__":
         raise
@@ -108,6 +108,7 @@ def register(ctx) -> None:
     ctx.register_hook("pre_verify", stop_gate.check)
     ctx.register_hook("transform_tool_result", _transform_tool_result)
     wakes.register(ctx)
+    active_pr_unblock.register(ctx)
 
 
 _PRE_TOOL_CALL_CHECKS = (
