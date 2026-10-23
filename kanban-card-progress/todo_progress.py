@@ -18,8 +18,8 @@ from typing import Any, Optional
 
 VALID_STATUSES = frozenset({"pending", "in_progress", "completed", "cancelled"})
 
-# A todo result larger than this is a forged/oversized row (tools/todo_tool.py
-# MAX_TODO_RESULT_CHARS); the SQL already filters on it, this is belt and braces.
+"""A todo result larger than this is a forged/oversized row (tools/todo_tool.py
+MAX_TODO_RESULT_CHARS); the SQL already filters on it, this is belt and braces."""
 MAX_TODO_RESULT_CHARS = 512_000
 
 

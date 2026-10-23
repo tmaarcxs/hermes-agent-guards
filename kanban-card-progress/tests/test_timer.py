@@ -170,7 +170,7 @@ class TestRegister(unittest.TestCase):
                              "the documented settings subtree must be read")
             self.assertEqual(cfg.get("interval_seconds"), 42)
 
-            # The bare key (no `settings`) is not read — documents the real path.
+            """The bare key (no `settings`) is not read — documents the real path."""
             (env.home / "config.yaml").write_text(
                 "plugins:\n"
                 "  entries:\n"

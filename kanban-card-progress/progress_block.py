@@ -113,11 +113,11 @@ from __future__ import annotations
 import math
 import re
 
-# --- Measured advance widths (px) of the 0.6875rem UI font on the real card ----
-# Source: tools/measure_advances.py in the app's own Blink, card CSS, the real
-# card preview span; pinned by TestWidthTableMatchesMeasuredReference against
-# tests/measured_advances.json. Single-glyph advance (a word's first glyph uses
-# its own advance, so single-glyph values are the correct ones here).
+"""--- Measured advance widths (px) of the 0.6875rem UI font on the real card ----
+Source: tools/measure_advances.py in the app's own Blink, card CSS, the real
+card preview span; pinned by TestWidthTableMatchesMeasuredReference against
+tests/measured_advances.json. Single-glyph advance (a word's first glyph uses
+its own advance, so single-glyph values are the correct ones here)."""
 WIDTH_TABLE = {
     " ": 3.156, "!": 3.488, "\"": 5.319, "#": 6.994, "$": 6.994, "%": 10.244, "&": 7.891, "'": 3.331, "(": 4.266, ")": 4.266, "*": 5.253, "+": 6.994, ",": 3.331, "-": 5.253, ".": 3.331, "/": 3.419,
     "0": 6.994, "1": 5.169, "2": 6.703, "3": 6.962, "4": 7.144, "5": 6.866, "6": 7.069, "7": 6.328, "8": 7.091, "9": 7.069,
@@ -134,39 +134,39 @@ WIDTH_TABLE = {
     "\u00c1": 7.478, "\u00c9": 6.619, "\u00cd": 3.009, "\u00d3": 8.553, "\u00da": 8.175, "\u00d1": 8.231, "\u00dc": 8.175,
     "\u00a0": 3.158,
 }
-# Unknown glyph: widest plausible advance, so the budget is never over-spent.
+"""Unknown glyph: widest plausible advance, so the budget is never over-spent."""
 DEFAULT_ADVANCE = 11.80
 
-# --- Measured layout constants ------------------------------------------------
-# The card text box is 13.75rem wide: board column `w-64` (256 px) - column p-2
-# (16) - border (3) - card p-2.5 (20) = 217 px, MINUS the lane's scrollbar when
-# the lane overflows. The app styles every scrollbar at `::-webkit-scrollbar
-# { width: 0.5rem }` (8 px, NOT overlay - it reserves space), so a busy lane
-# renders a 209 px box and an idle lane a 217 px box. Both were measured in the
-# app's own renderer; the operator's real board (busy lanes) shows 209 px.
-#
-# The historical "231 px" was the AX FRAME width at the operator's 110 % UI zoom:
-# the same text reports AX 210 at scale 100 and 231 at scale 110 (210 x 1.1), and
-# 209 x 1.1 = 230 matches his live 2-line cards. AX frames are screen pixels and
-# are scaled by the app zoom; the renderer's CSS box is 209..217 px.
-#
-# Two references, because the two lines constrain differently:
-#   * line 1 and the bar must FIT the SMALLEST box (209 px) - they are breakable
-#     text and would wrap if too wide;
-#   * the pad must BLOCK a word at the LARGEST box (217 px) - it is an
-#     unbreakable run, so it never wraps itself; at 209 it merely overflows
-#     invisibly (the visible `NN%` right edge is <= 202 px, inside 209).
+"""--- Measured layout constants ------------------------------------------------
+The card text box is 13.75rem wide: board column `w-64` (256 px) - column p-2
+(16) - border (3) - card p-2.5 (20) = 217 px, MINUS the lane's scrollbar when
+the lane overflows. The app styles every scrollbar at `::-webkit-scrollbar
+{ width: 0.5rem }` (8 px, NOT overlay - it reserves space), so a busy lane
+renders a 209 px box and an idle lane a 217 px box. Both were measured in the
+app's own renderer; the operator's real board (busy lanes) shows 209 px.
+
+The historical "231 px" was the AX FRAME width at the operator's 110 % UI zoom:
+the same text reports AX 210 at scale 100 and 231 at scale 110 (210 x 1.1), and
+209 x 1.1 = 230 matches his live 2-line cards. AX frames are screen pixels and
+are scaled by the app zoom; the renderer's CSS box is 209..217 px.
+
+Two references, because the two lines constrain differently:
+* line 1 and the bar must FIT the SMALLEST box (209 px) - they are breakable
+text and would wrap if too wide;
+* the pad must BLOCK a word at the LARGEST box (217 px) - it is an
+unbreakable run, so it never wraps itself; at 209 it merely overflows
+invisibly (the visible `NN%` right edge is <= 202 px, inside 209)."""
 CONTENT_WIDTH_PX = 209.0    # smallest reachable box: line 1 / bar budget
 PAD_CONTENT_WIDTH_PX = 217.0  # largest reachable box: pad budget
 SAFETY_MARGIN_PX = 4.0      # headroom for font-rendering / rounding differences
 USABLE_WIDTH_PX = CONTENT_WIDTH_PX - SAFETY_MARGIN_PX     # 205.0
 
-# Line 2 must end in a COMPLETE `NN%` (up to `100%`) with no ellipsis. The widest
-# case is the all-`#` 100 % bar, which contains no empty glyph - so the narrower
-# `.` buys nothing for the binding case:
-#   "[" 4.27 + "]" 4.27 + NBSP 3.16 + "100%" 29.40 = 41.09 px fixed
-#   41.09 + BAR_WIDTH * 6.99 <= 205  ->  BAR_WIDTH = 23 (201.95 px; 24 = 208.95
-#   would NOT fit the 209 px box)
+"""Line 2 must end in a COMPLETE `NN%` (up to `100%`) with no ellipsis. The widest
+case is the all-`#` 100 % bar, which contains no empty glyph - so the narrower
+`.` buys nothing for the binding case:
+"[" 4.27 + "]" 4.27 + NBSP 3.16 + "100%" 29.40 = 41.09 px fixed
+41.09 + BAR_WIDTH * 6.99 <= 205  ->  BAR_WIDTH = 23 (201.95 px; 24 = 208.95
+would NOT fit the 209 px box)"""
 BAR_WIDTH = 23              # chars INSIDE the brackets (derived: see above)
 FILLED = "#"
 EMPTY = "."                 # operator's choice (v3.1): period, v3 used `_`, v2 `=`
@@ -176,35 +176,35 @@ SEP = "\u00a0"              # NBSP: no collapse, no break
 GLYPH = "\u25b6"            # ▶ renders inline as text (verified)
 MIDDLE_DOT = "\u00b7"       # ·
 
-# --- Line-2 pad (v3.2) --------------------------------------------------------
-# Appended AFTER `NN%` so the description can never follow the percent on line 2.
+"""--- Line-2 pad (v3.2) --------------------------------------------------------
+Appended AFTER `NN%` so the description can never follow the percent on line 2."""
 PAD_CHAR = SEP              # U+00A0: invisible, never collapses, no break
 NARROWEST_ADVANCE = min(WIDTH_TABLE.values())   # 2.78 px (the `j` glyph)
-# A word needs `space + first glyph` of room; the narrowest glyph that can start
-# a word is NARROWEST_ADVANCE, so a token must EXCEED this width to block it.
-# PAD_SAFETY_PX absorbs the embedded table's own rounding error: the table
-# over-states the real rendered base by at most 0.67 px, so a token sized to
-# exceed the threshold by >= 1 px also blocks the first word in the renderer.
+"""A word needs `space + first glyph` of room; the narrowest glyph that can start
+a word is NARROWEST_ADVANCE, so a token must EXCEED this width to block it.
+PAD_SAFETY_PX absorbs the embedded table's own rounding error: the table
+over-states the real rendered base by at most 0.67 px, so a token sized to
+exceed the threshold by >= 1 px also blocks the first word in the renderer."""
 PAD_SAFETY_PX = 1.0
-# Sized from the LARGEST box (217 px): a token that blocks a word at 217 also
-# blocks it at 209, because 209 is narrower.
+"""Sized from the LARGEST box (217 px): a token that blocks a word at 217 also
+blocks it at 209, because 209 is narrower."""
 PAD_MIN_PX = PAD_CONTENT_WIDTH_PX - WIDTH_TABLE[" "] - NARROWEST_ADVANCE + PAD_SAFETY_PX  # 212.07
-# The token must never reach the wrap width, or it would wrap ITSELF onto line 3.
+"""The token must never reach the wrap width, or it would wrap ITSELF onto line 3."""
 PAD_MAX_PX = PAD_CONTENT_WIDTH_PX - 1.0                                 # 216.00
 assert PAD_MIN_PX < PAD_MAX_PX
 
-# v1.1.1 wrote its pad from a 231 px box (the AX-frame unit error fixed here), so
-# its blocks carry a DIFFERENT pad length than this version derives. They must
-# still be recognised and replaced in place, never stacked, so :func:`_match_block`
-# accepts that legacy length too. 231 px is the only historical value shipped.
+"""v1.1.1 wrote its pad from a 231 px box (the AX-frame unit error fixed here), so
+its blocks carry a DIFFERENT pad length than this version derives. They must
+still be recognised and replaced in place, never stacked, so :func:`_match_block`
+accepts that legacy length too. 231 px is the only historical value shipped."""
 LEGACY_CONTENT_WIDTH_PX = 231.0
 _LEGACY_PAD_MIN_PX = (LEGACY_CONTENT_WIDTH_PX - WIDTH_TABLE[" "] - NARROWEST_ADVANCE
                       + PAD_SAFETY_PX)                                   # 226.07
 _LEGACY_PAD_MAX_PX = LEGACY_CONTENT_WIDTH_PX - 1.0                       # 230.00
 
-# Accepted bar widths when STRIPPING (migration: v2 wrote 24, v3 writes 23; a
-# hand-written bar of some other width in 8..40 is tolerated so a future width
-# change never strands a block). MAX_ACCEPTED_BAR must stay >= BAR_WIDTH.
+"""Accepted bar widths when STRIPPING (migration: v2 wrote 24, v3 writes 23; a
+hand-written bar of some other width in 8..40 is tolerated so a future width
+change never strands a block). MAX_ACCEPTED_BAR must stay >= BAR_WIDTH."""
 MIN_ACCEPTED_BAR = 8
 MAX_ACCEPTED_BAR = 40
 assert MIN_ACCEPTED_BAR <= BAR_WIDTH <= MAX_ACCEPTED_BAR
@@ -224,7 +224,7 @@ def cut_to_width(text: str, budget_px: float) -> str:
         return ""
     if text_width(text) <= budget_px:
         return text
-    # Longest prefix by width.
+    """Longest prefix by width."""
     acc = 0.0
     end = 0
     for i, ch in enumerate(text):
@@ -236,8 +236,8 @@ def cut_to_width(text: str, budget_px: float) -> str:
     if end <= 0:
         return ""
     prefix = text[:end]
-    # Prefer a word boundary: drop the trailing partial word when the previous
-    # word boundary also fits and leaves at least one word.
+    """Prefer a word boundary: drop the trailing partial word when the previous
+word boundary also fits and leaves at least one word."""
     if end < len(text) and text[end] != " ":
         sp = prefix.rfind(" ")
         if sp > 0:
@@ -314,20 +314,20 @@ def format_block(done: int, total: int, label: str, pct: int | None = None) -> s
 
 
 
-# --- Block identification and migration ---------------------------------------
-# The bar line is `[` + 8..40 of [#=_.] + `]` + NBSP + NN%.  The alphabet accepts
-# ALL THREE shipped shapes - v2 `#=`, v3-first-cut `#_`, and v3.1 `#.` - at any
-# width in the accepted range, so a block written by an older version is
-# REPLACED in place (never duplicated).
+"""--- Block identification and migration ---------------------------------------
+The bar line is `[` + 8..40 of [#=_.] + `]` + NBSP + NN%.  The alphabet accepts
+ALL THREE shipped shapes - v2 `#=`, v3-first-cut `#_`, and v3.1 `#.` - at any
+width in the accepted range, so a block written by an older version is
+REPLACED in place (never duplicated)."""
 _BAR = r"\[[#=_.]{8,40}\]"
 _HEAD = re.escape(GLYPH) + r" \d+/\d+"
-# The block WITHOUT the v3.2 pad: `▶ N/M[ · label]` \n `[bar]` NBSP `NN%`.
+"""The block WITHOUT the v3.2 pad: `▶ N/M[ · label]` \n `[bar]` NBSP `NN%`."""
 _BLOCK_CORE_RE = re.compile(
     r"^(?P<block>" + _HEAD + r"(?: \u00b7 [^\n]*)?\n"
     + _BAR + re.escape(SEP) + r"\d{1,3}%)",
     re.MULTILINE,
 )
-# Whitespace that may follow a block line (a real newline, or the collapsed one).
+"""Whitespace that may follow a block line (a real newline, or the collapsed one)."""
 _TAIL_RE = re.compile(r"[ \t]*\n?")
 
 
@@ -348,19 +348,19 @@ def _match_block(body: str):
         return None
     core = m.group("block")
     end = m.end()
-    # The pad is sized from LINE 2 only: `core` also carries line 1, whose width
-    # would otherwise swamp the threshold.
+    """The pad is sized from LINE 2 only: `core` also carries line 1, whose width
+would otherwise swamp the threshold."""
     line2 = core.rsplit("\n", 1)[-1]
     want = pad_count(line2)
-    # v1.1.1 wrote its pad from a 231 px box, so its blocks carry a different
-    # (larger) length. Accept both, so a v1.1.1 block is replaced in place.
+    """v1.1.1 wrote its pad from a 231 px box, so its blocks carry a different
+(larger) length. Accept both, so a v1.1.1 block is replaced in place."""
     want_legacy = _pad_count_for(line2, _LEGACY_PAD_MIN_PX, _LEGACY_PAD_MAX_PX)
     got = 0
     while end + got < len(body) and body[end + got] == SEP:
         got += 1
-    # Accepted shapes: the legacy one with NO pad (v2 / v3 / v3.1), the v1.1.1
-    # one at the 231 px count, and this version's count. Any other NBSP run is a
-    # human line, not a block.
+    """Accepted shapes: the legacy one with NO pad (v2 / v3 / v3.1), the v1.1.1
+one at the 231 px count, and this version's count. Any other NBSP run is a
+human line, not a block."""
     if got not in (0, want, want_legacy):
         return None
     pad = body[end:end + got]

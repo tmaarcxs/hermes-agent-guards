@@ -26,17 +26,17 @@ class TestWidthTable(unittest.TestCase):
             self.assertIn(ch, pb.WIDTH_TABLE, ch)
 
     def test_period_is_narrower_than_underscore_and_equals(self):
-        # The v3.1 empty char is the operator's choice. The measurement says `.`
-        # (3.33 px) is much narrower than `_` (6.48) and `=` (6.99). It buys no
-        # width for the binding all-`#` 100 % bar, which contains no empty glyph.
+        """The v3.1 empty char is the operator's choice. The measurement says `.`
+(3.33 px) is much narrower than `_` (6.48) and `=` (6.99). It buys no
+width for the binding all-`#` 100 % bar, which contains no empty glyph."""
         self.assertLess(pb.WIDTH_TABLE["."], pb.WIDTH_TABLE["_"])
         self.assertLess(pb.WIDTH_TABLE["."], pb.WIDTH_TABLE["="])
         self.assertAlmostEqual(pb.WIDTH_TABLE["."], 3.33, places=2)
 
     def test_measured_anchors(self):
-        # Anchors from the Blink measurement at the card CSS, zoom 1
-        # (tools/measure_advances.py); pinned in full by
-        # TestWidthTableMatchesMeasuredReference.
+        """Anchors from the Blink measurement at the card CSS, zoom 1
+(tools/measure_advances.py); pinned in full by
+TestWidthTableMatchesMeasuredReference."""
         self.assertAlmostEqual(pb.WIDTH_TABLE["i"], 2.78, places=2)
         self.assertAlmostEqual(pb.WIDTH_TABLE["x"], 5.83, places=2)
         self.assertAlmostEqual(pb.WIDTH_TABLE["W"], 10.71, places=2)
@@ -78,10 +78,10 @@ class TestWidthTableMatchesMeasuredReference(unittest.TestCase):
             self.assertIn(ch, ref["advances"], ch)
 
     def test_reference_is_a_real_measurement_not_a_copy_of_the_table(self):
-        # The earlier card shipped a reference byte-identical to WIDTH_TABLE, so it
-        # pinned the table against itself and could not catch an inflated table.
-        # A real per-glyph measurement is rounded from Blink layout and is NOT the
-        # table verbatim; require a real minority of exact coincidences.
+        """The earlier card shipped a reference byte-identical to WIDTH_TABLE, so it
+pinned the table against itself and could not catch an inflated table.
+A real per-glyph measurement is rounded from Blink layout and is NOT the
+table verbatim; require a real minority of exact coincidences."""
         ref = json.loads((PLUGIN_DIR / "tests" / "measured_advances.json").read_text("utf-8"))
         exact = sum(1 for ch, v in ref["advances"].items()
                     if ch in pb.WIDTH_TABLE and pb.WIDTH_TABLE[ch] == v)
@@ -92,8 +92,8 @@ class TestWidthTableMatchesMeasuredReference(unittest.TestCase):
             self.assertIn(key, prov, key)
 
     def test_content_box_constant_matches_the_measured_box_with_provenance(self):
-        # CONTENT_WIDTH_PX is the number the whole layout derives from; it must be
-        # the box the reference measured, with its provenance on file.
+        """CONTENT_WIDTH_PX is the number the whole layout derives from; it must be
+the box the reference measured, with its provenance on file."""
         ref = json.loads((PLUGIN_DIR / "tests" / "measured_advances.json").read_text("utf-8"))
         self.assertEqual(pb.CONTENT_WIDTH_PX, ref["content_box_px"])
         self.assertEqual(pb.USABLE_WIDTH_PX, ref["content_box_px"] - pb.SAFETY_MARGIN_PX)
@@ -103,8 +103,8 @@ class TestWidthTableMatchesMeasuredReference(unittest.TestCase):
         self.assertRegex(prov["measured_at"], r"^\d{4}-\d{2}-\d{2}T")
 
     def test_the_231_box_defect_would_fail_this_suite(self):
-        # Restoring the old 231 px box must break the reference pin, so the exact
-        # defect this card fixes cannot ship green again.
+        """Restoring the old 231 px box must break the reference pin, so the exact
+defect this card fixes cannot ship green again."""
         ref = json.loads((PLUGIN_DIR / "tests" / "measured_advances.json").read_text("utf-8"))
         self.assertNotEqual(ref["content_box_px"], 231.0)
         self.assertEqual(ref["content_box_px"], 209.0)
@@ -113,7 +113,7 @@ class TestWidthTableMatchesMeasuredReference(unittest.TestCase):
         self.assertEqual(ref["idle_lane_box_px"], 217.0)
 
     def test_an_inflated_glyph_would_fail_this_suite(self):
-        # Restoring the old inflated table must break the reference pin.
+        """Restoring the old inflated table must break the reference pin."""
         ref = json.loads((PLUGIN_DIR / "tests" / "measured_advances.json").read_text("utf-8"))
         inflated = dict(pb.WIDTH_TABLE)
         inflated["#"] = pb.WIDTH_TABLE["#"] + 0.8      # a real past failure mode
@@ -128,19 +128,19 @@ class TestBudget(unittest.TestCase):
     def test_bar_width_derived_from_the_budget(self):
         worst = "[" + pb.FILLED * pb.BAR_WIDTH + "]" + pb.SEP + "100%"
         self.assertLessEqual(pb.text_width(worst), pb.USABLE_WIDTH_PX)
-        # BAR_WIDTH must leave real headroom under the smallest box's budget, so
-        # the visible bar never reaches the wrap/clamp zone (>= 1 px).
+        """BAR_WIDTH must leave real headroom under the smallest box's budget, so
+the visible bar never reaches the wrap/clamp zone (>= 1 px)."""
         self.assertGreaterEqual(pb.USABLE_WIDTH_PX - pb.text_width(worst), 1.0)
-        # The largest width that would still fit the SMALLEST box's budget is
-        # exactly BAR_WIDTH: one more char would overflow the 209 px box.
+        """The largest width that would still fit the SMALLEST box's budget is
+exactly BAR_WIDTH: one more char would overflow the 209 px box."""
         w = pb.BAR_WIDTH
         while pb.text_width("[" + pb.FILLED * (w + 1) + "]" + pb.SEP + "100%") <= pb.USABLE_WIDTH_PX:
             w += 1
         self.assertEqual(w, pb.BAR_WIDTH)
 
     def test_limiting_case_is_the_all_hash_100_bar(self):
-        # The all-`.` 0 % bar is far narrower than the all-`#` 100 % bar, so the
-        # empty glyph's width does not set BAR_WIDTH.
+        """The all-`.` 0 % bar is far narrower than the all-`#` 100 % bar, so the
+empty glyph's width does not set BAR_WIDTH."""
         all_dot = "[" + pb.EMPTY * pb.BAR_WIDTH + "]" + pb.SEP + "0%"
         all_hash = "[" + pb.FILLED * pb.BAR_WIDTH + "]" + pb.SEP + "100%"
         self.assertLess(pb.text_width(all_dot), pb.text_width(all_hash))
@@ -175,15 +175,15 @@ class TestDocsMatchConstants(unittest.TestCase):
         self.assertIn(f"{pb.CONTENT_WIDTH_PX:.0f} px", doc)
         self.assertIn(f"{pb.USABLE_WIDTH_PX:.0f} px", doc)
         self.assertIn(f"BAR_WIDTH = {pb.BAR_WIDTH}", doc)
-        # The LAYOUT BUDGET block is the number source a reader recomputes from;
-        # the old wrong budget must not survive anywhere in it.
+        """The LAYOUT BUDGET block is the number source a reader recomputes from;
+the old wrong budget must not survive anywhere in it."""
         budget = doc.split("LAYOUT BUDGET")[1]
         for stale in ("247 px", "BAR_WIDTH = 26", "45.42 px", "26*7.69"):
             self.assertNotIn(stale, budget, stale)
 
     def test_docstring_states_the_implemented_pad_constants(self):
-        # The v3.2 pad rule is the number source for the leak fix; its docstring
-        # figures must be recomputed from the module, not typed (same drift class).
+        """The v3.2 pad rule is the number source for the leak fix; its docstring
+figures must be recomputed from the module, not typed (same drift class)."""
         doc = self._read("progress_block.py").split('"""', 2)[1]
         pad = doc.split("LINE 2 PAD")[1]
         self.assertIn(f"PAD_MIN_PX = {pb.PAD_CONTENT_WIDTH_PX:.2f}", pad)
@@ -234,8 +234,8 @@ class TestDocsMatchConstants(unittest.TestCase):
         return f"{int(lo / avg)}\u2013{-(-int(hi / avg * 100) // 100)}"
 
     def test_readme_states_the_recomputed_label_budget(self):
-        # The header budget and its character range must be the ones the module
-        # derives, not copied forward (the R3 review round failed on exactly this).
+        """The header budget and its character range must be the ones the module
+derives, not copied forward (the R3 review round failed on exactly this)."""
         readme = self._read("README.md")
         lo, hi = self._header_budget_range()
         self.assertIn(f"{lo:.2f} px", readme)
@@ -245,8 +245,8 @@ class TestDocsMatchConstants(unittest.TestCase):
 
 
     def test_readme_states_the_pad_rule(self):
-        # README must carry the recomputed pad figures, so a changed pad rule
-        # cannot ship with stale prose.
+        """README must carry the recomputed pad figures, so a changed pad rule
+cannot ship with stale prose."""
         readme = self._read("README.md")
         self.assertIn(f"**{pb.PAD_MIN_PX:.2f} px**", readme)
         self.assertIn(f"**{pb.PAD_MAX_PX:.2f} px**", readme)
@@ -262,16 +262,16 @@ class TestDocsMatchConstants(unittest.TestCase):
         m = re.search(r"bar line is \*\*(\d+)\*\* chars", readme)
         self.assertIsNotNone(m, "README must state the bar line char count")
         self.assertEqual(int(m.group(1)), len(line))
-        # The all-`.` 0 % bar px must be recomputed, not typed (same drift class).
+        """The all-`.` 0 % bar px must be recomputed, not typed (same drift class)."""
         zero = "[" + "." * pb.BAR_WIDTH + "]" + pb.SEP + "0%"
         self.assertIn(f"{pb.text_width(zero):.2f} px", readme)
 
     def test_readme_label_example_px_is_recomputed(self):
-        # The README's worked example must quote the px its own rule produces.
+        """The README's worked example must quote the px its own rule produces."""
         readme = self._read("README.md")
         cut = pb.format_block(12, 34, "verificar la latencia del endpoint").split("\n")[0]
-        # The full phrase is wider than the 217 px box, so the cut drops the last
-        # word; the README states both the full width and the cut's width.
+        """The full phrase is wider than the 217 px box, so the cut drops the last
+word; the README states both the full width and the cut's width."""
         self.assertEqual(cut, "\u25b6 12/34 \u00b7 verificar la latencia del")
         self.assertIn(f"= {pb.text_width(cut):.2f} px", readme)
         self.assertLessEqual(pb.text_width(cut), pb.USABLE_WIDTH_PX)
@@ -285,8 +285,8 @@ class TestDocsMatchConstants(unittest.TestCase):
         return n
 
     def _findings_path(self):
-        # FINDINGS-v3.md ships next to the workspace root, not inside the
-        # tarball; search a few ancestors so the guard also runs in dev.
+        """FINDINGS-v3.md ships next to the workspace root, not inside the
+tarball; search a few ancestors so the guard also runs in dev."""
         for base in (PLUGIN_DIR.parent, PLUGIN_DIR.parent.parent):
             p = base / "FINDINGS-v3.md"
             if p.exists():
@@ -294,7 +294,7 @@ class TestDocsMatchConstants(unittest.TestCase):
         return None
 
     def test_w_heavy_range_is_recomputed(self):
-        # The `W`-heavy figure must be derived from the module, not typed.
+        """The `W`-heavy figure must be derived from the module, not typed."""
         runs = (self._max_w_run(0, 7), self._max_w_run(12, 34), self._max_w_run(123, 123))
         rng = f"~{min(runs)}\u2013{max(runs)} chars"
         targets = [("README.md", PLUGIN_DIR / "README.md")]
@@ -308,25 +308,25 @@ class TestDocsMatchConstants(unittest.TestCase):
                 self.assertNotIn(stale, text, f"{rel}: stale {stale}")
 
     def test_plugin_yaml_names_the_current_empty_char(self):
-        # A prose alphabet that names a superseded empty char re-derives the
-        # wrong block shape (same class as R1).
+        """A prose alphabet that names a superseded empty char re-derives the
+wrong block shape (same class as R1)."""
         yaml = self._read("plugin.yaml")
         self.assertIn(f"the current #{pb.EMPTY} alphabet", yaml)
         for stale in ("the v3 #_ and the legacy #=",):
             self.assertNotIn(stale, yaml, stale)
 
     def test_plugin_yaml_states_the_measured_box_numbers(self):
-        # The manifest description is the user-facing prose number source; it must
-        # quote the two reachable boxes the module uses, recomputed not typed.
+        """The manifest description is the user-facing prose number source; it must
+quote the two reachable boxes the module uses, recomputed not typed."""
         yaml = self._read("plugin.yaml")
         self.assertIn(f"{pb.CONTENT_WIDTH_PX:.0f} px smallest card box", yaml)
         self.assertIn(f"{pb.PAD_CONTENT_WIDTH_PX:.0f} px largest box", yaml)
         self.assertIn(f"{pb.SAFETY_MARGIN_PX:.0f} px margin", yaml)
 
     def test_findings_differential_is_current(self):
-        # The v2-module differential cannot be recomputed offline (the v2 module
-        # is not in the frozen tarball); forbid the stale count and require the
-        # current one, so a copied-forward number fails the suite.
+        """The v2-module differential cannot be recomputed offline (the v2 module
+is not in the frozen tarball); forbid the stale count and require the
+current one, so a copied-forward number fails the suite."""
         findings = self._findings_path()
         if findings is None:
             self.skipTest("FINDINGS-v3.md is not present next to the plugin")
@@ -349,10 +349,10 @@ class TestLine2Pad(unittest.TestCase):
             self.assertGreater(pb.pad_count(l2.rstrip(pb.PAD_CHAR)), 0, pct)
 
     def test_pad_token_exceeds_the_leak_threshold(self):
-        # A word is `space + glyph`; the narrowest glyph is NARROWEST_ADVANCE.
-        # The threshold carries a safety so the table's rounding error cannot
-        # leave room for a real first word (see PAD_SAFETY_PX). The pad is sized
-        # from the LARGEST box, so it also blocks at the 209 px smallest box.
+        """A word is `space + glyph`; the narrowest glyph is NARROWEST_ADVANCE.
+The threshold carries a safety so the table's rounding error cannot
+leave room for a real first word (see PAD_SAFETY_PX). The pad is sized
+from the LARGEST box, so it also blocks at the 209 px smallest box."""
         need = (pb.PAD_CONTENT_WIDTH_PX - pb.WIDTH_TABLE[" "] - pb.NARROWEST_ADVANCE
                 + pb.PAD_SAFETY_PX)
         self.assertEqual(pb.PAD_MIN_PX, need)
@@ -361,16 +361,16 @@ class TestLine2Pad(unittest.TestCase):
             self.assertGreater(tok, pb.PAD_MIN_PX, pct)
 
     def test_pad_token_never_reaches_the_wrap_width(self):
-        # The pad is sized from the largest box; it must stay under that wrap
-        # width (an unbreakable run would wrap itself onto line 3 otherwise).
+        """The pad is sized from the largest box; it must stay under that wrap
+width (an unbreakable run would wrap itself onto line 3 otherwise)."""
         for pct in range(101):
             tok = pb.text_width(self._line2(pct))
             self.assertLess(tok, pb.PAD_CONTENT_WIDTH_PX, pct)
 
     def test_no_narrower_regular_glyph_can_follow_the_percent(self):
-        # Exhaustive: for every percent and every glyph that can start a word,
-        # `space + glyph` must NOT fit after the padded token, even at the LARGEST
-        # box (the pad is sized from it, so the smaller box is stricter).
+        """Exhaustive: for every percent and every glyph that can start a word,
+`space + glyph` must NOT fit after the padded token, even at the LARGEST
+box (the pad is sized from it, so the smaller box is stricter)."""
         starters = [c for c in pb.WIDTH_TABLE if c.isalnum()]
         self.assertTrue(starters)
         for pct in range(101):
@@ -393,7 +393,7 @@ class TestLine2Pad(unittest.TestCase):
             self.assertEqual(pb.PAD_CHAR, "\u00a0")
 
     def test_pad_is_minimal(self):
-        # Removing one pad char must break the block (otherwise it is not minimal).
+        """Removing one pad char must break the block (otherwise it is not minimal)."""
         for pct in range(101):
             l2 = self._line2(pct)
             base = pb.line2_base(pct)
@@ -402,7 +402,7 @@ class TestLine2Pad(unittest.TestCase):
             self.assertLessEqual(pb.text_width(shorter), pb.PAD_MIN_PX, pct)
 
     def test_pad_count_zero_when_base_already_blocks(self):
-        # A hypothetical wider bar leaves no room; pad_count must then be 0.
+        """A hypothetical wider bar leaves no room; pad_count must then be 0."""
         long_base = "[" + "#" * pb.BAR_WIDTH + "]" + pb.SEP + "100%" + pb.PAD_CHAR * 12
         self.assertGreater(pb.text_width(long_base), pb.PAD_MIN_PX)
         self.assertEqual(pb.pad_count(long_base), 0)
@@ -433,7 +433,7 @@ class TestLine2PadMigration(unittest.TestCase):
         self.assertEqual(pb.apply_block(out, new), out)   # second sweep: 0 writes
 
     def test_wrong_length_nbsp_run_is_not_a_block(self):
-        # A human line ending in NBSPs of any other count stays untouched.
+        """A human line ending in NBSPs of any other count stays untouched."""
         for extra in (1, 2, 7, 40):
             body = ("\u25b6 1/3 \u00b7 x\n" + pb.line2_base(50)
                     + pb.PAD_CHAR * extra + "\n" + self.DESC)
@@ -462,9 +462,9 @@ class TestLine2PadMigration(unittest.TestCase):
             self.assertEqual(pb.apply_block(out, new), out, old)
 
     def test_v111_padded_block_at_the_231_box_count_migrates_in_place(self):
-        # v1.1.1 padded from a 231 px box, so its pad length differs from this
-        # version's. Such a block must be recognised and replaced in place, never
-        # duplicated, and the second sweep must write nothing.
+        """v1.1.1 padded from a 231 px box, so its pad length differs from this
+version's. Such a block must be recognised and replaced in place, never
+duplicated, and the second sweep must write nothing."""
         desc = self.DESC
         for pct in range(0, 101, 10):
             base = pb.line2_base(pct)
@@ -504,7 +504,7 @@ class TestFormatBlock(unittest.TestCase):
         b = pb.format_block(3, 7, "probando tests", 40)
         l1, l2 = b.split("\n")
         self.assertEqual(l1, "\u25b6 3/7 \u00b7 probando tests")
-        # v3.2 appends an invisible NBSP pad after the percent (see TestLine2Pad).
+        """v3.2 appends an invisible NBSP pad after the percent (see TestLine2Pad)."""
         self.assertEqual(l2.rstrip(pb.PAD_CHAR),
                          "[" + "#" * 9 + "." * (pb.BAR_WIDTH - 9) + "]" + "\u00a040%")
 
@@ -567,7 +567,7 @@ class TestFormatBlock(unittest.TestCase):
         self.assertNotIn(" ", out.split("\u00b7 ")[1])
 
     def test_pct_bounds_and_default(self):
-        # The percent is followed by the v3.2 pad, so compare the visible tail.
+        """The percent is followed by the v3.2 pad, so compare the visible tail."""
         for done, total, pct, want in ((1, 3, None, "\u00a033%"), (0, 0, None, "\u00a00%"),
                                        (5, 5, None, "\u00a0100%"), (9, 9, 250, "\u00a0100%"),
                                        (9, 9, -5, "\u00a00%")):
@@ -639,7 +639,7 @@ class TestApplyStrip(unittest.TestCase):
         self.assertNotIn("40%", out)
         self.assertTrue(out.endswith(self.DESC))
 
-    # --- migration: three shipped alphabets -> v3.1 (`#.`, 23-wide) ---------
+    """--- migration: three shipped alphabets -> v3.1 (`#.`, 23-wide) ---------"""
     V2_BLOCK = "\u25b6 1/8 \u00b7 Trace scan call\n" + \
                "[" + "#" * 3 + "=" * 21 + "]\u00a012%"
     V3_UNDERSCORE_BLOCK = "\u25b6 1/8 \u00b7 Trace scan call\n" + \
@@ -652,7 +652,7 @@ class TestApplyStrip(unittest.TestCase):
         self.assertTrue(out.endswith(self.DESC))
         self.assertNotIn("Trace scan call", out)
         self.assertNotIn("=", out)
-        # exactly one block, no stacking
+        """exactly one block, no stacking"""
         self.assertEqual(out.count("\u25b6"), 1)
 
     def test_old_v2_block_extracted_and_stripped(self):
@@ -691,7 +691,7 @@ class TestApplyStrip(unittest.TestCase):
         self.assertEqual(pb.strip_block(body), body)
 
     def test_lookalike_wrong_alphabet_untouched(self):
-        # `-` is not an accepted bar char (it would also break across the wrap).
+        """`-` is not an accepted bar char (it would also break across the wrap)."""
         bar = "[" + "#" * 10 + "-" * 16 + "]\u00a040%"
         body = "\u25b6 1/2\n" + bar + "\n" + self.DESC
         self.assertEqual(pb.strip_block(body), body)
@@ -713,13 +713,13 @@ class TestApplyStrip(unittest.TestCase):
             self.assertTrue(out.startswith(new), old)
             self.assertEqual(out.count("\u25b6"), 1)
             self.assertEqual(pb.strip_block(out), self.DESC)
-            # idempotent second sweep: 0 writes
+            """idempotent second sweep: 0 writes"""
             self.assertEqual(pb.apply_block(out, new), out)
-            # the new block uses only `#` and `.`
+            """the new block uses only `#` and `.`"""
             inner = out.split("\n")[1]
             self.assertEqual(set(inner[1:inner.index("]")]) <= {"#", "."}, True)
 
-    # --- edge cases -------------------------------------------------------
+    """--- edge cases -------------------------------------------------------"""
     def test_empty_body(self):
         self.assertEqual(pb.strip_block(""), "")
         out = pb.apply_block("", self.BLOCK)

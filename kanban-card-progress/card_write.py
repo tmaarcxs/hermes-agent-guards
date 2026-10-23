@@ -32,19 +32,19 @@ import sqlite3
 import time
 from typing import Optional
 
-# Statuses this plugin may never write to. ``running`` is the only status it
-# touches; ``todo``/``blocked``/``review`` cards are left alone so the block is
-# never written under a card that is not executing.
+"""Statuses this plugin may never write to. ``running`` is the only status it
+touches; ``todo``/``blocked``/``review`` cards are left alone so the block is
+never written under a card that is not executing."""
 FROZEN_STATUSES = frozenset({"done", "archived"})
 
-# SQL predicates spliced into the CAS UPDATE's WHERE clause.
-# * The refresh path may write only while the card is still ``running``.
-# * The cleanup path may strip a block only from a card that is no longer
-#   running and is not terminal — i.e. todo/ready/blocked/review/triage.
+"""SQL predicates spliced into the CAS UPDATE's WHERE clause.
+* The refresh path may write only while the card is still ``running``.
+* The cleanup path may strip a block only from a card that is no longer
+running and is not terminal — i.e. todo/ready/blocked/review/triage."""
 RUNNING_ONLY = "status = 'running'"
 NOT_RUNNING_TERMINAL = "status NOT IN ('running', 'done', 'archived')"
 
-# Cards whose body exceeds this are skipped entirely (never truncated).
+"""Cards whose body exceeds this are skipped entirely (never truncated)."""
 DEFAULT_MAX_BODY_BYTES = 256 * 1024
 
 

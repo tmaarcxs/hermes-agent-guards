@@ -98,7 +98,7 @@ def _run_cycle() -> None:
     _log(f"cycle done: {stats!r}")
 
 
-# --- config -----------------------------------------------------------------
+"""--- config -----------------------------------------------------------------"""
 
 def _config() -> Dict[str, Any]:
     """This plugin's ``plugins.entries.kanban-card-progress`` config, cached."""

@@ -167,7 +167,7 @@ class TestRefreshCard(unittest.TestCase):
             self.assertEqual(body.count("\u25b6"), 1, "no second block stacked")
             self.assertNotIn("Trace scan call", body)
             self.assertTrue(body.endswith("Original body."))
-            # the new block carries the v3.2 pad
+            """the new block carries the v3.2 pad"""
             self.assertEqual(set(body.split("\n")[1][len("[" + "#" * 3 + "." * 20 + "]\u00a012%"):]),
                              {env.pkg.progress_block.PAD_CHAR})
 
@@ -193,7 +193,7 @@ class TestRefreshCard(unittest.TestCase):
             env.admit(tid, str(db), "sess-1")
             env.pkg.sweep.refresh_card(env.conn, tid)
             body = env.body(tid)
-            # the wrong-alphabet lookalike is not stripped, so it survives
+            """the wrong-alphabet lookalike is not stripped, so it survives"""
             self.assertIn("-" * 16, body)
             self.assertTrue(body.endswith("Original body."))
 
@@ -247,7 +247,7 @@ class TestCleanupStopped(unittest.TestCase):
             body = pb.apply_block("Original body.", pb.format_block(1, 2, "old", 50))
             for i, status in enumerate(("archived", "done") * 30):
                 env.task_with_id(f"t_00{i:06d}", body=body, status=status)
-            # Sorts last, so an unguarded LIMIT 20 never reaches it.
+            """Sorts last, so an unguarded LIMIT 20 never reaches it."""
             stopped = env.task_with_id("t_zzzzzzzz", body=body, status="blocked")
             self.assertEqual(env.pkg.sweep.cleanup_stopped(env.conn, limit=20), 1)
             self.assertEqual(env.body(stopped), "Original body.")
@@ -281,7 +281,7 @@ class TestSweepOnce(unittest.TestCase):
             db = env.state_db("sess-1")
             append_todo(db, "sess-1", todo_payload(("in_progress", "alpha")))
             env.admit(good, str(db), "sess-1")
-            # bad: owner_admitted points at a state.db that does not exist
+            """bad: owner_admitted points at a state.db that does not exist"""
             env.admit(bad, "/nonexistent/state.db", "sess-1")
             stats = env.pkg.sweep.sweep_once(env.conn)
             self.assertIn("alpha", env.body(good))

@@ -23,7 +23,7 @@ import os
 import sqlite3
 from typing import Optional
 
-# Same shape the native resume reader uses (hermes_state_todo.py).
+"""Same shape the native resume reader uses (hermes_state_todo.py)."""
 TODO_SQL = (
     "SELECT content FROM messages INDEXED BY idx_messages_session_id "
     "WHERE session_id = ? AND role = 'tool' "

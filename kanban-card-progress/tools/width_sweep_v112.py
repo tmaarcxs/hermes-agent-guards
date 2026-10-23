@@ -41,7 +41,7 @@ def run(label, extra=None):
         c.evaluate(extra)
         time.sleep(0.7)
     box = json.loads(c.evaluate(BOX))
-    # build a small leak probe inline (cheaper than the full attack)
+    """build a small leak probe inline (cheaper than the full attack)"""
     blk = pb.format_block(12, 34, "verificar la latencia del endpoint", 50)
     head, l2 = blk.split("\n", 1)
     text = f"{head} {l2} realistic description"
@@ -100,7 +100,7 @@ for pct in (90, 110, 125, 150, 175):
 c.evaluate("window.hermesDesktop.zoom.setPercent(100)")
 time.sleep(0.5)
 
-# smallest reachable: force a classic 8px lane scrollbar
+"""smallest reachable: force a classic 8px lane scrollbar"""
 c.evaluate("window.__lane = [...document.querySelectorAll('span')].find(s=>s.className&&s.className.includes('text-[0.6875rem]')&&s.className.includes('line-clamp-2')&&s.getBoundingClientRect().width>100).closest('.overflow-y-auto'); window.__lane.style.overflowY='scroll'")
 time.sleep(0.6)
 box = json.loads(c.evaluate(BOX))

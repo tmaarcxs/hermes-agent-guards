@@ -104,7 +104,7 @@ class Env:
         self.kb, self.kbc = kb, kbc
         self.path = kbc.init_db()
         resolved = Path(kb.kanban_db_path()).resolve()
-        # Isolation proof: never the real board.
+        """Isolation proof: never the real board."""
         assert str(resolved).startswith(str(self.home.resolve())), f"NOT ISOLATED: {resolved}"
         assert resolved == Path(self.path).resolve()
         self.conn = kbc.connect()
@@ -124,7 +124,7 @@ class Env:
                 os.environ[key] = value
         self.tmp.cleanup()
 
-    # --- board helpers ----------------------------------------------------
+    """--- board helpers ----------------------------------------------------"""
 
     def task(self, *, title: str = "probe", body: str = "Original body.",
              assignee: str = "worker", status: str = "todo") -> str:
@@ -167,7 +167,7 @@ class Env:
         self.conn.execute("UPDATE tasks SET status = ? WHERE id = ?", (status, tid))
         self.conn.commit()
 
-    # --- worker state.db --------------------------------------------------
+    """--- worker state.db --------------------------------------------------"""
 
     def state_db(self, session_id: str, *, owner_for: str | None = None) -> Path:
         """Create a WAL-mode worker ``state.db`` and (optionally) admit ``owner_for``.

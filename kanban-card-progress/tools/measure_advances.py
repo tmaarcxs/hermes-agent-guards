@@ -27,7 +27,7 @@ from cdp import CDP, page_target  # noqa: E402
 
 TOL_PX = 0.05
 
-# Every glyph the block can contain, plus the ASCII/alnum set the tests cover.
+"""Every glyph the block can contain, plus the ASCII/alnum set the tests cover."""
 GLYPHS = (
     list(" !\"#$%&'()*+,-./")
     + list("0123456789")
@@ -130,15 +130,15 @@ def main() -> int:
         print("measurement failed:", raw)
         return 1
 
-    # Use the run-of-20 average (rounding-free) when it agrees with the single
-    # glyph; else the single-glyph value (the quantity WIDTH_TABLE documents).
+    """Use the run-of-20 average (rounding-free) when it agrees with the single
+glyph; else the single-glyph value (the quantity WIDTH_TABLE documents)."""
     advances = {}
     for g in GLYPHS:
         single, run20 = m["advances"][g], m["advances20"][g]
         advances[g] = run20 if abs(run20 - single) <= 0.02 else single
 
-    # The layout reference is the SMALLEST reachable box (a busy lane shows the
-    # 8 px scrollbar); record the idle box too for provenance.
+    """The layout reference is the SMALLEST reachable box (a busy lane shows the
+8 px scrollbar); record the idle box too for provenance."""
     idle = m["boxW"]
     busy = m.get("busyBoxW")
     smallest = min(x for x in (idle, busy) if x is not None)

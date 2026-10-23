@@ -27,7 +27,7 @@ import progress_block as pb  # noqa: E402
 PORT = sys.argv[1]
 OUTDIR = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(".")
 
-# ---- case construction -------------------------------------------------------
+"""---- case construction -------------------------------------------------------"""
 STARTERS = ["a", "I", "x", "it", "Go", "Fix", "Add", "Run", "the", "to", "in",
             "Ok", "Goal:", "Use", "Set", "tests", "repo", "i", "l", ".", "-", "1",
             "Clone", "Verify", "Write", "Ship"]
@@ -40,9 +40,9 @@ def add(text, pct, meta, desc_marker=None):
     idx = text.index(f"{pct}%")
     if desc_marker is not None:
         di = text.index(desc_marker)
-        # A marker that starts with the joining space must point at the first
-        # non-space char: the space sits at the end of line 2 and would falsely
-        # read as "on the same line as the percent".
+        """A marker that starts with the joining space must point at the first
+non-space char: the space sits at the end of line 2 and would falsely
+read as "on the same line as the percent"."""
         while di < len(text) and text[di] == " ":
             di += 1
     else:
@@ -52,7 +52,7 @@ def add(text, pct, meta, desc_marker=None):
                   "meta": meta})
 
 
-# 1+3: every pct x digit counts, label 'x', description appended (leak attack)
+"""1+3: every pct x digit counts, label 'x', description appended (leak attack)"""
 for done, total in ((1, 3), (12, 34), (123, 123)):
     for pct in range(101):
         blk = pb.format_block(done, total, "x", pct)
@@ -61,8 +61,8 @@ for done, total in ((1, 3), (12, 34), (123, 123)):
         add(text, pct, {"kind": "leak", "done": done, "total": total, "pct": pct},
             desc_marker=DESC)
 
-# 1b: first-word attack — every pct x digit count x starter word, after the pad.
-# The pad must leave no room for ANY word to start on line 2.
+"""1b: first-word attack — every pct x digit count x starter word, after the pad.
+The pad must leave no room for ANY word to start on line 2."""
 for done, total in ((1, 3), (12, 34), (123, 123)):
     for pct in range(101):
         blk = pb.format_block(done, total, "x", pct)
@@ -72,7 +72,7 @@ for done, total in ((1, 3), (12, 34), (123, 123)):
             add(text, pct, {"kind": "starter", "done": done, "total": total,
                             "pct": pct, "starter": st}, desc_marker=f" {st} tail")
 
-# 2: line 1 on one visual line for every cut label (6 shapes) x digit counts
+"""2: line 1 on one visual line for every cut label (6 shapes) x digit counts"""
 SHAPES = {
     "short": "clone repo",
     "long_single_word": "W" * 60,
@@ -89,7 +89,7 @@ for name, label in SHAPES.items():
         add(text, 50, {"kind": "line1", "shape": name, "done": done, "total": total},
             desc_marker=DESC)
 
-# 6 (widest realistic headers): longest 3-digit labels from the real board
+"""6 (widest realistic headers): longest 3-digit labels from the real board"""
 for label in ("settle the real card text box width and fix the geometry",
               "Independent real-renderer check of kanban-card-progress",
               "Adversarial first-word leak test of padded progress block"):
@@ -98,7 +98,7 @@ for label in ("settle the real card text box width and fix the geometry",
     text = head + " " + l2 + " " + DESC
     add(text, 100, {"kind": "widest_header", "label": label}, desc_marker=DESC)
 
-# negative control: UNPADDED line 2 (the pre-v3.2 leak) must leak
+"""negative control: UNPADDED line 2 (the pre-v3.2 leak) must leak"""
 for pct in (0, 30, 50, 70, 90):
     base = pb.line2_base(pct)                      # no pad
     text = f"\u25b6 1/3 \u00b7 x {base} a"
@@ -161,7 +161,7 @@ leaks = [r for r in results if r.get("leak")]
 neg = [r for r in results if r["kind"] == "negative_control"]
 line1 = [r for r in results if r["kind"] == "line1"]
 pctvis = [r for r in results if r["kind"] in ("leak", "starter")]
-# A "leak" is only a defect outside the deliberate negative control.
+"""A "leak" is only a defect outside the deliberate negative control."""
 real_leaks = [r for r in leaks if r["kind"] != "negative_control"]
 
 report = {

@@ -20,11 +20,11 @@ DEFAULT_CYCLE_BUDGET = 20.0
 DEFAULT_MAX_BODY_BYTES = 256 * 1024
 
 RUNNING_SQL = "SELECT id FROM tasks WHERE status = 'running' ORDER BY id"
-# A card that is not running any more but still carries a leading block.
-# ``done``/``archived`` are excluded IN SQL, not after the fetch: they are
-# terminal and their block is left in place, so letting them consume the LIMIT
-# would starve cleanup on every live board (measured: 95 archived cards held all
-# 20 slots, so a stopped card was never reached).
+"""A card that is not running any more but still carries a leading block.
+``done``/``archived`` are excluded IN SQL, not after the fetch: they are
+terminal and their block is left in place, so letting them consume the LIMIT
+would starve cleanup on every live board (measured: 95 archived cards held all
+20 slots, so a stopped card was never reached)."""
 STOPPED_SQL = (
     "SELECT id, body, status FROM tasks WHERE status NOT IN ('running', 'done', 'archived') "
     "AND body LIKE '▶%' ORDER BY id LIMIT ?"

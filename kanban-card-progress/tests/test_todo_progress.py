@@ -68,7 +68,7 @@ class TestMapProgress(unittest.TestCase):
     def test_all_done(self):
         p = tp.map_progress(self._t(("completed", "a"), ("completed", "b")))
         self.assertEqual((p.done, p.total, p.percent), (2, 2, 100))
-        # no in_progress/pending -> last completed is the label
+        """no in_progress/pending -> last completed is the label"""
         self.assertEqual(p.label, "b")
 
     def test_in_progress_wins_over_pending(self):

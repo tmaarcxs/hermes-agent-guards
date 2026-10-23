@@ -93,7 +93,7 @@ class TestReadTodoContent(unittest.TestCase):
         """A live writer's committed row is visible to ``mode=ro``, invisible to ``immutable=1``."""
         with Env() as env:
             db = env.state_db("sess-wal")
-            # A long-lived writer holding the WAL open.
+            """A long-lived writer holding the WAL open."""
             writer = sqlite3.connect(db)
             try:
                 writer.execute("PRAGMA journal_mode=WAL")
@@ -120,7 +120,7 @@ class TestReadTodoContent(unittest.TestCase):
                 self.assertLess(imm_count, ro_count,
                                 "immutable=1 is expected to miss the WAL row")
 
-                # And the production reader agrees with mode=ro.
+                """And the production reader agrees with mode=ro."""
                 content = env.pkg.todo_reader.read_todo_content(str(db), "sess-wal")
                 self.assertIn("from-wal", content)
             finally:

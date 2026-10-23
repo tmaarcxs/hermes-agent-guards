@@ -78,7 +78,7 @@ class ProgressTimer:
     def _loop(self) -> None:
         while not self._stop.is_set():
             self._tick()
-            # Interruptible sleep: stop() returns immediately.
+            """Interruptible sleep: stop() returns immediately."""
             if self._stop.wait(self._interval):
                 return
 
