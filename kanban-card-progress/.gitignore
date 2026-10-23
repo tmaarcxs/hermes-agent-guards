@@ -1,0 +1,5 @@
+# Hermes plugin scratch
+__pycache__/
+*.pyc
+debug.log
+*.log
