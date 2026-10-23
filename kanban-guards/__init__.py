@@ -31,7 +31,13 @@ Worker-process gates:
 - ``schedule_gate`` blocks ``kanban_schedule``: it ends the run without a timer, so a
   self-scheduled card silently stops;
 - ``backup_copy_gate`` blocks a ``kanban_complete`` (or block/comment) handoff whose
-  summary or metadata keeps or preserves a backup/rollback copy of the delivered work.
+  summary or metadata keeps or preserves a backup/rollback copy of the delivered work;
+- ``active_pr_unblock`` runs on ``on_kanban_dispatch_tick`` and lifts the ``active_pr``
+  respawn guard automatically when the newest event is a committed ``unblocked`` strictly
+  newer than the newest PR-URL comment: a real profile hop (other existing profile, then
+  back) gives core's own guard the handoff event it wants, so the card spawns without a
+  human lifting it by hand. One hop per task per 10 min, 3 per hour, persisted in
+  ``plugin-data``; at the cap it posts one comment asking a human to decide.
 
 Lead-process gates:
 - ``lead_work_nudge`` appends one nudge to the tool result of the call that crosses

@@ -3,7 +3,9 @@
 Everything Kanban in one self-contained plugin. Worker gates (checkpoint, completion
 acceptance, review checklist, handoff, stop, schedule, backup-copy, GitHub contact,
 delegation policy), lead gates (work nudge, board output shaping) and
-the dispatcher wake chassis (`wakes` + `board_watch`).
+the dispatcher wake chassis (`wakes` + `board_watch`), plus `active_pr_unblock`: a
+dispatcher-tick observer that auto-lifts the `active_pr` respawn guard when a human
+unblocked a card after its PR comment.
 
 Extracted from the monolithic `agent-guards` plugin; registration order inside this
 plugin reproduces the Kanban part of the old root wiring verbatim (see the seam note in
