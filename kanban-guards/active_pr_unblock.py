@@ -165,16 +165,27 @@ def _candidate_profile(assignee: Optional[str]) -> Optional[str]:
     return None
 
 
-def _alert(conn, kb, task_id: str, state: dict, url: str) -> bool:
+def _alert(conn, kb, task_id: str, state: dict, url: str, now: float) -> bool:
     """Post the one explanatory comment, at most once per guard episode."""
     entry = dict(_entry(state, task_id))
     if entry.get("alerted"):
         return False
     entry["alerted"] = True
     state[task_id] = entry
+    hops = [h for h in _entry(state, task_id).get("hops") or [] if isinstance(h, (int, float))]
+    recent = [h for h in hops if now - h < HOP_WINDOW_LONG]
+    if len(recent) >= HOP_MAX_LONG:
+        why = (
+            f"keeps re-asserting on this card after {HOP_MAX_LONG} automatic lifts in the last hour, "
+            "so the auto-lift has stopped."
+        )
+    else:
+        why = (
+            "is still holding this card because the automatic lift did not land after the PR comment "
+            "(same clock second), so core does not count it as a handoff."
+        )
     body = (
-        f"{ALERT_AUTHOR}: the `active_pr` respawn guard keeps re-asserting on this card "
-        f"after {HOP_MAX_LONG} automatic lifts in the last hour, so the auto-lift has stopped. "
+        f"{ALERT_AUTHOR}: the `active_pr` respawn guard {why} "
         f"The PR link in the newest comment ({url}) is what makes core hold the card; "
         "a human must decide. Reply with new instructions, or reassign the card yourself."
     )
@@ -205,7 +216,7 @@ def _hop_once(conn, task_id: str, now: float, state: dict) -> bool:
     if _newest_unblock(conn, task_id, pr_at) is None:
         return False
     if not _allowed(state, task_id, now):
-        return _alert(conn, _core()[1], task_id, state, url)
+        return _alert(conn, _core()[1], task_id, state, url, now)
     other = _candidate_profile(row["assignee"])
     if other is None:
         logger.info(
