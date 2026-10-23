@@ -32,7 +32,7 @@ def body_files(tmp_path):
         "gh pr edit 1 -R o/r --add-reviewer alice-dev",
         "gh pr edit 1 --add-reviewer=alice-dev",
         "GH_REPO=o/r gh pr edit 1 --add-reviewer alice-dev",
-        "gh pr create -t t -b b -r reviewer-one,myorg/team -B main",
+        "gh pr create -t t -b 'Closes #1.' -r reviewer-one,myorg/team -B main",
         "gh pr create --reviewer reviewer-one",
         "gh issue create --assignee reviewer-one,reviewer-two",
         "gh issue edit 12 --add-assignee reviewer-one",
@@ -84,7 +84,7 @@ def test_self_assignment_allowed(login):
     for command in (
         "gh issue create --assignee owner-dev -t t",
         "gh issue create -a owner-dev -t t",
-        "gh pr create -t t -b b -a owner-dev",
+        "gh pr create -t t -b 'Closes #1.' -a owner-dev",
         "gh issue edit 3 --add-assignee owner-dev",
     ):
         assert run(command) is None
@@ -111,7 +111,7 @@ def test_self_assignment_case_and_at_sign_insensitive(login):
 def test_self_assignment_not_applied_to_reviewer_flags(login):
     login("owner-dev")
     assert run("gh pr edit 1 --add-reviewer owner-dev") is not None
-    assert run("gh pr create -t t -b b -r owner-dev") is not None
+    assert run("gh pr create -t t -b 'Closes #1.' -r owner-dev") is not None
 
 
 @pytest.mark.parametrize(
@@ -119,7 +119,7 @@ def test_self_assignment_not_applied_to_reviewer_flags(login):
     [
         "gh issue create --assignee reviewer-one -t t",
         "gh issue create -a reviewer-one,reviewer-two -t t",
-        "gh pr create -t t -b b -a owner-dev",
+        "gh pr create -t t -b 'Closes #1.' -a owner-dev",
         "gh issue edit 3 --add-assignee reviewer-one",
     ],
 )

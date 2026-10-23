@@ -21,6 +21,9 @@ Worker-process gates:
   CODEOWNERS-only gap the message names the setup's documented merge command when one
   exists (``AGENT_GUARDS_MERGE_HINT``), and always offers ``kanban_block`` with
   ``kind=needs_input``;
+- ``pr_link_gate`` blocks ``gh pr merge`` (and the merge API) on a PR whose
+  ``closingIssuesReferences`` is empty or unreadable, and ``gh pr create|edit`` whose body
+  lacks exactly one closing keyword (``Closes #N``);
 - ``review_gate`` blocks ``kanban_request_review`` until the eight pre-review checks are
   closed in ``todo_list``, each completed item carrying a receipt's anchor;
 - ``handoff_gate`` bounces, once per session, a ``kanban_block`` whose reason says the
@@ -88,7 +91,7 @@ try:
     from typing import Optional
 
 
-    from . import backup_copy_gate, board_watch, checkpoint_gate, completion_gate, github_contact, handoff_gate, kanban_policy, kanban_show_slim_gate, lead_delegation, lead_work_nudge, review_gate, schedule_gate, stop_gate, wakes, workspace_scope_gate
+    from . import backup_copy_gate, board_watch, checkpoint_gate, completion_gate, github_contact, handoff_gate, kanban_policy, kanban_show_slim_gate, lead_delegation, lead_work_nudge, pr_link_gate, review_gate, schedule_gate, stop_gate, wakes, workspace_scope_gate
 except ImportError:
     if __name__ != "__init__":
         raise
@@ -113,6 +116,7 @@ _PRE_TOOL_CALL_CHECKS = (
     ("kanban_policy", lambda tool_name, args, kwargs: kanban_policy.check(tool_name, args)),
     ("lead_delegation", lambda tool_name, args, kwargs: lead_delegation.check(tool_name, args)),
     ("github_contact", lambda tool_name, args, kwargs: github_contact.check(tool_name, args)),
+    ("pr_link_gate", lambda tool_name, args, kwargs: pr_link_gate.check(tool_name, args)),
     ("review_gate", lambda tool_name, args, kwargs: review_gate.check(tool_name, **kwargs)),
     ("handoff_gate", lambda tool_name, args, kwargs: handoff_gate.check(tool_name, args, **kwargs)),
     ("completion_gate", lambda tool_name, args, kwargs: completion_gate.check(tool_name, args)),
