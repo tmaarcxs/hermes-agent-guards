@@ -20,30 +20,32 @@ from . import kanban_policy
 from .kanban_policy import RETRY_INSTRUCTION
 
 _FAMILY = r"(?:backup|backups?|back-ups?|rollback|pre-task|pristine|snapshot|before[-_][\w.-]+)"
-_VERB = (
+_RETAIN = (
     r"(?:kept|keep|preserv\w+|retain\w*|sav(?:e|ed|es|ing)|stor(?:e|ed|es|ing|age)"
-    r"|backed?[- ]?ups?|backup(?:ped)?|backs?\s?ups?|left(?:\s+in\s+place)?|maintain\w*|archiv\w*)"
+    r"|backed?[- ]?ups?|backup(?:ped)?|backs?\s?ups?|maintain\w*|archiv\w*)"
 )
+_VERB = rf"(?:{_RETAIN}|left(?:\s+in\s+place)?)"
 _FAM_ALT = ("backup", "backups", "back-ups", "rollback", "pre-task", "pristine", "snapshot", "before[-_][\\w.-]+")
 _GENERIC = r"(?:versions?|copies?|artifacts?|files?|states?|trees?|manifests?|scripts?|source|baseline)"
 _QUALIFIER = r"(?:defective|old|prior|previous|failing|earlier|original)"
 
 _KEPT = re.compile(
     rf"(?is)"
-    rf"\b{_FAMILY}\b[^\n.;]{{0,32}}?\b{_VERB}\b"
-    rf"|\b{_VERB}\b[^\n.;]{{0,32}}?\b{_FAMILY}\b"
+    rf"\b{_FAMILY}\b[^\n.;,]{{0,32}}?{_VERB}\b"
+    rf"|\b{_VERB}(?=[^a-z])[^\n.;,]{{0,32}}?\b{_FAMILY}\b"
     rf"|\b{_QUALIFIER}\s+\w{{0,20}}\s+{_GENERIC}[^\n.;]{{0,32}}?\b(?:backed?[- ]?ups?|kept|stored|saved|preserved|retained)\b"
     rf"|\b{_GENERIC}\s+backed?[- ]?ups?\b"
     rf"|\b{_GENERIC}\s+stored\s+(?:under|in|at)\b"
 )
 
 _NEG = r"(?:no|not|never|none|zero|without)"
-_REMOVAL = r"(?:removed?|deleted?|dropped|purged|cleaned|erased|gone|removal)"
+_REMOVAL = r"(?:removed?|deleted?|dropped|purged|cleaned|erased|gone|removal|untouched)"
 _PRE_REMOVAL = re.compile(
     rf"(?i)\b{_REMOVAL}\b"
     rf"(?:\s+(?:of|and|a|the|any|all|this|that|its|old|prior|previous|stale|retained))*"
     rf"\s*$"
 )
+_NEGATED_LEAD = re.compile(rf"(?i)(?:^|\s)(?:{_NEG}|\d+)\s+[^\s]{{0,40}}(?=\s*$|[\s,)])")
 
 _MESSAGE = (
     "agent-guards blocked the handoff: the summary or metadata keeps or preserves a backup/rollback/"
@@ -75,7 +77,7 @@ def keeps_backup_copy(text: str) -> bool:
         if match is None:
             continue
         prefix = sentence[: match.start()]
-        if re.search(rf"(?i)\b{_NEG}\b[^\n.;]{{0,60}}$", prefix):
+        if _NEGATED_LEAD.search(prefix) and not re.search(rf"(?i)\b{_VERB}\b", prefix):
             continue
         if _PRE_REMOVAL.search(prefix):
             continue
@@ -131,16 +133,29 @@ def _dropped_head(prefix: str) -> bool:
 
 
 def _path_like(sentence: str, token: str, start: int) -> bool:
+    """Whether a family lexeme in ``token`` is glued into a path or compound token.
+
+    A family word joined to a path character or a ``-``/``_`` (``report/snapshot``,
+    ``archive-backup``, ``*-snapshot``) is a filename or compound fragment, not a retained copy of
+    prior state; it counts only with a natural-language locator (the caller's ``locator`` gate).
+    Only the ``-``/``_``-joined run directly before the family word is followed back, so
+    ``archive-backup`` is one token while ``pristine version`` stays two words.
+    """
     for fam in re.finditer(rf"(?i)(?:{'|'.join(_FAM_ALT)})", token):
         absolute = start + fam.start()
         after = token[fam.end(): fam.end() + 1]
-        j = absolute
+        seg = re.split(r"[\s/,;:()'\"`]", token[: fam.start()])[-1] or token[: fam.start()]
+        head = re.search(r"[\w.~]*[-_][\w.~-]*$", seg)
+        if head and head.group(0).endswith("-"):
+            return True
+        token_start = absolute - len(head.group(0)) if head else absolute
+        j = token_start
         while j > 0 and (sentence[j - 1].isalnum() or sentence[j - 1] in "_.-"):
             j -= 1
         seg_before = sentence[j - 1: j] if j > 0 else ""
-        seg_start = (j == 0) or seg_before in " \t/`"
-        adjacent = (j < absolute and seg_before in "/`") or (len(after) == 1 and after in "/`")
-        if (seg_start and adjacent):
+        seg_start = (j == 0) or seg_before in " \t/`("
+        adjacent = (j < token_start and seg_before in "/`-") or (len(after) == 1 and after in "/`-")
+        if seg_start and adjacent:
             return True
     return False
 

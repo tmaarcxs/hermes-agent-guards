@@ -35,11 +35,13 @@ def work_calls(count, turn_id="turn-1", tool_name="search_files"):
     return [transform(tool_name, turn_id=turn_id) for _ in range(count)]
 
 
-def test_threshold_is_five_module_constant():
-    assert THRESHOLD == 5
+def test_threshold_raised_above_five():
+    """Guards audit: 48 nudges, only 17% led to a kanban_create — the 5-call threshold was too low."""
+    assert THRESHOLD == nudge.WORK_CALL_THRESHOLD and THRESHOLD > 5
+    assert "48 nudges, only 17%" in nudge.__doc__
 
 
-def test_first_five_calls_are_silent_and_the_sixth_nudges():
+def test_first_threshold_calls_are_silent_and_the_next_nudges():
     for _ in range(THRESHOLD):
         assert transform("read_file") is None
     nudged = transform("terminal")
@@ -150,7 +152,7 @@ def test_nudge_text_pins_the_split_instruction():
     assert "Split the remaining work across parallel workers" in message
     assert "one kanban_create card per independent part" in message
     assert "If what remains is a known change or something only you can do, continue." in message
-    assert "You have made 6 exploration calls this turn without delegating." in message
+    assert f"You have made {THRESHOLD + 1} exploration calls this turn without delegating." in message
 
 
 def test_nudge_is_appended_to_the_untouched_result():

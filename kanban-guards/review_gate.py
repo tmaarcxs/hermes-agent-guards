@@ -33,6 +33,11 @@ RECEIPT = re.compile(
     r"\breceipts?\b"                                                   # the word itself
     r"|\b\w[\w./-]*:\d{1,6}\b"                                         # file:line references
     r"|\b[0-9a-fA-F]{7,64}\b"                                          # commit or content hashes
+    r"|\b\d+[.,]\d+\b"                                                 # decimal results ("609.5")
+    r"|\b\d+/\d+\b"                                                    # ratio counts ("47/47", "8/8")
+    r"|\b\d+\s*\+\s*\d+\b"                                             # N+M test counts ("608+1")
+    r"|\bPR\s*#\d+\b"                                                  # pull-request references
+    r"|\bRED\s*(?:->|=>|\u2192|to)\s*GREEN\b"                          # red-to-green proof
     r"|\bexit\b|\brc\b|exit[=:]\s*\d+"                                 # exit codes / rc values
     r"|\b\d+\s+(?:passed|failed|error|errors)\b"                       # test-summary counts
     r"|\b[\w./-]+\.(?:md|txt|log|json|csv|py|yaml|yml|xml|html)\b",    # artifact paths

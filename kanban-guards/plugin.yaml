@@ -15,7 +15,7 @@ description: >-
   refuse a handoff that preserves a backup/rollback copy of the delivered work.
   Lead gates keep delivery on workers and chats on their own cards: block the lead from
   editing repository files or running git commit / git push / gh pr create there, nudge
-  the lead once per user turn after more than 5 work calls without a kanban_create to
+  the lead once per user turn after more than 8 work calls without a kanban_create to
   split the remaining work across parallel cards, scope a lead chat's kanban_list result
   to the cards its own chat thread is subscribed to (worker processes and origin-less
   calls pass through), and slim the lead's kanban_show deterministically (worker_context

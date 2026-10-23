@@ -68,7 +68,8 @@ Answers: *is this lifecycle call, board read or wake legitimate?*
   refuse a handoff that preserves a backup copy of the delivered work.
 - Lead gates: block the lead from editing repository files or running
   `git commit`/`git push`/`gh pr create` there; nudge the lead once per user
-  turn after more than 5 exploration calls without a `kanban_create`; scope a
+  turn after more than `WORK_CALL_THRESHOLD` (8; raised from 5 — the guards audit found only 17%
+  of 48 nudges led to a `kanban_create`) exploration calls without a `kanban_create`; scope a
   lead chat's `kanban_list` result to the cards its own chat thread is
   subscribed to; slim the lead's `kanban_show` deterministically.
 - Wakes: run every Kanban wake on one shared event-driven chassis over
