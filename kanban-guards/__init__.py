@@ -38,6 +38,13 @@ Worker-process gates:
   back) gives core's own guard the handoff event it wants, so the card spawns without a
   human lifting it by hand. One hop per task per 10 min, 3 per hour, persisted in
   ``plugin-data``; at the cap it posts one comment asking a human to decide.
+- ``delivered_pr_park`` runs on ``on_kanban_dispatch_tick`` and parks a ``ready``
+  card that has a crashed run and whose newest PR-URL comment points at an
+  already-MERGED PR: the retry would redo delivered work. A handoff newer than
+  the comment keeps the card running; only a merged PR parks it, with the PR
+  number and merge SHA in the reason and exactly one idempotent comment. Fails
+  open on any auth or parse failure; a 30 min per-task cache and a 20 calls/hour
+  cap keep the tick cheap.
 
 Lead-process gates:
 - ``lead_work_nudge`` appends one nudge to the tool result of the call that crosses
@@ -96,7 +103,7 @@ try:
     from typing import Optional
 
 
-    from . import active_pr_unblock, backup_copy_gate, board_watch, checkpoint_gate, completion_gate, github_contact, handoff_gate, kanban_policy, kanban_show_slim_gate, lead_work_nudge, pr_link_gate, review_gate, schedule_gate, stop_gate, wakes, workspace_scope_gate
+    from . import active_pr_unblock, backup_copy_gate, board_watch, checkpoint_gate, completion_gate, delivered_pr_park, github_contact, handoff_gate, kanban_policy, kanban_show_slim_gate, lead_work_nudge, pr_link_gate, review_gate, schedule_gate, stop_gate, wakes, workspace_scope_gate
 except ImportError:
     if __name__ != "__init__":
         raise
@@ -115,6 +122,7 @@ def register(ctx) -> None:
     ctx.register_hook("transform_tool_result", _transform_tool_result)
     wakes.register(ctx)
     active_pr_unblock.register(ctx)
+    delivered_pr_park.register(ctx)
 
 
 _PRE_TOOL_CALL_CHECKS = (
