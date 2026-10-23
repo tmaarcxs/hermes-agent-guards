@@ -54,6 +54,7 @@ def test_pre_tool_call_check_order_matches_root_at_90456b2():
         "kanban_policy",
         "lead_delegation",
         "github_contact",
+        "pr_link_gate",
         "review_gate",
         "handoff_gate",
         "completion_gate",
