@@ -1,7 +1,7 @@
 """Scope a lead chat's ``kanban_list`` result to cards its own chat thread owns.
 
 Active only in a lead process (``kanban.default_assignee`` set; ``HERMES_KANBAN_TASK``
-absent; see ``kanban_policy``/``lead_delegation``) and only when the session origin is a
+absent; see ``kanban_policy``) and only when the session origin is a
 human messaging channel (``HERMES_SESSION_PLATFORM`` + ``HERMES_SESSION_CHAT_ID`` session
 context; CLI, cron, TUI and workers leave the result unchanged).
 

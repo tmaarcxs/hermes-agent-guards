@@ -17,7 +17,7 @@ CHECK_TUPLES = {
     "shell-guards": ("paas_promote_gate", "skill_size", "background_notify_gate"),
     "workspace-guards": ("workspace_write_gate", "home_litter_gate", "workspace_convention"),
     "kanban-guards": (
-        "checkpoint_gate", "kanban_policy", "lead_delegation", "github_contact",
+        "checkpoint_gate", "kanban_policy", "github_contact",
         "review_gate", "handoff_gate", "completion_gate", "backup_copy_gate", "schedule_gate",
     ),
 }

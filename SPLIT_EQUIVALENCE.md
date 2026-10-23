@@ -35,7 +35,7 @@ OLD (root `__init__.py:274-291`):
 
 ```
 checkpoint_gate, workspace_write_gate, home_litter_gate, kanban_policy,
-workspace_convention, lead_delegation, github_contact, paas_promote_gate,
+workspace_convention, (lead repository-write guard, removed), github_contact, paas_promote_gate,
 review_gate, handoff_gate, completion_gate, backup_copy_gate, schedule_gate,
 skill_size, skill_size(record), background_notify_gate
 ```
@@ -45,7 +45,7 @@ then the terminal/attach/normalize tail.
 NEW, by plugin:
 
 ```
-kanban-guards:    checkpoint_gate, kanban_policy, lead_delegation, github_contact,
+kanban-guards:    checkpoint_gate, kanban_policy, github_contact,
                   review_gate, handoff_gate, completion_gate, backup_copy_gate,
                   schedule_gate
 shell-guards:     paas_promote_gate, skill_size, skill_size(record),

@@ -34,8 +34,6 @@ Worker-process gates:
   summary or metadata keeps or preserves a backup/rollback copy of the delivered work.
 
 Lead-process gates:
-- ``lead_delegation`` blocks the lead from editing files under repository roots and from
-  ``git commit``/``git push``/``gh pr create`` there: delivery goes to workers;
 - ``lead_work_nudge`` appends one nudge to the tool result of the call that crosses
   ``lead_work_nudge.WORK_CALL_THRESHOLD`` (8) work calls in a user turn when the lead has not
   called ``kanban_create`` in that turn: split
@@ -92,7 +90,7 @@ try:
     from typing import Optional
 
 
-    from . import backup_copy_gate, board_watch, checkpoint_gate, completion_gate, github_contact, handoff_gate, kanban_policy, kanban_show_slim_gate, lead_delegation, lead_work_nudge, pr_link_gate, review_gate, schedule_gate, stop_gate, wakes, workspace_scope_gate
+    from . import backup_copy_gate, board_watch, checkpoint_gate, completion_gate, github_contact, handoff_gate, kanban_policy, kanban_show_slim_gate, lead_work_nudge, pr_link_gate, review_gate, schedule_gate, stop_gate, wakes, workspace_scope_gate
 except ImportError:
     if __name__ != "__init__":
         raise
@@ -115,7 +113,6 @@ def register(ctx) -> None:
 _PRE_TOOL_CALL_CHECKS = (
     ("checkpoint_gate", lambda tool_name, args, kwargs: checkpoint_gate.check(tool_name, args, **kwargs)),
     ("kanban_policy", lambda tool_name, args, kwargs: kanban_policy.check(tool_name, args)),
-    ("lead_delegation", lambda tool_name, args, kwargs: lead_delegation.check(tool_name, args)),
     ("github_contact", lambda tool_name, args, kwargs: github_contact.check(tool_name, args)),
     ("pr_link_gate", lambda tool_name, args, kwargs: pr_link_gate.check(tool_name, args)),
     ("review_gate", lambda tool_name, args, kwargs: review_gate.check(tool_name, **kwargs)),

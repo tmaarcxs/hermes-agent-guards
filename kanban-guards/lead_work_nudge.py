@@ -1,7 +1,6 @@
 """One-time lead nudge to delegate after more than WORK_CALL_THRESHOLD exploration calls in a user turn.
 
-When a lead process (``HERMES_KANBAN_TASK`` absent and a worker profile configured,
-the plugin's established lead definition in ``lead_delegation.is_lead``) has made
+When a lead process (``HERMES_KANBAN_TASK`` absent and a worker profile configured) has made
 more than ``WORK_CALL_THRESHOLD`` exploration calls in one user turn without calling
 ``kanban_create``, the call that crosses the threshold gets one appended nudge
 telling it to stop doing the work itself and split the remaining work across as
