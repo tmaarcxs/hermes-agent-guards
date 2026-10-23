@@ -344,7 +344,8 @@ def test_message_leads_with_the_required_action_in_one_imperative_sentence(root)
     out = _grow(root)
     lead = out[len("ok"):].strip().split(". ")[0]
     assert lead.startswith("Shrink "), lead
-    assert "now, in this turn" in lead
+    assert "IMMEDIATELY, in this turn" in lead
+    assert "MANDATORY" in lead and "not a suggestion" in lead
     assert "It is over the limit NOW" not in lead, f"the lead must be ONE sentence: {lead!r}"
 
 
@@ -357,6 +358,10 @@ def test_message_says_over_the_limit_now_and_cause_does_not_matter(root):
 
 def test_message_says_shrinking_is_always_allowed(root):
     assert "Shrinking an over-limit file is always allowed" in _grow(root)
+
+
+def test_message_forbids_postponing_or_asking_permission(root):
+    assert "do not postpone it or ask for permission" in _grow(root)
 
 
 def test_message_forbids_the_unrelated_claim(root):
