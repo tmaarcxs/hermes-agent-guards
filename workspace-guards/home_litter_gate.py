@@ -20,6 +20,9 @@ itself — ``cp a.md ~/`` lands ``~/a.md``. It is deliberately narrow:
 - Dotted names are allowed (tool dirs: ``~/.cache``, ``~/.codegraph`` …).
 - ``git_repos``, ``Downloads``, ``Documents`` and ``Desktop`` are allowed as
   creation targets.
+- A read-only SQLite ``file:`` URI (``sqlite3 "file:$HOME/.hermes/kanban.db?mode=ro"``)
+  is stripped to its real path, so a read of an existing DB is not read as
+  creating ``~/file:``.
 - ``~/git_repos/**`` and ``~/.hermes/**`` never make a new first component
   under ``~``, so they are out of scope by construction.
 
@@ -260,6 +263,21 @@ def _head_index(tokens: list[str]) -> int:
     return index
 
 
+def _strip_sqlite_uri(token: str) -> str:
+    """The real path behind a SQLite ``file:`` URI, else *token* unchanged.
+
+    ``sqlite3 "file:$HOME/.hermes/kanban.db?mode=ro"`` reads an existing DB; the
+    raw operand would resolve as a relative ``~/file:`` and be reported as new
+    litter. Return the filesystem path so the create/allow decision sees the
+    real target (which already exists, hence allowed).
+    """
+    if not token.startswith("file:"):
+        return token
+    path = token[len("file:"):]
+    path = path.split("?", 1)[0]
+    return path or token
+
+
 def _creation_targets(cwd: str, segment: str) -> list[str]:
     """Shell write targets that CREATE a path (never ``rm``/``rmdir``)."""
     unquoted = re.sub(r"'[^']*'|\"(?:[^\"\\]|\\.)*\"", "''", segment)
@@ -295,7 +313,7 @@ def _creation_targets(cwd: str, segment: str) -> list[str]:
     elif head == "sqlite3":
         operands = _operands_after(tokens, head_index, _SQLITE3_ARG_OPTIONS)
         if operands:
-            targets.append(_wwg._join(cwd, operands[0]))
+            targets.append(_wwg._join(cwd, _strip_sqlite_uri(operands[0])))
     elif head in ("curl", "wget"):
         for dest in _download_destinations(head, tokens, head_index):
             targets.append(_wwg._join(cwd, dest))

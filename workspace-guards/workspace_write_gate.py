@@ -4,15 +4,19 @@ Active only in worker processes (``HERMES_KANBAN_TASK`` set); the lead is never
 affected. Allowed write targets: the task's own workspace
 (``HERMES_KANBAN_WORKSPACE``, its descendants and any ``mktemp -d`` test home
 created inside it), the Hermes scratch dir (``$HERMES_HOME/cache/scratch`` and
-``~/.hermes/cache/scratch``), ``TMPDIR``/tmp dirs and the board's kanban
-attachments directory. Everything else under the real Hermes home (live plugin
-install, config.yaml, .env, profiles, hermes-agent core, other tasks'
-workspaces) is blocked from writes and deletions; git mutations of a repository
-outside the allowed zones (``git -C <path> <verb>`` or ``cd <path> && git
-<pull|checkout|reset|rebase|merge|commit|push|fetch|clone|...>``) are blocked
-even when the repo is outside ``~/.hermes``. Read-only access everywhere stays
-allowed. A worker with no workspace env keeps the scratch allowances but blocks
-every other write target.
+``~/.hermes/cache/scratch``), the worker's own profile cache
+(``$HERMES_HOME/cache``), the board-mandated report dir (``~/.hermes/reports``),
+``TMPDIR``/tmp dirs and the board's kanban attachments directory. Everything else
+under the real Hermes home (live plugin install, config.yaml, .env, profiles,
+hermes-agent core, other tasks' workspaces) is blocked from writes and
+deletions; git mutations of a repository outside the allowed zones
+(``git -C <path> <verb>`` or ``cd <path> && git
+<pull|checkout|reset|rebase|merge|commit|push|...>``) are blocked even when the
+repo is outside ``~/.hermes``. Read-only git (``fetch``, ``log``, ``rev-parse``,
+``ls-remote``, ``cat-file``, ``merge-base``, ``worktree list/show``) and
+``worktree add``/``clone`` whose destination resolves inside an allowed zone stay
+allowed. Read-only access everywhere stays allowed. A worker with no workspace
+env keeps the scratch allowances but blocks every other write target.
 
 Covered mechanisms: ``write_file``/``patch`` by path; terminal redirects
 ``>``/``>>``, ``tee``, ``cp``/``mv``/``rsync``/``install``/``touch``/``mkdir``
@@ -44,10 +48,14 @@ _GIT_MESSAGE = (
 _GIT_VERBS = re.compile(
     r"\bgit\s+(?:-C\s+(?P<gitdir>\S+)\s+)?(?P<verb>"
     r"pull|fetch|push|checkout|reset|rebase|merge|commit|stash|clean|"
-    r"cherry-pick|revert|am|apply|rm|mv|worktree|clone)\b"
+    r"cherry-pick|revert|am|apply|rm|mv|worktree|clone)(?![-\w])"
     r"(?P<rest>[^\n;|&]*)"
 )
-_READ_ONLY_GIT = re.compile(r"^(?:worktree\s+(?:list|show)|stash\s+(?:list|show)|status|log|diff|show)\b")
+_READ_ONLY_GIT = re.compile(
+    r"^(?:worktree\s+(?:list|show)|stash\s+(?:list|show)|status|log|diff|show|"
+    r"fetch|rev-parse|ls-remote|cat-file)\b")
+_WORKTREE_ADD_ARG_OPTIONS = frozenset({"-b", "-B", "--reason"})
+"""``git worktree add`` options that consume the next token (the branch/reason)."""
 _WRITE_HEADS = (
     "cp", "mv", "rsync", "install", "touch", "mkdir", "rm", "rmdir", "tee",
 )
@@ -95,9 +103,13 @@ def allowed_roots() -> list[Path]:
     workspace = (os.environ.get("HERMES_KANBAN_WORKSPACE") or "").strip()
     if workspace:
         roots.append(Path(workspace).expanduser().resolve(strict=False))
-    for base in ((os.environ.get("HERMES_HOME") or "").strip(), str(_home() / ".hermes")):
+    hermes_home = (os.environ.get("HERMES_HOME") or "").strip()
+    for base in (hermes_home, str(_home() / ".hermes")):
         if base:
             roots.append((Path(base).expanduser() / "cache" / "scratch").resolve(strict=False))
+    if hermes_home:
+        roots.append((Path(hermes_home).expanduser() / "cache").resolve(strict=False))
+    roots.append((_home() / ".hermes" / "reports").resolve(strict=False))
     for env in ("TMPDIR", "TMP", "TEMP"):
         value = (os.environ.get(env) or "").strip()
         if value:
@@ -347,20 +359,46 @@ def _script_bodies(command: str) -> list[str]:
     return bodies
 
 
+def _git_destination(verb: str, rest: str, cwd: str) -> str:
+    """The write target of a ``clone``/``worktree add`` — classify it, not the verb.
+
+    ``git clone <url> <dest>`` writes ``dest``; ``git worktree add <path> ...``
+    creates ``path``. A destination inside an allowed root (task workspace,
+    ``cache/scratch``, TMPDIR, ``~/.hermes/kanban/workspaces``) is a legitimate
+    workspace write, not an outside mutation. For ``worktree`` only ``add``
+    writes a path; other subcommands fall back to the cwd.
+    """
+    tokens = _tokens(rest)
+    if verb == "clone":
+        operands = [token for token in tokens if not token.startswith("-")]
+        return _join(cwd, operands[-1]) if len(operands) >= 2 else _join(cwd, ".")
+    if not tokens or tokens[0] != "add":
+        return _normalize(cwd)
+    position = 1
+    while position < len(tokens):
+        token = tokens[position]
+        if token in _WORKTREE_ADD_ARG_OPTIONS:
+            position += 2
+            continue
+        if token.startswith("-"):
+            position += 1
+            continue
+        return _join(cwd, token)
+    return _normalize(cwd)
+
+
 def _git_message_for(cwd: str, segment: str) -> Optional[str]:
     for match in _GIT_VERBS.finditer(segment):
-        if _READ_ONLY_GIT.match((match.group("verb") + " " + match.group("rest")).strip()):
-            continue
         verb = match.group("verb")
+        if _READ_ONLY_GIT.match((verb + " " + match.group("rest")).strip()):
+            continue
         gitdir = match.group("gitdir")
-        if gitdir:
+        if verb in ("clone", "worktree"):
+            repo = _git_destination(verb, match.group("rest").strip(), cwd)
+            if not _git_protected(repo) and gitdir and _git_protected(_join(cwd, gitdir)):
+                return _GIT_MESSAGE.format(tool="terminal")
+        elif gitdir:
             repo = _join(cwd, gitdir)
-        elif verb == "clone":
-            operands = [token for token in _tokens(segment) if not token.startswith("-")]
-            positions = [i for i, token in enumerate(operands) if token == "clone"]
-            index = positions[0] if positions else 1
-            rest = operands[index + 1:]
-            repo = _join(cwd, rest[-1]) if len(rest) >= 2 else _join(cwd, ".")
         else:
             repo = _normalize(cwd)
         if repo and _git_protected(repo):
