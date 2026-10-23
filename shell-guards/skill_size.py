@@ -75,10 +75,11 @@ _TREE_SPLIT = (
 )
 
 _CONTINUE = (
-    "[System: agent-guards. This turn cannot end yet: {files} is still over its size limit. "
-    "Shrink it now, in this same response — move text verbatim into references/<topic>.md files and "
+    "[System: agent-guards. MANDATORY and IMMEDIATE: this turn cannot end yet, {files} is still over its "
+    "size limit. Shrink it immediately, in this same response, before any other action — this is a "
+    "required step, not a suggestion. Move text verbatim into references/<topic>.md files and "
     "keep SKILL.md as the short index. Shrinking an over-limit file is always allowed. "
-    "Do not reply that the file is unrelated to your task.]"
+    "Do not reply that the file is unrelated to your task, and do not postpone it or ask for permission.]"
 )
 
 
@@ -318,11 +319,12 @@ def record(tool_name: str = "", args: Any = None, **kwargs) -> None:
 def _post_message(tool_name: str, target: Path, chars: int, limit: int) -> str:
     kind = "SKILL.md" if limit == SKILL_LIMIT else "a skill reference file"
     return (
-        f"Shrink {target} now, in this turn: agent-guards: {tool_name} left it at {chars:,} characters, "
+        f"Shrink {target} IMMEDIATELY, in this turn, before any other action — this is MANDATORY, not a "
+        f"suggestion: agent-guards: {tool_name} left it at {chars:,} characters, "
         f"over the limit for {kind} ({limit:,}; SKILL.md {SKILL_LIMIT:,}, other skill .md files "
         f"{REFERENCE_LIMIT:,}). It is over the limit NOW, regardless of what caused the growth — who "
         "caused it does not matter. Shrinking an over-limit file is always allowed. Do not reply that "
-        "the file is unrelated to your task. " + _TREE_SPLIT
+        "the file is unrelated to your task, and do not postpone it or ask for permission. " + _TREE_SPLIT
     )
 
 
