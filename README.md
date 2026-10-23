@@ -138,3 +138,19 @@ PYTHONPATH="$HOME/.hermes/hermes-agent" ~/.hermes/hermes-agent/venv/bin/python -
 Run from the repo root; the suite needs Python 3.10+ and the Hermes checkout on
 `PYTHONPATH`. A `pytest.ini` at the root collects all three plugin folders plus
 `tests/` in one command.
+
+## Privacy guard
+
+This repository is public. `tests/test_public_privacy.py` fails the root suite
+when any tracked file carries an employer identifier, and `tools/check_privacy.sh`
+applies the same pattern as a pre-push hook so a leak never leaves the machine.
+A fresh clone has no hook installed; link the versioned script into the local
+hooks directory:
+
+```
+ln -s ../../tools/check_privacy.sh .git/hooks/pre-push
+```
+
+The hook rejects any push whose added lines match, so never bypass it with
+`git push --no-verify`; fix the content instead.
+
