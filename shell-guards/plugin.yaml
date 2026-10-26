@@ -23,7 +23,9 @@ description: >
   and corrupts them - attach by path); normalize optional Kanban arguments sent
   as empty strings into absent ones, a `task_id` of the literal
   `$HERMES_KANBAN_TASK` into absent (the tool falls back to the worker's own
-  task), and doubled `skill_view` names `x:x` into `x`; and keep skill markdown
+  task), and doubled `skill_view` names `x:x` into `x`, and clamp a
+  `process_manage wait` timeout to 5 s below the call deadline (a wait at or
+  above it races the host deadline and dies with no partial output); and keep skill markdown
   files under their size limit - blocks a `skill_manage`/`write_file`/`patch`
   call that would push one over (SKILL.md 6000, other skill .md files 12000
   characters), flags after the fact a `terminal`/`execute_code`/unified-diff

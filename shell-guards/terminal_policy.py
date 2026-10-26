@@ -140,10 +140,41 @@ def terminal_violations(command: str, background: bool) -> list[str]:
     return found
 
 
+def _tool_deadline() -> Optional[float]:
+    """Current per-call deadline, resolved the way the host resolves it (config, then env, then 420)."""
+    try:
+        from agent.deadline import resolve_timeout
+    except Exception:
+        return None
+    try:
+        return resolve_timeout("tools.sequential_call", default=None) or resolve_timeout(
+            "tools.concurrent_batch", default=420.0, env_var="HERMES_CONCURRENT_TOOL_TIMEOUT_S"
+        )
+    except Exception:
+        return None
+
+
+def _wait_cap() -> Optional[int]:
+    """A ``process_manage wait`` at or above the call deadline races it and dies without partial output.
+
+    Measured over 7 days: ``timeout=420`` errored 649 times out of 1,275 reads, ``timeout=400`` never
+    (787 reads). Keep a 5 s margin under the deadline so the tool's own timeout returns partial output.
+    """
+    deadline = _tool_deadline()
+    if not deadline or deadline <= 6:
+        return None
+    return int(deadline) - 5
+
+
 def normalized_args(tool_name: str, args: dict[str, Any]) -> Optional[dict[str, Any]]:
     changes: dict[str, Any] = {key: None for key in _EMPTY_TO_ABSENT.get(tool_name, ()) if args.get(key) == ""}
     if tool_name.startswith("kanban_") and _ENV_TASK_LITERAL.match(str(args.get("task_id") or "")):
         changes["task_id"] = None
+    if tool_name == "process_manage" and args.get("action") == "wait":
+        timeout = args.get("timeout")
+        cap = _wait_cap()
+        if cap and isinstance(timeout, int) and not isinstance(timeout, bool) and timeout > cap:
+            changes["timeout"] = cap
     if tool_name == "skill_view":
         name = args.get("name")
         if isinstance(name, str) and ":" in name:

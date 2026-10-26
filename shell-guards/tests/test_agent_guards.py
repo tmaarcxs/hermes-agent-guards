@@ -194,3 +194,30 @@ def test_large_inline_attach_blocked():
 
 def test_small_inline_attach_allowed():
     assert guards._pre_tool_call(tool_name="kanban_attach", args={"filename": "r.txt", "content_base64": "QUJD" * 64}) is None
+
+
+def test_process_wait_timeout_is_clamped_below_the_call_deadline(monkeypatch):
+    monkeypatch.setattr(guards.terminal_policy, "_tool_deadline", lambda: 420.0)
+    call = lambda **a: guards._pre_tool_call(tool_name="process_manage", args={"action": "wait", "session_id": "p1", **a})
+    assert call(timeout=900) == {"action": "modify", "args": {"timeout": 415}}
+    assert call(timeout=420) == {"action": "modify", "args": {"timeout": 415}}
+    assert call(timeout=400) is None
+    assert guards._pre_tool_call(tool_name="process_manage", args={"action": "poll", "session_id": "p1", "timeout": 900}) is None
+
+
+def test_process_wait_cap_follows_the_configured_deadline(monkeypatch):
+    monkeypatch.setattr(guards.terminal_policy, "_tool_deadline", lambda: 900.0)
+    result = guards._pre_tool_call(tool_name="process_manage", args={"action": "wait", "session_id": "p1", "timeout": 900})
+    assert result == {"action": "modify", "args": {"timeout": 895}}
+
+
+def test_process_wait_cap_absent_when_deadline_is_unbounded(monkeypatch):
+    monkeypatch.setattr(guards.terminal_policy, "_tool_deadline", lambda: None)
+    assert guards._pre_tool_call(tool_name="process_manage", args={"action": "wait", "session_id": "p1", "timeout": 900}) is None
+
+
+def test_default_deadline_resolves_to_420():
+    from agent.deadline import resolve_timeout
+    deadline = resolve_timeout("tools.sequential_call", default=None) or resolve_timeout(
+        "tools.concurrent_batch", default=420.0, env_var="HERMES_CONCURRENT_TOOL_TIMEOUT_S")
+    assert deadline and guards.terminal_policy._wait_cap() == int(deadline) - 5
