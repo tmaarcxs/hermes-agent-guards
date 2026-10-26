@@ -40,6 +40,7 @@ _LOG_PATH = Path(__file__).resolve().parent / "debug.log"
 _PLUGIN_KEY = "kanban-card-progress"
 _config_cache: Optional[Dict[str, Any]] = None
 _timer: Optional[ProgressTimer] = None
+_lease_fd: Optional[int] = None
 
 
 def register(ctx) -> None:
@@ -49,7 +50,26 @@ def register(ctx) -> None:
     if config.get("enabled", True) is False:
         _log("disabled via plugins.entries.kanban-card-progress.enabled — no thread started")
         return
+    if not _take_lease():
+        _log("another process holds the sweep lease — no thread started")
+        return
     _start(config, ctx=ctx)
+
+
+def _take_lease() -> bool:
+    """Claim the board-wide sweep lease for this process (see ``sweep``)."""
+    global _lease_fd
+    if _lease_fd is not None:
+        return True
+    try:
+        from hermes_cli.kanban_db_connect import connect_closing
+
+        with connect_closing() as conn:
+            _lease_fd = sweep.acquire_sweep_lease(conn)
+    except Exception:
+        _log("sweep lease unavailable — sweeping without it")
+        return True  # a missing lease must never stop the only sweeper
+    return _lease_fd is not None
 
 
 def _start(config: Dict[str, Any], *, ctx: Any = None) -> ProgressTimer:
@@ -74,11 +94,19 @@ def _start(config: Dict[str, Any], *, ctx: Any = None) -> ProgressTimer:
 
 
 def _shutdown() -> None:
-    global _timer
+    global _timer, _lease_fd
     if _timer is not None:
         _timer.stop()
         _log("stopped")
     _timer = None
+    if _lease_fd is not None:
+        try:
+            import os
+
+            os.close(_lease_fd)
+        except OSError:
+            pass
+        _lease_fd = None
 
 
 def _run_cycle() -> None:

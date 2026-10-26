@@ -57,6 +57,42 @@ def _too_big(body: Optional[str], max_body_bytes: int) -> bool:
         return True
 
 
+def board_db_path(conn: sqlite3.Connection) -> Optional[str]:
+    """Filesystem path of the board this connection points at, or None for ``:memory:``."""
+    try:
+        row = conn.execute("PRAGMA database_list").fetchone()
+    except sqlite3.Error:
+        return None
+    return (row[2] or None) if row else None
+
+
+def acquire_sweep_lease(conn: sqlite3.Connection) -> Optional[int]:
+    """Take the board-wide sweep lease a plugin instance holds for its whole life.
+
+    Close the returned fd to release it; the OS frees it when the process dies.
+    Two sweepers on one board rewrite each other's block shape (a strip from
+    before v3.2 drops the two-line block but keeps its NBSP pad, so every one of
+    its sweeps pushed the pad down a line and the description drifted away), so
+    exactly one process may sweep. Returns None when another process holds it.
+    """
+    import fcntl
+    import os
+
+    path = board_db_path(conn)
+    if not path:
+        return None
+    try:
+        fd = os.open(path + ".progress.lock", os.O_CREAT | os.O_RDWR, 0o644)
+    except OSError:
+        return None
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(fd)
+        return None
+    return fd
+
+
 def refresh_card(
     conn: sqlite3.Connection,
     task_id: str,
@@ -94,7 +130,8 @@ def refresh_card(
         return False
 
     block = progress_block.format_block(
-        progress.done, progress.total, progress.label, progress.percent
+        progress.done, progress.total, progress.label, progress.percent,
+        todos=todo_progress.parse_todos(content),
     )
     new_body = progress_block.apply_block(old_body or "", block)
     if new_body == old_body:
