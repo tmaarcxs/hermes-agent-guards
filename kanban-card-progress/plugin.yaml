@@ -1,5 +1,5 @@
 name: kanban-card-progress
-version: "1.1.3"
+version: "1.2.0"
 description: >-
   Deterministic per-card progress block. A gateway-side daemon thread sweeps
   every RUNNING Kanban card every ~10 s, reads the worker's native Tasklist
@@ -16,6 +16,10 @@ description: >-
   Line 2 ends with an invisible NBSP pad (U+00A0) sized so the card's
   description can never follow the percent on the card face: it wraps to the
   clamped third line, and the card shows only the progress block.
+  After the pad the same write appends the whole Tasklist, one deterministic
+  "• [x]/[>]/[ ]/[-] <item>" line each, so opening the card shows the full list
+  under the bar and the card face still shows two lines; the list is part of the
+  block, so a sweep replaces it in place and a strip removes it.
   No LLM, no worker cooperation beyond keeping its Tasklist updated. Writes are
   a single compare-and-set UPDATE inside one BEGIN IMMEDIATE, retried on a
   miss, and are skipped entirely when the body would not change; the UPDATE also

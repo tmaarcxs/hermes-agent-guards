@@ -32,6 +32,18 @@ class TestRefreshCard(unittest.TestCase):
             self.assertTrue(body.endswith("Original body."))
             self.assertIn("\u00a067%", body)
 
+    def test_body_carries_the_whole_tasklist_under_the_bar(self):
+        with Env() as env:
+            tid = env.running(body="Original body.")
+            db = _seed(env, [("completed", "clone repo"), ("in_progress", "probando tests")])
+            env.admit(tid, str(db), "sess-1")
+            self.assertTrue(env.pkg.sweep.refresh_card(env.conn, tid))
+            body = env.body(tid) or ""
+            self.assertIn("\n\u2022 [x] clone repo\n\u2022 [>] probando tests\n", body)
+            self.assertTrue(body.endswith("Original body."))
+            """second refresh: the list is replaced, never stacked"""
+            self.assertFalse(env.pkg.sweep.refresh_card(env.conn, tid))
+
     def test_no_tasklist_writes_nothing(self):
         with Env() as env:
             tid = env.running(body="Original body.")
@@ -76,9 +88,9 @@ class TestRefreshCard(unittest.TestCase):
             append_todo(db, "sess-1", todo_payload(
                 ("completed", "step one"), ("in_progress", "step two")))
             self.assertTrue(env.pkg.sweep.refresh_card(env.conn, tid))
-            body = env.body(tid)
-            self.assertIn("step two", body)
-            self.assertNotIn("step one", body)
+            body = env.body(tid) or ""
+            self.assertTrue(body.startswith("\u25b6 1/2 \u00b7 step two"), body)
+            self.assertEqual(body.count("\u25b6"), 1)   # one block, never a stale header
             self.assertTrue(body.endswith("Original body."))
 
     def test_human_text_after_block_survives(self):

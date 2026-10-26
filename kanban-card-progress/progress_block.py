@@ -98,6 +98,18 @@ below.
 This module is pure Python with no font library: the measured advance table is
 embedded and the cut is arithmetic over it.
 
+TASK LIST (v1.2) - the whole Tasklist below the bar
+---------------------------------------------------
+One line per Tasklist item, appended AFTER the pad, so the list lives in the
+card body where the card face cannot show it: line 2 is already full of the pad,
+so the list starts on line 3, which the 2-line clamp hides. Opening the card
+shows the block, then the whole list, then the description. Items are prefixed
+with ``• [x]`` (completed), ``• [>]`` (in progress), ``• [ ]`` (pending) or
+``• [-]`` (cancelled) - the same statuses ``map_progress`` counts - and an
+item's own newlines are flattened so the block stays contiguous and its shape
+stays recognisable. The list is part of the block: a sweep replaces it in place
+and a strip takes it away with the block, so the body never accumulates copies.
+
 CLAMP ELLIPSIS (proven in Blink, the app's own engine)
 -----------------------------------------------------
 When the 2-line clamp hides line 3+, the renderer appends a visible ellipsis at
@@ -211,6 +223,16 @@ assert MIN_ACCEPTED_BAR <= BAR_WIDTH <= MAX_ACCEPTED_BAR
 
 _PCT = re.compile(r"\d{1,3}%$")
 
+"""--- Task list (v1.2) ----------------------------------------------------------
+After the pad, one line per Tasklist item. Each line starts with the bullet and
+a checkbox, so the run is recognisable and a description is never eaten; the
+item text is flattened (no newline inside a line) to keep the run contiguous."""
+LIST_BULLET = "\u2022"       # • (not in the width table: the list has no budget)
+LIST_MARKS = {"completed": "[x]", "in_progress": "[>]", "pending": "[ ]", "cancelled": "[-]"}
+_LIST_RUN = re.compile(r"(?:\u2022 \[[ x>\-]\] [^\n]*(?:\n|$))+")
+"""shortcut: a description line that starts with exactly `• [x] ` right after the
+block is read as part of the list, upgrade by bracketing the run in marker lines."""
+
 
 def text_width(text: str) -> float:
     """Advance width of `text` in px, from the measured table."""
@@ -279,7 +301,25 @@ def pad_count(base: str) -> int:
     return _pad_count_for(base, PAD_MIN_PX, PAD_MAX_PX)
 
 
-def format_block(done: int, total: int, label: str, pct: int | None = None) -> str:
+def format_list(todos) -> str:
+    """The Tasklist as one `• [mark] text` line per item (``""`` when empty).
+
+    Deterministic and total: a malformed item is skipped, and an item's own
+    line breaks become single spaces so the run stays one line per item.
+    """
+    lines = []
+    for item in todos or ():
+        if not isinstance(item, dict):
+            continue
+        text = " ".join(str(item.get("content") or "").split())
+        if text:
+            mark = LIST_MARKS.get(str(item.get("status")), LIST_MARKS["pending"])
+            lines.append(f"{LIST_BULLET} {mark} {text}")
+    return "\n".join(lines)
+
+
+def format_block(done: int, total: int, label: str, pct: int | None = None,
+                 todos=None) -> str:
     """Return the two-line progress block, without a trailing newline.
 
     done/total drive the counter. `label` (the current in-progress todo item) is
@@ -291,6 +331,10 @@ def format_block(done: int, total: int, label: str, pct: int | None = None) -> s
     description can never follow the percent on the card: the invisible pad
     leaves no room for a word, which wraps to line 3 where the 2-line clamp
     hides it. The visible part of line 2 is unchanged and still <= 201.95 px.
+
+    ``todos`` (the parsed Tasklist, optional) is appended as :func:`format_list`
+    after the pad: line 3 onward, so the card face stays two lines and the whole
+    list is visible only when the card is opened.
     """
     if total < 0 or done < 0:
         raise ValueError("done/total must be >= 0")
@@ -310,7 +354,9 @@ def format_block(done: int, total: int, label: str, pct: int | None = None) -> s
             head = f"{head} {MIDDLE_DOT} {cut}"
 
     base = line2_base(pct)
-    return f"{head}\n{base}{PAD_CHAR * pad_count(base)}"
+    block = f"{head}\n{base}{PAD_CHAR * pad_count(base)}"
+    listed = format_list(todos)
+    return block + ("\n" + listed if listed else "")
 
 
 
@@ -344,7 +390,9 @@ def _match_block(body: str):
     at the exact count :func:`pad_count` derives for that core: a hand-written
     line that merely ends in NBSPs (any other count) is not a block and stays
     untouched, while both the v3.1 shape (0 pad) and the v3.2 shape (exact pad)
-    are recognised and replaced in place.
+    are recognised and replaced in place. A Tasklist run (:data:`_LIST_RUN`)
+    directly after the pad is part of the block, so it is replaced and stripped
+    with it.
     """
     if not body:
         return None
@@ -372,13 +420,19 @@ human line, not a block."""
     end += got
     tail = _TAIL_RE.match(body, end)
     end = tail.end()
+    """The Tasklist (v1.2) starts on the line after the pad."""
+    listed = _LIST_RUN.match(body, end)
+    listed_text = ""
+    if listed:
+        listed_text = "\n" + listed.group(0).rstrip("\n")
+        end = listed.end()
     """Swallow the pad lines an older strip salvaged onto their own line."""
     while True:
         spilled = _SPILL_RE.match(body, end)
         if not spilled:
             break
         end = spilled.end()
-    return core + pad, end, pad
+    return core + pad + listed_text, end, pad
 
 
 

@@ -787,5 +787,52 @@ class TestSpilledPad(unittest.TestCase):
         )
 
 
+class TestTaskList(unittest.TestCase):
+    """v1.2: the whole Tasklist goes below the bar, one deterministic line per
+    item, and is owned by the block (replaced in place, stripped with it).
+    """
+
+    TODOS = [
+        {"content": "leer el issue", "status": "completed"},
+        {"content": "medir el ancho", "status": "in_progress"},
+        {"content": "escribir   tests", "status": "pending"},
+        {"content": "descartado", "status": "cancelled"},
+    ]
+    DESC = "Objetivo: medir el acceso.\n\nContexto: sin cambios."
+
+    def test_one_line_per_item_right_after_the_pad(self):
+        block = pb.format_block(1, 4, "medir el ancho", 25, todos=self.TODOS)
+        self.assertEqual(block.split("\n")[2:], [
+            "\u2022 [x] leer el issue",
+            "\u2022 [>] medir el ancho",
+            "\u2022 [ ] escribir tests",
+            "\u2022 [-] descartado",
+        ])
+
+    def test_without_todos_the_block_is_unchanged(self):
+        self.assertEqual(pb.format_block(1, 4, "x", 25),
+                         pb.format_block(1, 4, "x", 25, todos=[]))
+        self.assertNotIn(pb.LIST_BULLET, pb.format_block(1, 4, "x", 25))
+
+    def test_apply_replaces_the_list_and_strip_takes_it_away(self):
+        first = pb.apply_block(self.DESC, pb.format_block(1, 4, "a", 25, todos=self.TODOS[:1]))
+        grown = pb.apply_block(first, pb.format_block(2, 4, "b", 50, todos=self.TODOS))
+        self.assertEqual(grown.count(pb.LIST_BULLET), 4)
+        self.assertTrue(grown.endswith(self.DESC))
+        self.assertEqual(pb.apply_block(grown, pb.format_block(2, 4, "b", 50, todos=self.TODOS)),
+                         grown)                                   # idempotent
+        self.assertEqual(pb.strip_block(grown), self.DESC)
+
+    def test_item_line_breaks_are_flattened(self):
+        block = pb.format_block(1, 1, "a", 100,
+                                todos=[{"content": "uno\ndos   tres ", "status": "pending"}])
+        self.assertEqual(block.split("\n")[2], "\u2022 [ ] uno dos tres")
+
+    def test_line_two_is_still_the_padded_bar(self):
+        plain = pb.format_block(1, 4, "medir el ancho", 25)
+        with_list = pb.format_block(1, 4, "medir el ancho", 25, todos=self.TODOS)
+        self.assertEqual(plain.split("\n")[1], with_list.split("\n")[1])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

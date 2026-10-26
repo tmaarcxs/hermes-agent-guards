@@ -130,7 +130,8 @@ def refresh_card(
         return False
 
     block = progress_block.format_block(
-        progress.done, progress.total, progress.label, progress.percent
+        progress.done, progress.total, progress.label, progress.percent,
+        todos=todo_progress.parse_todos(content),
     )
     new_body = progress_block.apply_block(old_body or "", block)
     if new_body == old_body:

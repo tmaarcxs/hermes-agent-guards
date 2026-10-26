@@ -27,8 +27,8 @@ the same block.
   `_`, v2 used `=`), and the NBSP glues the percentage to the bar so it can never
   be orphaned. The trailing NBSP run is the **line-2 pad** (below): it keeps the
   description from following the percent on the card.
-* **line 3+** — the untouched original description (clamped on the card, kept for
-  the drawer).
+* **line 3+** — the whole Tasklist (v1.2), one `• [mark] text` line per item, then
+  the untouched original description (clamped on the card, kept for the drawer).
 
 ### The line-2 pad (v3.2)
 
@@ -81,6 +81,30 @@ U+2063 (render as nothing and create no break); U+2028 / U+000B (no visible seco
 line); a visible filler such as `.`/`·`/`-` (shows as noise and `-` breaks
 mid-bar); a wider bar or a longer label (the bar width is already at its 205 px
 limit, and line 1 must not wrap).
+
+### The Tasklist (v1.2)
+
+The sweep appends one line per Tasklist item **after the pad**, so the list is
+part of the block and lands on line 3+: the card face keeps its two lines, and
+the whole list appears as soon as the card is opened, above the description.
+
+```
+▶ 3/7 · probando tests
+[##########.............] 43%<NBSP pad>
+• [x] leer el issue
+• [>] medir el ancho del texto
+• [ ] escribir los tests
+• [-] descartado (cancelled)
+Objetivo: la descripción original, intacta.
+```
+
+`• [x]` is completed, `• [>]` in progress, `• [ ]` pending and `• [-]` cancelled —
+the same statuses `map_progress` counts, so `N/M` in line 1 and the list agree.
+An item's own line breaks become spaces (one line per item, so the run stays
+contiguous), and the run is recognised by its bullet + checkbox, so a sweep
+replaces it in place and a strip takes it away with the block: no copies pile up.
+`shortcut:` a description line that begins with exactly `• [x] ` right after the
+block is read as part of the list; upgrade by bracketing the run in marker lines.
 
 
 ## Measured budgets
