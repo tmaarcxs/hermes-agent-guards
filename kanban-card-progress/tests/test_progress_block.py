@@ -756,5 +756,36 @@ class TestApplyStrip(unittest.TestCase):
         self.assertIsNone(pb.extract_block(self.DESC))
 
 
+class TestSpilledPad(unittest.TestCase):
+    """A pre-v3.2 strip removed the block but not its pad, so every such sweep
+    pushed the NBSP run one line down and the description drifted away from the
+    card face. The block must own those lines, not accumulate them.
+    """
+
+    BLOCK = pb.format_block(1, 3, "find scope", 40)
+    DESC = "Objetivo: medir el acceso.\n\nContexto: sin cambios."
+
+    def _spilled(self, n=3):
+        line2 = self.BLOCK.rsplit("\n", 1)[1]
+        pad = line2[len(line2.rstrip(pb.PAD_CHAR)):]
+        return self.BLOCK + "\n" + "\n".join([pad] * n) + "\n" + self.DESC
+
+    def test_strip_removes_spilled_pad_lines(self):
+        self.assertEqual(pb.strip_block(self._spilled()), self.DESC)
+
+    def test_heal_keeps_one_block_and_the_description(self):
+        healed = pb.heal_body(self._spilled(7))
+        self.assertEqual(healed, self.BLOCK + "\n" + self.DESC)
+        self.assertEqual(pb.heal_body(healed), healed)          # idempotent
+        self.assertEqual(pb.heal_body(self.DESC), self.DESC)    # no block, untouched
+
+    def test_apply_block_after_a_spill_does_not_grow_the_body(self):
+        body = pb.apply_block(self._spilled(5), pb.format_block(2, 3, "write report", 66))
+        self.assertEqual(body.count(pb.GLYPH), 1)
+        self.assertEqual(
+            [ln for ln in body.split("\n") if ln and set(ln) == {pb.PAD_CHAR}], []
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

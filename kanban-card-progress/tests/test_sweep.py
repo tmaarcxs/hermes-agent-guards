@@ -323,5 +323,20 @@ class TestSweepOnce(unittest.TestCase):
             self.assertEqual(stats.running, 0)
 
 
+class TestSweepLease(unittest.TestCase):
+    """Two sweepers on one board corrupt the block; only one may hold the lease."""
+
+    def test_second_lease_is_refused_and_close_releases_it(self):
+        with Env() as env:
+            lease = env.pkg.sweep.acquire_sweep_lease(env.conn)
+            self.assertIsNotNone(lease)
+            self.assertIsNone(env.pkg.sweep.acquire_sweep_lease(env.conn))
+            import os
+            os.close(lease)
+            again = env.pkg.sweep.acquire_sweep_lease(env.conn)
+            self.assertIsNotNone(again)
+            os.close(again)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

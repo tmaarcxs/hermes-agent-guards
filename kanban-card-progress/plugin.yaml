@@ -1,5 +1,5 @@
 name: kanban-card-progress
-version: "1.1.2"
+version: "1.1.3"
 description: >-
   Deterministic per-card progress block. A gateway-side daemon thread sweeps
   every RUNNING Kanban card every ~10 s, reads the worker's native Tasklist
@@ -25,8 +25,14 @@ description: >-
   v2 #= alphabet, bar width 8-40, with an optional NBSP pad at either the v1.1.1
   or the current length),
   so a v2 block is replaced in place and human text after it is never touched.
-  Strips the block from a card that stopped running. Disabled by default: add
-  the plugin to plugins.enabled (hermes plugins enable kanban-card-progress) to
+  Strips the block from a card that stopped running. A pad that an older strip
+  spilled onto its own line is owned by the block and removed with it, so the
+  description never drifts down by one line per sweep; cards already carrying
+  those invisible lines are healed by the next write (progress_block.heal_body
+  repairs the whole board). Only one process sweeps a board: an exclusive flock
+  on <db>.progress.lock, held for the process's life, so a second gateway or
+  session cannot rewrite the block shape behind the first one.
+  Disabled by default: add the plugin to plugins.enabled (hermes plugins enable kanban-card-progress) to
   activate.
 author: "Atenea"
 license: MIT

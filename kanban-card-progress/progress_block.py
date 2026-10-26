@@ -329,6 +329,11 @@ _BLOCK_CORE_RE = re.compile(
 )
 """Whitespace that may follow a block line (a real newline, or the collapsed one)."""
 _TAIL_RE = re.compile(r"[ \t]*\n?")
+"""The v3.2 pad can end up on its OWN line: every strip written before v3.2
+removes the two-line block and leaves the NBSP run behind (it is not `[ \t]`),
+so each of those sweeps pushes the pad one line down. The lines are invisible,
+hence consumed with the pad instead of accumulating on every sweep."""
+_SPILL_RE = re.compile(r"[ \t]*\u00a0[ \u00a0\t]*\n?")
 
 
 def _match_block(body: str):
@@ -366,7 +371,14 @@ human line, not a block."""
     pad = body[end:end + got]
     end += got
     tail = _TAIL_RE.match(body, end)
-    return core + pad, tail.end(), pad
+    end = tail.end()
+    """Swallow the pad lines an older strip salvaged onto their own line."""
+    while True:
+        spilled = _SPILL_RE.match(body, end)
+        if not spilled:
+            break
+        end = spilled.end()
+    return core + pad, end, pad
 
 
 
@@ -400,6 +412,20 @@ def apply_block(body: str, block: str) -> str:
     """
     rest = strip_block(body or "").lstrip("\n")
     return block + ("\n" + rest if rest else "")
+
+
+def heal_body(body: str) -> str:
+    """Drop the invisible pad lines an older strip left between block and description.
+
+    Returns the body unchanged when it carries no leading block, so it is safe to
+    run over every card of the board: only lines made of NBSP disappear, the
+    description text stays byte-identical.
+    """
+    m = _match_block(body)
+    if m is None:
+        return body
+    rest = body[m[1]:]
+    return m[0] + ("\n" + rest if rest else "")
 
 
 if __name__ == "__main__":
