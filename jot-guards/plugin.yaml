@@ -1,0 +1,19 @@
+name: jot-guards
+version: "0.1.0"
+description: >-
+  Keep the Jot weekly board current before a work turn ends. On the pre_verify gate, when the
+  turn changed files inside a git work tree (outside the skip roots, default `~/.hermes`) and
+  no mutating Jot tool ran, it keeps the turn going once with the update instruction:
+  `jot_read` first, then `jot_update`/`jot_set_task`, one generic line per outcome. Silent
+  once `jot_create`/`jot_update`/`jot_set_task`/`jot_delete` ran in the turn, silent on worker
+  processes (their handoff is the card), one nudge per turn, and switchable off with
+  `settings.jot_nudge: false`. Narrow the scope with
+  `settings.jot_nudge_skip_roots: [...]`. Every callback fails open.
+author: "kur4i"
+kind: standalone
+hooks:
+  - post_tool_call
+  - pre_verify
+provides_hooks:
+  - post_tool_call
+  - pre_verify
