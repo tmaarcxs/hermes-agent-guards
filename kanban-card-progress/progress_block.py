@@ -420,6 +420,15 @@ human line, not a block."""
     end += got
     tail = _TAIL_RE.match(body, end)
     end = tail.end()
+    """Pad lines an older strip salvaged onto their own line belong to the block.
+    Swallow them BEFORE the list: a pad line between the pad and the list hides
+    the list from :data:`_LIST_RUN`, and every sweep would then stack one more
+    copy of it (measured on live cards written across the v1.1.3 upgrade)."""
+    while True:
+        spilled = _SPILL_RE.match(body, end)
+        if not spilled:
+            break
+        end = spilled.end()
     """The Tasklist (v1.2) starts on the line after the pad."""
     listed = _LIST_RUN.match(body, end)
     listed_text = ""

@@ -105,6 +105,8 @@ contiguous), and the run is recognised by its bullet + checkbox, so a sweep
 replaces it in place and a strip takes it away with the block: no copies pile up.
 `shortcut:` a description line that begins with exactly `• [x] ` right after the
 block is read as part of the list; upgrade by bracketing the run in marker lines.
+A pad line an older strip left on its own line is swallowed **before** the list
+(v1.2.1): otherwise it hides the run and every sweep stacks one more copy.
 
 
 ## Measured budgets

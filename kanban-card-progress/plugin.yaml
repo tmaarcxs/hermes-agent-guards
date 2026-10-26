@@ -1,5 +1,5 @@
 name: kanban-card-progress
-version: "1.2.0"
+version: "1.2.1"
 description: >-
   Deterministic per-card progress block. A gateway-side daemon thread sweeps
   every RUNNING Kanban card every ~10 s, reads the worker's native Tasklist
