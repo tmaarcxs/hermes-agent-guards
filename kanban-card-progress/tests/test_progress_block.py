@@ -828,6 +828,18 @@ class TestTaskList(unittest.TestCase):
                                 todos=[{"content": "uno\ndos   tres ", "status": "pending"}])
         self.assertEqual(block.split("\n")[2], "\u2022 [ ] uno dos tres")
 
+    def test_spilled_pad_line_between_pad_and_list_is_healed(self):
+        """An older strip left the pad on its own line; it must not hide the list."""
+        block = pb.format_block(1, 4, "a", 25, todos=self.TODOS)
+        line1, line2 = block.split("\n")[:2]
+        pad = line2[len(line2.rstrip(pb.PAD_CHAR)):]
+        spilled = "\n".join([line1, line2.rstrip(pb.PAD_CHAR), pad,
+                             *block.split("\n")[2:], self.DESC])
+        self.assertEqual(pb.strip_block(spilled), self.DESC)
+        healed = pb.apply_block(spilled, block)
+        self.assertEqual(healed.count(pb.LIST_BULLET), len(self.TODOS))
+        self.assertTrue(healed.endswith(self.DESC))
+
     def test_line_two_is_still_the_padded_bar(self):
         plain = pb.format_block(1, 4, "medir el ancho", 25)
         with_list = pb.format_block(1, 4, "medir el ancho", 25, todos=self.TODOS)
