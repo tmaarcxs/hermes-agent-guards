@@ -22,6 +22,7 @@ Self-contained agent-guards plugin for terminal command hygiene.
 - Empty-string optional Kanban arguments (`assignee` in `kanban_list`, `completion_contract` in `kanban_create`) become absent.
 - A Kanban `task_id` sent as the literal `$HERMES_KANBAN_TASK` becomes absent, so the tool falls back to the worker's own task.
 - A `skill_view` name of the form `x:x` becomes `x`.
+- A `process_manage` `wait` timeout above the call deadline (resolved from `timeouts.tools.sequential_call`, else `timeouts.tools.concurrent_batch`/`HERMES_CONCURRENT_TOOL_TIMEOUT_S`, default 420 s) is clamped to 5 s below it. A wait at or above the deadline races the host's per-call deadline and dies as `timed out after 420.0s` with no partial output (measured: 649 of 1,275 reads at 420 failed, 0 of 787 at 400); just under it, the tool's own timeout returns partial output and status instead.
 
 ## Skill sizes
 
