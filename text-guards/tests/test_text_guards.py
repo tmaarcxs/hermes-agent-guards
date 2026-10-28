@@ -1,4 +1,4 @@
-"""Tests for text-guards: the section sign never reaches the reply."""
+"""Tests for text-guards: the section sign never reaches the reply or a tool argument."""
 
 import importlib.util
 import sys
@@ -41,7 +41,33 @@ def test_non_string_and_empty_inputs_pass_through():
     assert mod.strip_forbidden("") is None
 
 
-def test_register_wires_the_output_hook():
+def test_tool_arguments_are_rewritten_before_the_call():
+    mod = _load()
+    out = mod.rewrite_arguments(
+        tool_name="write_file",
+        args={"path": "doc.md", "content": f"guia {FORBIDDEN}4.3 y {FORBIDDEN}5"},
+    )
+    assert out["action"] == "modify"
+    assert out["args"]["content"] == "guia 4.3 y 5"
+    assert out["args"]["path"] == "doc.md"
+
+
+def test_nested_arguments_are_cleaned():
+    mod = _load()
+    out = mod.rewrite_arguments(
+        args={"body": {"cells": [f"a{FORBIDDEN}b", 3, None, {"deep": f"{FORBIDDEN}c"}]}}
+    )
+    assert out["args"]["body"]["cells"] == ["a b", 3, None, {"deep": " c"}]
+
+
+def test_clean_arguments_are_not_touched():
+    mod = _load()
+    assert mod.rewrite_arguments(args={"content": "texto normal", "n": 1}) is None
+    assert mod.rewrite_arguments(args=None) is None
+    assert mod.rewrite_arguments(args="not a dict") is None
+
+
+def test_register_wires_both_hooks():
     mod = _load()
     seen = []
 
@@ -50,5 +76,6 @@ def test_register_wires_the_output_hook():
             seen.append((name, callback))
 
     mod.register(Ctx())
-    assert seen[0][0] == "transform_llm_output"
+    assert [name for name, _ in seen] == ["transform_llm_output", "pre_tool_call"]
     assert seen[0][1] is mod.strip_forbidden
+    assert seen[1][1] is mod.rewrite_arguments

@@ -1,14 +1,17 @@
 name: text-guards
-version: "0.1.0"
+version: "0.2.0"
 description: >-
-  Strip the section-sign character (§) from the assistant's final reply. The operator forbids that
-  character in anything the agent writes; this guard removes it from `transform_llm_output`
-  before delivery, replacing it with a single space so "§4.3" becomes " 4.3" and the sentence
-  stays readable. It only cuts the character: it never blocks a tool call, rejects an
-  argument, or changes any other text. Fails open on any error.
+  Cut the section-sign character out of anything the agent emits. The operator forbids it, so
+  the guard removes it in two places: `transform_llm_output` cleans the final reply before
+  delivery, and `pre_tool_call` rewrites tool arguments so a comment body, a file written by
+  write_file/patch, or a shell command never carries it. Each occurrence is replaced by a single
+  space, which keeps the words apart. It never blocks a call, rejects an argument or changes any
+  other text, and it fails open on any error.
 author: "tmaarcxs"
 kind: standalone
 hooks:
   - transform_llm_output
+  - pre_tool_call
 provides_hooks:
   - transform_llm_output
+  - pre_tool_call

@@ -1,23 +1,27 @@
 # text-guards
 
-Answers: *does the agent's reply contain a character the operator forbids?*
+Answers: *does anything the agent emits contain a character the operator forbids?*
 
-The operator forbids the section sign (`§`) in anything the agent writes. This plugin cuts it out of
-the final reply before delivery:
+The operator forbids the section sign in anything the agent writes. This plugin cuts it out on
+both paths where text leaves the agent:
 
-- Registers one hook: `transform_llm_output`.
-- Replaces every occurrence — with the surrounding spaces — by a single space, so `§4.3` becomes
-  ` 4.3` and the sentence stays readable.
-- Returns `None` when the reply has no such character, so the slot stays free for another
-  transform.
+- `transform_llm_output` — the final reply, before delivery and before the assistant row is
+  persisted.
+- `pre_tool_call` — the tool arguments, so a comment body, a file written by `write_file` or
+  `patch`, and a shell command are cleaned before the tool runs.
 
-It does nothing else. It never blocks a tool call, rewrites an argument, or touches other
-text, and any internal error lets the reply through unchanged.
+Both replace every occurrence, with its surrounding spaces, by a single space, so `4.3` stays
+readable. When nothing carries the character the hooks return `None`, leaving the call untouched
+and the reply slot free for another transform.
 
-## Scope note
+It never blocks a call, rejects an argument or changes any other text, and any internal error
+lets the original value through.
 
-This guard trims the reply only. Text written elsewhere — issue comments, files, Jot notes —
-is not affected: put the rule where that text is produced instead of widening this hook.
+## Limits
+
+Arguments are cleaned by value, so a command that deliberately searches for the character must
+spell it another way (for example `chr(167)` in Python). Text the operator writes is not
+affected: only what the agent emits passes through these hooks.
 
 ## Tests
 

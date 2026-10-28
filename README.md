@@ -97,12 +97,12 @@ too old to run?*
 
 ### `text-guards` — banned characters in the reply
 
-Answers: *does the final reply contain a character the operator forbids?*
+Answers: *does anything the agent emits contain a character the operator forbids?*
 
-- Registers one hook, `transform_llm_output`, and replaces every occurrence of the section
-  sign (`§`) — with its surrounding spaces — by a single space, so `§4.3` becomes ` 4.3`.
-- Does nothing else: no tool blocking, no argument rewriting, no other text normalization.
-- Cuts the reply only. Text written elsewhere (issue comments, files, notes) is untouched.
+- `transform_llm_output` cleans the final reply; `pre_tool_call` cleans the tool arguments, so
+  comment bodies, files written by `write_file`/`patch` and shell commands are covered too.
+- Replaces every occurrence of the section sign, with its surrounding spaces, by a single space.
+- Never blocks a call or touches other text; returns `None` when there is nothing to clean.
 
 Each folder's `README.md` documents its own rules in full.
 
