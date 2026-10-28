@@ -95,6 +95,15 @@ too old to run?*
 - Never subscribes a chat and fails open: no hook ever raises or blocks a
   completion.
 
+### `text-guards` — banned characters in the reply
+
+Answers: *does the final reply contain a character the operator forbids?*
+
+- Registers one hook, `transform_llm_output`, and replaces every occurrence of the section
+  sign (`§`) — with its surrounding spaces — by a single space, so `§4.3` becomes ` 4.3`.
+- Does nothing else: no tool blocking, no argument rewriting, no other text normalization.
+- Cuts the reply only. Text written elsewhere (issue comments, files, notes) is untouched.
+
 Each folder's `README.md` documents its own rules in full.
 
 ## Install
