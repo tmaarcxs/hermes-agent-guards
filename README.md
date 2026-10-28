@@ -120,6 +120,12 @@ The `#<subdir>` fragment is the CLI's subdirectory syntax (see
 once and only the named folder is installed. The `owner/repo/<subdir>` form
 resolves the same way.
 
+Do not pass `--ref <sha>` for a plugin that must keep receiving updates: the
+flag writes `pinned: true` in the install metadata and `hermes plugins update`
+then refuses to move it. Install without `--ref`, and `hermes plugins update
+<name>` tracks the default branch. Reinstalling with `--force` keeps the old
+`pinned` flag, so remove and install again instead.
+
 ## Layout
 
 ```
