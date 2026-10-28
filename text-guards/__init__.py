@@ -50,13 +50,6 @@ def rewrite_arguments(tool_name="", args=None, **_kwargs):
     if not isinstance(args, dict):
         return None
     cleaned = sanitize(args)
-    try:
-        import os
-        if os.environ.get("TG_DEBUG"):
-            with open("/tmp/tg_hook.log", "a") as fh:
-                fh.write(f"{tool_name} changed={cleaned != args}\n")
-    except Exception:
-        pass
     return {"action": "modify", "args": cleaned} if cleaned != args else None
 
 
