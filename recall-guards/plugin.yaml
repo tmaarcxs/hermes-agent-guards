@@ -1,0 +1,24 @@
+name: recall-guards
+version: "0.2.0"
+description: >-
+  Stop the agent asking the operator for what its own memory already answers. On
+  `post_tool_call` it records the `(session_id, turn_id)` of every memory call; on
+  `pre_tool_call` it blocks a `clarify` call when the CURRENT TURN has read no
+  memory — the agent must read memory first and then ask in the same turn if
+  memory does not answer, instead of returning work the operator already
+  authorized. A read in an earlier turn does not count, and a read from the
+  previous minute only counts as a fallback for the case where a plugin reload
+  emptied the in-process turn record. On `transform_tool_result`, an advisory
+  reminder is appended on the first tool call of every 5th user turn of a session,
+  telling the agent to consult Hindsight. Lead surfaces only: a worker answers to
+  its card. Every gate fails open.
+author: "kur4i"
+kind: standalone
+hooks:
+  - post_tool_call
+  - pre_tool_call
+  - transform_tool_result
+provides_hooks:
+  - post_tool_call
+  - pre_tool_call
+  - transform_tool_result
