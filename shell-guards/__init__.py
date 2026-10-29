@@ -46,6 +46,7 @@ try:
         background_notify_gate,
         hermes_home_gate,
         paas_promote_gate,
+        plugin_source_gate,
         skill_size,
         terminal_policy,
     )
@@ -121,6 +122,7 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
 
     for check, name in (
         (lambda: paas_promote_gate.check(tool_name, args), "paas_promote_gate"),
+        (lambda: plugin_source_gate.check(tool_name, args), "plugin_source_gate"),
         (lambda: skill_size.check(tool_name, args), "skill_size"),
         (lambda: skill_size.record(tool_name, args, **kwargs), "skill_size"),
         (lambda: background_notify_gate.check(tool_name, args), "background_notify_gate"),
