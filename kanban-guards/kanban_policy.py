@@ -1,11 +1,15 @@
 """Kanban delegation policy for setups that route delegated cards to one worker profile.
 
 Active only when ``kanban.default_assignee`` is set in the profile config; that value is
-the worker profile every delegated card must use. Then:
-- ``kanban_create`` must use that assignee, must not land in triage (reserved for
-  automatic escalation) and must not override execution defaults;
-- ``kanban_request_review`` may only name that worker as reviewer.
-With no default assignee configured, nothing is enforced.
+the worker profile every delegated card must use. Then ``kanban_create`` must use that
+assignee, must not land in triage (reserved for automatic escalation) and must not
+override execution defaults. With no default assignee configured, nothing is enforced.
+
+``kanban_request_review`` is deliberately NOT gated here. The reviewer name is not this
+plugin's business: the native tool already validates it against the installed profiles,
+and the dispatcher's own ``kanban.dispatch_profiles`` allowlist decides which of them it
+can actually claim. A gate here only duplicated that check and blocked a legitimate
+installed reviewer, so it is gone.
 """
 
 from typing import Any, Optional
@@ -37,12 +41,6 @@ def violations(tool_name: str, args: dict[str, Any], worker: str) -> list[str]:
             found.append("triage is reserved for automatic escalation; create the card in todo")
         found += [f"remove execution override '{key}'" for key in EXECUTION_OVERRIDES if key in args]
         return found
-    if tool_name == "kanban_request_review" and args.get("reviewer") not in (None, worker):
-        return [
-            f"reviewer must be '{worker}' (the configured kanban.default_assignee, the only reviewer "
-            f"profile this setup has) or omitted, got {args['reviewer']!r}; {args['reviewer']!r} is not a "
-            f"profile that exists"
-        ]
     return []
 
 

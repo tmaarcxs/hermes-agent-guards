@@ -51,12 +51,22 @@ def test_all_violations_reported_together():
     assert "'default'" in message and "triage" in message and "'model'" in message
 
 
-def test_review_reviewer_rules():
+def test_review_reviewer_not_gated_by_this_plugin():
+    """The reviewer name is the native tool's and the dispatcher's business, not ours.
+
+    History: this gate used to force ``reviewer`` to the configured worker because the
+    setup had no reviewer profile. Once a real ``reviewer`` profile existed and was on
+    ``kanban.dispatch_profiles``, the gate blocked a legitimate handoff. It is removed.
+
+    Asserted at the policy layer only: the full ``_pre_tool_call`` chain also runs
+    ``review_gate``, which legitimately blocks this stub for lacking pre-review checks,
+    so routing through it would test that gate instead of this one.
+    """
     assert policy.check("kanban_request_review", {"summary": "s"}) is None
     assert policy.check("kanban_request_review", {"summary": "s", "reviewer": "worker"}) is None
-    assert "reviewer must be 'worker'" in policy.check("kanban_request_review", {"summary": "s", "reviewer": "default"})
-    message = blocked("kanban_request_review", {"summary": "s", "reviewer": "default"})["message"]
-    assert "reviewer must be 'worker'" in message
+    assert policy.check("kanban_request_review", {"summary": "s", "reviewer": "reviewer"}) is None
+    assert policy.check("kanban_request_review", {"summary": "s", "reviewer": "default"}) is None
+    assert policy.violations("kanban_request_review", {"summary": "s", "reviewer": "reviewer"}, "worker") == []
 
 
 def test_other_tools_ignored():
@@ -77,6 +87,7 @@ def test_inactive_without_default_assignee(monkeypatch):
     monkeypatch.setattr(policy, "configured_worker", lambda: "")
     assert blocked("kanban_create", {**VALID, "assignee": "default", "triage": True, "model": "x"}) is None
     assert blocked("kanban_request_review", {"summary": "s", "reviewer": "default"}) is None
+    assert blocked("kanban_request_review", {"summary": "s", "reviewer": "reviewer"}) is None
 
 
 def test_configured_worker_reads_kanban_default_assignee(monkeypatch):
