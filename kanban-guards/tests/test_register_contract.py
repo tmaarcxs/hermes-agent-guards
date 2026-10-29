@@ -48,13 +48,18 @@ def test_register_matches_declared_hooks():
 
 def test_pre_tool_call_check_order_matches_root_at_90456b2():
     """Kanban-order pin, derived from the root tuple at 90456b2: keep the relative
-    order of the checks this plugin owns, dropping the shell-owned entries."""
+    order of the checks this plugin owns, dropping the shell-owned entries.
+
+    ``round_cap_gate`` is appended after ``review_gate`` (its sibling on the same
+    lifecycle tool): a card past the round ceiling must be told to stop rather than
+    blocked by a pre-review checklist, so the ceiling gets the later slot."""
     assert list(guards._PRE_TOOL_CALL_CHECK_ORDER) == [
         "checkpoint_gate",
         "kanban_policy",
         "github_contact",
         "pr_link_gate",
         "review_gate",
+        "round_cap_gate",
         "handoff_gate",
         "completion_gate",
         "backup_copy_gate",

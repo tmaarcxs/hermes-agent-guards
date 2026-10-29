@@ -103,7 +103,7 @@ try:
     from typing import Optional
 
 
-    from . import active_pr_unblock, backup_copy_gate, board_watch, checkpoint_gate, completion_gate, delivered_pr_park, github_contact, handoff_gate, kanban_policy, kanban_show_slim_gate, lead_work_nudge, pr_link_gate, review_gate, schedule_gate, stop_gate, wakes, workspace_scope_gate
+    from . import active_pr_unblock, backup_copy_gate, board_watch, checkpoint_gate, completion_gate, delivered_pr_park, github_contact, handoff_gate, kanban_policy, kanban_show_slim_gate, lead_work_nudge, pr_link_gate, review_gate, round_cap_gate, schedule_gate, stop_gate, wakes, workspace_scope_gate
 except ImportError:
     if __name__ != "__init__":
         raise
@@ -131,6 +131,7 @@ _PRE_TOOL_CALL_CHECKS = (
     ("github_contact", lambda tool_name, args, kwargs: github_contact.check(tool_name, args)),
     ("pr_link_gate", lambda tool_name, args, kwargs: pr_link_gate.check(tool_name, args)),
     ("review_gate", lambda tool_name, args, kwargs: review_gate.check(tool_name, **kwargs)),
+    ("round_cap_gate", lambda tool_name, args, kwargs: round_cap_gate.check(tool_name, args, **kwargs)),
     ("handoff_gate", lambda tool_name, args, kwargs: handoff_gate.check(tool_name, args, **kwargs)),
     ("completion_gate", lambda tool_name, args, kwargs: completion_gate.check(tool_name, args)),
     ("backup_copy_gate", lambda tool_name, args, kwargs: backup_copy_gate.check(tool_name, args)),
