@@ -1,11 +1,12 @@
-"""text-guards: cut the forbidden section-sign character out of anything the agent emits.
+"""text-guards: cut the forbidden characters out of anything the agent emits.
 
-The operator forbids the section sign. Two seams cover every path where text leaves the agent:
+The operator forbids the section sign and the em dash. Two seams cover every path where text
+leaves the agent:
 
 - ``transform_llm_output`` cleans the final reply, before delivery and before the assistant row
   is persisted.
 - ``pre_tool_call`` rewrites the tool arguments, so a comment body, a file written by
-  ``write_file``/``patch``, or a shell command never carries the character either.
+  ``write_file``/``patch``, or a shell command never carries the characters either.
 
 Both replace each occurrence, with its surrounding spaces, by a single space, and both leave
 everything else alone. Any error lets the original value through.
@@ -13,9 +14,9 @@ everything else alone. Any error lets the original value through.
 
 import re
 
-FORBIDDEN = "\u00a7"
+FORBIDDEN = "\u00a7\u2014"
 
-_PATTERN = re.compile(r"[ \t]*" + FORBIDDEN + r"[ \t]*")
+_PATTERN = re.compile(r"[ \t]*[" + FORBIDDEN + r"][ \t]*")
 
 
 def clean(text):
@@ -26,7 +27,7 @@ def clean(text):
 def sanitize(value):
     """Walk strings inside ``value`` (dicts, lists, scalars) and clean each one."""
     if isinstance(value, str):
-        return clean(value) if FORBIDDEN in value else value
+        return clean(value) if _PATTERN.search(value) else value
     if isinstance(value, list):
         return [sanitize(item) for item in value]
     if isinstance(value, dict):
@@ -40,7 +41,7 @@ def strip_forbidden(response_text=None, **_kwargs):
     ``None`` rather than an unchanged copy: a non-empty return replaces the reply, so echoing it
     back would take the slot from any later plugin.
     """
-    if not isinstance(response_text, str) or FORBIDDEN not in response_text:
+    if not isinstance(response_text, str) or not _PATTERN.search(response_text):
         return None
     return clean(response_text)
 

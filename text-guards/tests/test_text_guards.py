@@ -1,4 +1,4 @@
-"""Tests for text-guards: the section sign never reaches the reply or a tool argument."""
+"""Tests for text-guards: the forbidden characters never reach the reply or a tool argument."""
 
 import importlib.util
 import sys
@@ -6,6 +6,7 @@ from pathlib import Path
 
 PLUGIN = Path(__file__).resolve().parents[1] / "__init__.py"
 FORBIDDEN = "\u00a7"
+EM_DASH = "\u2014"
 
 
 def _load():
@@ -24,9 +25,18 @@ def test_removes_the_character_and_keeps_words_apart():
     )
 
 
+def test_removes_the_em_dash():
+    mod = _load()
+    assert mod.strip_forbidden(f"two things block this {EM_DASH} both in config") == (
+        "two things block this both in config"
+    )
+    assert mod.strip_forbidden(f"a {EM_DASH}b{EM_DASH} c") == "a b c"
+
+
 def test_no_character_leaves_the_reply_alone():
     mod = _load()
     assert mod.strip_forbidden("seccion 4.3, sin caracteres raros") is None
+    assert mod.strip_forbidden("a - b and c d") is None  # hyphen and en dash stay
 
 
 def test_handles_repeated_and_adjacent_characters():
@@ -50,6 +60,16 @@ def test_tool_arguments_are_rewritten_before_the_call():
     assert out["action"] == "modify"
     assert out["args"]["content"] == "guia 4.3 y 5"
     assert out["args"]["path"] == "doc.md"
+
+
+def test_tool_arguments_with_an_em_dash_are_rewritten():
+    mod = _load()
+    out = mod.rewrite_arguments(
+        tool_name="write_file",
+        args={"path": "rev.md", "content": f"verdict {EM_DASH} reason here"},
+    )
+    assert out["action"] == "modify"
+    assert out["args"]["content"] == "verdict reason here"
 
 
 def test_nested_arguments_are_cleaned():
