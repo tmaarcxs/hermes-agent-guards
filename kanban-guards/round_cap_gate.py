@@ -38,8 +38,8 @@ MAX_ROUNDS_DEFAULT = 4
 OVERRIDE_TOKEN = "rounds-override"
 _MAX_SESSIONS = 200
 
-# Cards already reported in this session, so a worker that retries the same blocked call
-# gets the same answer without the gate re-reading the board every time.
+"""Cards already reported in this session: a worker retrying the same blocked call
+gets the same answer without the gate re-reading the board every time."""
 _reported: "dict[str, int]" = {}
 
 

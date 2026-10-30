@@ -71,10 +71,8 @@ Answers: *is this lifecycle call, board read or wake legitimate?*
   `kanban_request_review` until the eight pre-review checks are closed; bounce
   a narrated stop after a blocked lifecycle call; block `kanban_schedule`;
   refuse a handoff that preserves a backup copy of the delivered work.
-- Lead gates: nudge the lead once per user turn after more than `WORK_CALL_THRESHOLD` (8; raised from 5 — the guards audit found only 17%
-  of 48 nudges led to a `kanban_create`) exploration calls without a `kanban_create`; scope a
-  lead chat's `kanban_list` result to the cards its own chat thread is
-  subscribed to; slim the lead's `kanban_show` deterministically.
+- Lead gates: scope a lead chat's `kanban_list` result to the cards its own chat
+  thread is subscribed to; slim the lead's `kanban_show` deterministically.
 - Wakes: run every Kanban wake on one shared event-driven chassis over
   `board_watch` — stale parked cards, review-loop thresholds, the churn corner,
   waiting-on-external-gate runs, dispatcher stalls and unreconciled delivery

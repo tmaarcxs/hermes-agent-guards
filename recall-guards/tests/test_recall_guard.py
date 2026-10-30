@@ -37,7 +37,6 @@ def make_db(tmp_path: Path, rows) -> Path:
     return path
 
 
-# --- the turn record (primary test) ---------------------------------------------------------
 
 def test_a_read_in_this_turn_allows_clarify(tmp_path):
     recall_guard.record(tool_name="hindsight_recall", session_id="s1", turn_id="t1")
@@ -77,7 +76,6 @@ def test_a_non_clarify_tool_is_never_blocked(tmp_path):
     assert recall_guard.clarify_block("s1", "t1", "terminal") is None
 
 
-# --- the database fallback (reload safety net) ----------------------------------------------
 
 def test_a_read_seconds_ago_counts_when_the_turn_record_was_lost(tmp_path):
     make_db(tmp_path, [("s1", "hindsight_recall", time.time() - 5)])
@@ -117,7 +115,6 @@ def test_cache_avoids_a_second_query(monkeypatch, tmp_path):
     assert calls == ["s1"]
 
 
-# --- the tool-level gate ---------------------------------------------------------------------
 
 def test_check_ignores_worker_processes(monkeypatch, tmp_path):
     monkeypatch.setattr(recall_guard.policy, "is_lead", lambda: False)
@@ -137,7 +134,6 @@ def test_check_allows_clarify_when_this_turn_read_memory(monkeypatch, tmp_path):
     assert recall_guard.check("clarify", {}, session_id="s1", turn_id="t1") is None
 
 
-# --- the periodic nudge ----------------------------------------------------------------------
 
 def test_nudge_fires_on_the_fifth_turn_only(monkeypatch):
     monkeypatch.setattr(recall_guard.policy, "is_lead", lambda: True)

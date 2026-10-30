@@ -68,7 +68,7 @@ def test_pre_tool_call_check_order_matches_root_at_90456b2():
 
 
 def test_transform_chain_order_matches_root_at_90456b2():
-    """completion -> scope -> show-slim -> nudge, same as the root chain."""
+    """completion -> scope -> show-slim, same order as the root chain."""
     import inspect
 
     source = inspect.getsource(guards._transform_tool_result)
@@ -76,6 +76,5 @@ def test_transform_chain_order_matches_root_at_90456b2():
         source.index("completion_gate.transform"),
         source.index("workspace_scope_gate.transform"),
         source.index("kanban_show_slim_gate.transform"),
-        source.index("lead_work_nudge.hook"),
     ]
     assert positions == sorted(positions)

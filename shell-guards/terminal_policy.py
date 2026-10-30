@@ -19,13 +19,16 @@ _MERGE = re.compile(_START + r"gh\s+pr\s+merge\b")
 _OSASCRIPT = re.compile(_START + r"osascript\b")
 _PUSH = re.compile(_START + r"git\s+push\b")
 _BARE_FORCE = re.compile(r"\s(?:--force|-f)(?=\s|$)")
-# A `pgrep -f`/`pkill -f` inside a loop matches the loop's own shell: the
-# pattern is part of that shell's command line, so the loop can never exit
-# (#observed 2026-10-30: two waiters held 8h on `while pgrep -f "migrate.py"`).
-# No _START anchor: the common shape is `while pgrep -f X; do ...`, where pgrep
-# follows the loop keyword rather than a command separator. `-f`/`-fl`/`-lf`
-# all enable full-command-line matching.
 _PGREP_FULL = re.compile(r"\b(?:pgrep|pkill)\b[^\n;&|]*?\s(?:--full|-{1,2}[a-zA-Z]*f[a-zA-Z]*)\b")
+"""Matches a ``pgrep``/``pkill`` full-command-line match inside a loop.
+
+A ``pgrep -f``/``pkill -f`` in a loop matches the loop's own shell: the pattern is
+part of that shell's command line, so the loop can never exit (observed 2026-10-30:
+two waiters held 8h on ``while pgrep -f "migrate.py"``). No ``_START`` anchor: the
+common shape is ``while pgrep -f X; do ...``, where pgrep follows the loop keyword
+rather than a command separator. ``-f``/``-fl``/``-lf`` all enable full-command-line
+matching.
+"""
 _GH_AUTH = re.compile(
     _START
     + r"(?:env\s+(?:[-\w]+(?:=\S*)?\s+)*)?(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*"
@@ -50,6 +53,11 @@ def attach_cap_block(args: Optional[dict]) -> Optional[str]:
     if args is not None and len(str(args.get("content_base64") or "")) > _MAX_INLINE_ATTACH:
         return _INLINE_ATTACH_MESSAGE
     return None
+
+
+def _loop_starts(command: str) -> list[int]:
+    """Offsets where a ``for``/``while``/``until`` loop keyword begins."""
+    return [m.start() for m in _LOOP.finditer(command)]
 
 
 def _segments(command: str, pattern: re.Pattern) -> list[str]:
@@ -136,20 +144,16 @@ def terminal_violations(command: str, background: bool) -> list[str]:
                             "and notify=[<ready pattern>], or poll once without sleeping"
                         )
                         break
-    # A `pgrep -f PATTERN`/`pkill -f PATTERN` inside a loop self-matches: the pattern
-    # lives in the loop shell's own command line, so the loop never exits. Blocked in
-    # foreground AND background — this is a hang, not a long wait.
-    if not found:
-        loop_starts = [m.start() for m in _LOOP.finditer(command)]
-        if loop_starts:
-            for match in _PGREP_FULL.finditer(command):
-                if any(start < match.start() for start in loop_starts):
-                    found.append(
-                        "pgrep/pkill -f inside a loop self-matches the loop's own command line, "
-                        "so the loop never exits: match the exact process name (`pgrep -x name`) "
-                        "or test the target directly (e.g. a pidfile or a port check)"
-                    )
-                    break
+    if not found and _loop_starts(command):
+        starts = _loop_starts(command)
+        for match in _PGREP_FULL.finditer(command):
+            if any(start < match.start() for start in starts):
+                found.append(
+                    "pgrep/pkill -f inside a loop self-matches the loop's own command line, "
+                    "so the loop never exits: match the exact process name (`pgrep -x name`) "
+                    "or test the target directly (e.g. a pidfile or a port check)"
+                )
+                break
     if any("--match-head-commit" not in segment for segment in _segments(command, _MERGE)):
         found.append("gh pr merge needs --match-head-commit <verified head sha>")
     if _OSASCRIPT.search(command):

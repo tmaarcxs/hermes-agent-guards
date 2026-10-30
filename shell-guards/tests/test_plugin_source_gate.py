@@ -41,7 +41,6 @@ def make_plugin(tmp_path: Path, name: str = "demo-plugin") -> Path:
     return plugin
 
 
-# --- the activation gate ----------------------------------------------------------------------
 
 def test_clean_and_pushed_plugin_activates(tmp_path):
     make_plugin(tmp_path)

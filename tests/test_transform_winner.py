@@ -1,4 +1,4 @@
-"""Pin the joined transform behaviour: the nudge and the skill-size flag both survive.
+"""Pin the joined transform behaviour: the skill-size flag survives the host pipeline.
 
 The host keeps the FIRST non-None string a ``transform_tool_result`` callback
 returns and drops the rest (``model_tools.py`` ``_apply_transform_tool_result_hook``:
@@ -7,19 +7,22 @@ NOT chain: every callback receives the ORIGINAL result, and callback order is
 plugin load order — alphabetical by plugin key with ``requires_plugins`` edges
 first (``hermes_cli/plugins_manifest.py`` ``resolve_plugin_load_order``).
 
-With the three-plugin split that makes ``kanban-guards`` load before
-``shell-guards``, so a Kanban lead's threshold-crossing ``terminal`` call that
-ALSO left an oversized skill file used to let the nudge win and silently drop the
-flag. The fix joins them: ``shell-guards`` delivers the skill-size flag on
-``transform_terminal_output``, which the terminal tool runs INSIDE the tool
-(``tools/terminal_tool_result.py`` ``finalize_foreground_result``) BEFORE the host
-runs ``transform_tool_result``. The flag is therefore already part of the result
-the ``kanban-guards`` nudge appends to, and one ``transform_tool_result`` string
-carries both messages.
+``kanban-guards`` loads before ``shell-guards``. Historically both produced a
+``transform_tool_result`` string on a Kanban lead's threshold-crossing
+``terminal`` call, and the flag lost the first-string race. The fix joins them:
+``shell-guards`` delivers the skill-size flag on ``transform_terminal_output``,
+which the terminal tool runs INSIDE the tool (``tools/terminal_tool_result.py``
+``finalize_foreground_result``) BEFORE the host runs ``transform_tool_result``.
+The flag is therefore already part of the result the later seam receives.
+
+The delegation nudge that used to be the competing string was removed on
+2026-10-30 (341 historical nudges, 7.9% conversion, 45% firing on system
+notifications), so the race it caused no longer exists; the tests below keep
+pinning the flag's path through both seams, which is the behaviour that must
+survive any future transform added to either plugin.
 
 Every test here drives the callbacks the plugins ACTUALLY registered (captured
-from ``register()``) through the host's own resolution rules, so the pre-join head
-fails on the real defect: the flag is dropped from the joined result.
+from ``register()``) through the host's own resolution rules.
 """
 
 import pytest
@@ -31,7 +34,6 @@ PLUGINS = ("kanban-guards", "shell-guards", "workspace-guards")
 SMALL = "---\nname: demo\ndescription: Use when testing.\n---\n" + "x" * 100
 
 FLAG = "over the limit for SKILL.md"
-NUDGE = "Split the remaining work across parallel workers"
 
 
 def _host_load_order(names):
@@ -97,13 +99,12 @@ def skill_root(tmp_path):
 
 @pytest.fixture
 def plugins(skill_root, monkeypatch):
-    """Both plugins loaded fresh, lead nudge armed, skill root redirected to tmp."""
+    """Both plugins loaded fresh, skill root redirected to tmp."""
     kanban = load_plugin("kanban-guards")
     shell = load_plugin("shell-guards")
     monkeypatch.setattr(kanban.kanban_policy, "configured_worker", lambda: "worker")
     monkeypatch.delenv("HERMES_KANBAN_TASK", raising=False)
     monkeypatch.setattr(shell.skill_size, "ROOTS", [skill_root])
-    kanban.lead_work_nudge.reset()
     shell.skill_size._PENDING.clear()
     yield {
         "kanban-guards": kanban,
@@ -113,7 +114,6 @@ def plugins(skill_root, monkeypatch):
             "shell-guards": _registered_hooks(shell),
         },
     }
-    kanban.lead_work_nudge.reset()
     shell.skill_size._PENDING.clear()
 
 
@@ -124,74 +124,46 @@ def _arm_oversized_write(shell, skill_root, *, tool_call_id="c1"):
     skill.write_text(skill.read_text() + "y" * 7000)
 
 
-def _cross_the_nudge_threshold(kanban):
-    """Five exploration calls in one turn so the next one nudges."""
-    for _ in range(kanban.lead_work_nudge.WORK_CALL_THRESHOLD):
-        kanban._transform_tool_result(tool_name="read_file", args={}, result="ok",
-                                      session_id="lead-session", turn_id="turn-1")
-
-
 def test_kanban_guards_loads_before_shell_guards():
     order = _host_load_order(list(PLUGINS))
     assert order.index("kanban-guards") < order.index("shell-guards"), (
-        "kanban-guards must load before shell-guards so its transform is the "
-        f"first string the host keeps; host order was {order}"
+        "kanban-guards must load before shell-guards so that, if it ever returns a "
+        f"transform string again, it is the first the host keeps; host order was {order}"
     )
 
 
 def test_shell_guards_registers_the_terminal_output_seam(plugins):
-    """The join depends on shell-guards registering ``transform_terminal_output``."""
+    """The flag's delivery depends on shell-guards registering ``transform_terminal_output``."""
     assert plugins["registered"]["shell-guards"].get("transform_terminal_output"), (
         "shell-guards must register transform_terminal_output; without it the "
-        "skill-size flag rides only transform_tool_result and loses to the nudge"
+        "skill-size flag rides only transform_tool_result and can lose to any other "
+        "plugin's transform string"
     )
 
 
 def test_skill_flag_only(plugins, skill_root):
-    """An oversized write with no threshold crossing: the flag survives alone."""
+    """An oversized write: the flag survives the whole pipeline."""
     _arm_oversized_write(plugins["shell-guards"], skill_root)
 
     final = _run_host_pipeline(plugins["registered"], _host_load_order(list(PLUGINS)), "BASE")
     assert FLAG in final and final.startswith("BASE")
-    assert NUDGE not in final
 
 
-def test_nudge_only(plugins, skill_root):
-    """A threshold crossing that left no oversized file: the nudge survives alone."""
+def test_no_transform_string_without_a_flagged_file(plugins, skill_root):
+    """A clean call leaves the result byte-identical: no plugin appends anything."""
     shell = plugins["shell-guards"]
     shell.skill_size.record("terminal", {}, tool_call_id="c1")
-    _cross_the_nudge_threshold(plugins["kanban-guards"])
 
     final = _run_host_pipeline(plugins["registered"], _host_load_order(list(PLUGINS)), "BASE")
-    assert NUDGE in final and FLAG not in final
+    assert final == "BASE"
 
 
-def test_both_messages_survive_in_a_stable_order(plugins, skill_root):
-    """The corner case: one terminal call crosses the nudge threshold AND leaves a skill oversized.
-
-    The flag is delivered on ``transform_terminal_output`` before the host runs
-    ``transform_tool_result``, so the single string the host keeps carries both —
-    exactly the OLD composition (flag first, nudge after). On the pre-join head the
-    flag rode ``transform_tool_result``, lost the first-string race to the nudge,
-    and was dropped here.
-    """
+def test_both_seams_carry_the_flag_exactly_once(plugins, skill_root):
+    """The flag is delivered on the terminal seam and not duplicated on the result seam."""
     _arm_oversized_write(plugins["shell-guards"], skill_root)
-    _cross_the_nudge_threshold(plugins["kanban-guards"])
 
     final = _run_host_pipeline(plugins["registered"], _host_load_order(list(PLUGINS)), "BASE")
     assert FLAG in final, "the skill-size flag was dropped from the joined result"
-    assert NUDGE in final, "the delegation nudge was dropped from the joined result"
-    assert final.index(FLAG) < final.index(NUDGE), (
-        "the flag rides the tool result and the nudge appends after it, so the "
-        f"flag must come first; got {final!r}"
-    )
-
-
-def test_one_call_is_flagged_once_across_both_seams(plugins, skill_root):
-    """Both seams pop the same snapshot, so the flag is not appended twice."""
-    _arm_oversized_write(plugins["shell-guards"], skill_root)
-
-    final = _run_host_pipeline(plugins["registered"], _host_load_order(list(PLUGINS)), "BASE")
     assert final.count(FLAG) == 1, f"the flag must appear exactly once; got {final!r}"
 
 

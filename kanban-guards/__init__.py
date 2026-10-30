@@ -47,10 +47,6 @@ Worker-process gates:
   cap keep the tick cheap.
 
 Lead-process gates:
-- ``lead_work_nudge`` appends one nudge to the tool result of the call that crosses
-  ``lead_work_nudge.WORK_CALL_THRESHOLD`` (8) work calls in a user turn when the lead has not
-  called ``kanban_create`` in that turn: split
-  the remaining work across as many parallel cards as possible instead of continuing itself;
 - ``workspace_scope_gate`` scopes a lead ``kanban_list`` result to the cards the calling
   chat thread is subscribed to (``kanban_notify_subs`` platform/chat_id/thread_id): other
   chats' cards are hidden, ``count`` follows and ``hidden_foreign`` reports how many were
@@ -86,7 +82,7 @@ split cutover):
 Registration order (``register``) reproduces the Kanban part of the pre-split root
 ``agent-guards`` wiring so intra-plugin hook precedence is unchanged: ``checkpoint_gate``
 stays first in the ``pre_tool_call`` check tuple, the ``transform_tool_result`` chain keeps
-the completion/scope/show-slim/nudge order, and ``stop_gate.check`` stays the ``pre_verify``
+the completion/scope/show-slim order, and ``stop_gate.check`` stays the ``pre_verify``
 hook. Wakes register the shared ``post_tool_call`` poke and the six dispatcher tick sweeps.
 
 Split seam (for the integration pass): the root ``agent-guards`` ``_pre_tool_call`` mixed
@@ -103,7 +99,7 @@ try:
     from typing import Optional
 
 
-    from . import active_pr_unblock, backup_copy_gate, board_watch, checkpoint_gate, completion_gate, delivered_pr_park, github_contact, handoff_gate, kanban_policy, kanban_show_slim_gate, lead_work_nudge, pr_link_gate, review_gate, round_cap_gate, schedule_gate, stop_gate, wakes, workspace_scope_gate
+    from . import active_pr_unblock, backup_copy_gate, board_watch, checkpoint_gate, completion_gate, delivered_pr_park, github_contact, handoff_gate, kanban_policy, kanban_show_slim_gate, pr_link_gate, review_gate, round_cap_gate, schedule_gate, stop_gate, wakes, workspace_scope_gate
 except ImportError:
     if __name__ != "__init__":
         raise
@@ -197,11 +193,4 @@ def _transform_tool_result(**kwargs) -> Optional[str]:
                 kwargs.get("tool_name") or "", kwargs.get("args"), kwargs.get("result"))
         except Exception:
             transformed = None
-    result = transformed if transformed is not None else kwargs.get("result")
-    try:
-        nudged = lead_work_nudge.hook(
-            tool_name=kwargs.get("tool_name") or "", args=kwargs.get("args"), result=result,
-            session_id=kwargs.get("session_id") or "", turn_id=kwargs.get("turn_id") or "")
-    except Exception:
-        return transformed
-    return nudged if nudged is not None else transformed
+    return transformed

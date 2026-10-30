@@ -127,7 +127,7 @@ def test_self_matching_pgrep_loop_is_blocked(command):
 
 
 def test_self_matching_pgrep_message_names_the_fix():
-    # sleep 1 keeps this below the loop-sleep rule, so the pgrep rule is what fires.
+    """sleep 1 keeps this below the loop-sleep rule, so the pgrep rule is what fires."""
     result = run('while pgrep -f "migrate.py" >/dev/null; do sleep 1; done')
     assert result and result["action"] == "block"
     assert "pgrep" in result["message"] and "self-matches" in result["message"]
@@ -141,7 +141,7 @@ def test_self_matching_pgrep_message_names_the_fix():
     ],
 )
 def test_self_matching_pgrep_loop_blocked_in_background_too(command):
-    # Background does not exempt it: the loop can never exit, it is a hang.
+    """Background does not exempt it: the loop can never exit, it is a hang."""
     result = run(command, background=True)
     assert result and result["action"] == "block"
     assert "self-matches" in result["message"]
