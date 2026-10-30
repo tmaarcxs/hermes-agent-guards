@@ -109,6 +109,60 @@ def test_background_sleep_allowed():
     assert run("sleep 600", background=True) is None
 
 
+@pytest.mark.parametrize(
+    "command",
+    [
+        'while pgrep -f "migrate.py" >/dev/null; do sleep 10; done; echo done',
+        'while pgrep -f "migrate.py" >/dev/null; do sleep 15; done; echo done',
+        'while pgrep -fl "migrate.py"; do sleep 2; done',
+        'until pgrep -f migrate; do sleep 1; done',
+        'while pgrep --full migrate.py; do sleep 1; done',
+        'while pkill -f stale_worker; do sleep 1; done',
+        'for i in 1 2; do pgrep -f target && break; done',
+    ],
+)
+def test_self_matching_pgrep_loop_is_blocked(command):
+    result = run(command)
+    assert result and result["action"] == "block"
+
+
+def test_self_matching_pgrep_message_names_the_fix():
+    # sleep 1 keeps this below the loop-sleep rule, so the pgrep rule is what fires.
+    result = run('while pgrep -f "migrate.py" >/dev/null; do sleep 1; done')
+    assert result and result["action"] == "block"
+    assert "pgrep" in result["message"] and "self-matches" in result["message"]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        'while pgrep -f "migrate.py" >/dev/null; do sleep 10; done; echo done',
+        'while pgrep -f "migrate.py" >/dev/null; do sleep 15; done; echo done',
+    ],
+)
+def test_self_matching_pgrep_loop_blocked_in_background_too(command):
+    # Background does not exempt it: the loop can never exit, it is a hang.
+    result = run(command, background=True)
+    assert result and result["action"] == "block"
+    assert "self-matches" in result["message"]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "pgrep -f migrate.py",
+        "pgrep -f migrate.py; echo done",
+        "while [ -f ready ]; do sleep 1; done",
+        "while kill -0 $p; do sleep 1; done",
+        "grep -rn 'pgrep -f' notes.md",
+        'echo "while pgrep -f x; do sleep 1; done"',
+        "for i in 1 2 3; do pgrep migrate; done",
+    ],
+)
+def test_pgrep_loop_allows(command):
+    assert run(command) is None
+
+
 def test_background_still_checks_merge():
     assert blocked("gh pr merge 1 --merge", background=True)
 

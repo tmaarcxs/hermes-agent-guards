@@ -10,6 +10,9 @@ Intent (behaviour identical to the monolithic plugin):
 - blocks: foreground ``sleep`` of 30 s or more, or a ``for``/``while``/``until``
   polling loop holding a ``sleep`` of 15 s or more (run the wait with
   ``background=true`` and a notify channel, or poll once without sleeping);
+  a ``pgrep -f``/``pkill -f`` inside a loop in the foreground *and* the
+  background (the pattern is part of the loop shell's own command line, so it
+  self-matches and never exits — use ``pgrep -x`` or test the target directly);
   ``gh pr merge`` without ``--match-head-commit``; ``osascript``; ``git push``
   with a bare ``--force``/``-f``; ``gh auth switch``/``login``/``logout``/
   ``refresh`` (they change the shared active account for every Hermes process -

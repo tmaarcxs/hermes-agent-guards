@@ -21,6 +21,11 @@ Answers: *is this shell command safe to run?*
 - Blocks a foreground `sleep` of 30 s or more, or a polling loop holding a
   `sleep` of 15 s or more (run the wait in the background with a notification
   channel, or poll once and re-issue without sleeping).
+- Blocks a `pgrep -f`/`pkill -f` inside a loop, in the foreground *and* in the
+  background: the pattern is part of the loop shell's own command line, so the
+  loop matches itself and never exits (observed: two waiters held 8 h on
+  `while pgrep -f "migrate.py"`). Use `pgrep -x <name>` or test the target
+  directly.
 - Blocks `gh pr merge` without `--match-head-commit` (merges must pin the
   verified head), `osascript`, and a bare `git push --force`/`-f` (use
   `--force-with-lease`).

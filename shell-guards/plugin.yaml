@@ -1,9 +1,11 @@
 name: shell-guards
-version: "0.1.0"
+version: "0.2.0"
 description: >
   Terminal command hygiene - block foreground sleeps of 30s or more and polling
   loops holding a 15s+ sleep (run the wait with background=true and a notify
-  channel, or poll once without sleeping), block `gh pr merge` without
+  channel, or poll once without sleeping), block a `pgrep -f`/`pkill -f` inside
+  a loop (it self-matches the loop's own command line and never exits; use
+  `pgrep -x` or test the target directly), block `gh pr merge` without
   `--match-head-commit` so merges pin the verified head, block `osascript`
   (desktop automation goes through ego-browser), block `gh auth switch`,
   `gh auth login`, `gh auth logout` and `gh auth refresh` (they change the
