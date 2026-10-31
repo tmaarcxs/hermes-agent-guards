@@ -375,6 +375,19 @@ def test_message_keeps_the_tree_split_instruction(root):
     assert "references/<topic>.md" in out and "Move text verbatim" in out
 
 
+def test_message_says_to_refactor_a_full_index_instead_of_dropping_the_change(root):
+    """A full index is a refactor trigger, not a reason to abandon the edit.
+
+    The model's first instinct on a blocked index write is to skip the change; the flag
+    has to name the tree-split route that keeps it.
+    """
+    out = _grow(root)
+    assert "refactor the skill instead of dropping the change" in out
+    assert "split into more reference files" in out
+    continue_directive = _verify()["message"]
+    assert "refactor the skill" in continue_directive and "more reference files" in continue_directive
+
+
 def test_message_states_the_limit_and_the_char_count(root):
     out = _grow(root)
     assert "over the limit for SKILL.md" in out

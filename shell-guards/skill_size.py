@@ -71,14 +71,19 @@ _TREE_SPLIT = (
     "the few rules needed on every load, and one line per reference saying when to read it); put each "
     "topic in references/<topic>.md; when a reference outgrows its limit, keep that file as a short "
     "index pointing to references/<topic>-<subtopic>.md files. Move text verbatim, keep existing file "
-    "paths, then retry."
+    "paths, then retry. When the index itself is at its limit and the new line does not fit, refactor "
+    "the skill instead of dropping the change: move an existing section verbatim into a new "
+    "references/<topic>.md, and split into more reference files as needed, so the index has room for "
+    "the new line."
 )
 
 _CONTINUE = (
     "[System: agent-guards. MANDATORY and IMMEDIATE: this turn cannot end yet, {files} is still over its "
     "size limit. Shrink it immediately, in this same response, before any other action — this is a "
     "required step, not a suggestion. Move text verbatim into references/<topic>.md files and "
-    "keep SKILL.md as the short index. Shrinking an over-limit file is always allowed. "
+    "keep SKILL.md as the short index; if the index has no room for what you need to add, refactor the "
+    "skill and split it into more reference files rather than dropping the change. "
+    "Shrinking an over-limit file is always allowed. "
     "Do not reply that the file is unrelated to your task, and do not postpone it or ask for permission.]"
 )
 
