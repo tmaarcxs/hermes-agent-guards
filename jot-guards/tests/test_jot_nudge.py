@@ -103,6 +103,29 @@ def test_one_nudge_per_turn(work_repo):
     assert check([str(work_repo / "a.py")], attempt=1) is None
 
 
+def test_a_read_without_a_write_gets_one_more_chance(work_repo):
+    """The measured failure: the turn read the board, then stopped. 20 of 38 nudges did this."""
+    turned(tool="jot_read")
+    assert check([str(work_repo / "a.py")]) is not None
+    retry = check([str(work_repo / "a.py")], attempt=1)
+    assert retry is not None and retry["message"] == gate.READ_ONLY_MESSAGE
+    assert "Reading is not updating" in retry["message"]
+    assert check([str(work_repo / "a.py")], attempt=2) is None
+
+
+def test_no_second_chance_when_the_turn_never_read_jot(work_repo):
+    turned()
+    assert check([str(work_repo / "a.py")]) is not None
+    assert check([str(work_repo / "a.py")], attempt=1) is None
+
+
+def test_a_write_after_the_read_settles_the_turn(work_repo):
+    turned(tool="jot_read")
+    turned(tool="jot_update")
+    assert check([str(work_repo / "a.py")]) is None
+    assert check([str(work_repo / "a.py")], attempt=1) is None
+
+
 def test_next_turn_gets_its_own_reminder(work_repo):
     turned(tool="jot_update", turn="t1")
     assert check([str(work_repo / "a.py")]) is None

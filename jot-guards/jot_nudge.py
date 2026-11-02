@@ -18,9 +18,14 @@ covering those needs a core stop gate, not a plugin hook.
 
 Two invariants sit below: read-only Jot tools never count (``jot_read`` answers "what does
 the board say", so only a mutating call marks the turn as updated), and ``_state`` maps a
-session to ``(last turn seen, a mutating Jot tool ran in that turn)``. The turn id arrives
+session to ``(last turn seen, a mutating Jot tool ran, a Jot read ran)``. The turn id arrives
 through ``post_tool_call`` and opens a fresh window, because ``pre_verify`` sends no turn id
 of its own.
+
+Measured gap this closes: the gate used to answer only ``attempt == 0``, so a response that
+read the board and then stopped got no second chance. 20 of 38 work-turn nudges ended with a
+``jot_read`` and no write. ``attempt == 1`` now fires once more, and only when the turn read
+Jot without writing it, so the retry names the actual gap instead of repeating the first one.
 """
 
 from collections import OrderedDict
@@ -29,8 +34,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 _PLUGIN_KEY = "jot-guards"
 MUTATING_TOOLS = frozenset({"jot_create", "jot_update", "jot_set_task", "jot_delete"})
+READING_TOOLS = frozenset({"jot_read", "jot_list"})
 DEFAULT_SKIP_ROOTS = ("~/.hermes",)
 _MAX_SESSIONS = 200
+_MAX_ATTEMPT = 1
 
 MESSAGE = (
     "[System: jot-guards. No Jot tool ran this turn, and this turn changed files in a work "
@@ -39,7 +46,15 @@ MESSAGE = (
     "with its state and next step, per the `jot-weekly-board` skill. Then finish.]"
 )
 
-_state: "OrderedDict[str, Tuple[str, bool]]" = OrderedDict()
+READ_ONLY_MESSAGE = (
+    "[System: jot-guards. You read the Jot board this turn but wrote nothing to it, and this "
+    "turn changed files in a work repository, so the board still shows the old state. Reading is "
+    "not updating. Write the outcome now with `jot_update`/`jot_set_task`, one generic line with "
+    "its state and next step, or state in your answer why this turn changed no tracked outcome. "
+    "Then finish.]"
+)
+
+_state: "OrderedDict[str, Tuple[str, bool, bool]]" = OrderedDict()
 _settings_cache: Optional[Dict[str, Any]] = None
 
 
@@ -92,15 +107,19 @@ def is_work_path(path: str, roots: Optional[List[Path]] = None) -> bool:
 
 
 def record(tool_name: str = "", session_id: str = "", turn_id: str = "", **kwargs) -> None:
-    """``post_tool_call``: open the turn's window and remember a mutating Jot call."""
+    """``post_tool_call``: open the turn's window and remember Jot usage in it."""
     session = str(session_id or kwargs.get("task_id") or "")
     if not session:
         return
     turn = str(turn_id or "")
-    seen_turn, updated = _state.get(session, ("", False))
+    seen_turn, updated, read = _state.get(session, ("", False, False))
     if turn and seen_turn and turn != seen_turn:
-        updated = False
-    _state[session] = (turn or seen_turn, updated or tool_name in MUTATING_TOOLS)
+        updated, read = False, False
+    _state[session] = (
+        turn or seen_turn,
+        updated or tool_name in MUTATING_TOOLS,
+        read or tool_name in READING_TOOLS,
+    )
     _state.move_to_end(session)
     while len(_state) > _MAX_SESSIONS:
         _state.popitem(last=False)
@@ -109,13 +128,17 @@ def record(tool_name: str = "", session_id: str = "", turn_id: str = "", **kwarg
 def check(
     session_id: str = "", attempt: int = 0, changed_paths: Optional[list] = None, **kwargs
 ) -> Optional[dict[str, str]]:
-    """``pre_verify``: keep the turn going once per turn while no Jot update happened.
+    """``pre_verify``: keep the turn going while the work turn left Jot unupdated.
+
+    Attempt 0 asks for the update. Attempt 1 fires only when the turn read the board and still
+    wrote nothing, so the retry names that gap; it is the last chance, bounded by
+    ``agent.max_verify_nudges`` as well.
 
     Worker processes are skipped: their handoff is the card, and the lead keeps the Jot line.
     """
     from os import getenv
 
-    if attempt:
+    if attempt > _MAX_ATTEMPT:
         return None
     if (getenv("HERMES_KANBAN_TASK") or "").strip():
         return None
@@ -124,14 +147,21 @@ def check(
     roots = skip_roots()
     if not any(is_work_path(path, roots) for path in (changed_paths or [])):
         return None
-    if _state.get(str(session_id or kwargs.get("task_id") or ""), ("", False))[1]:
+    _turn, updated, read = _state.get(
+        str(session_id or kwargs.get("task_id") or ""), ("", False, False)
+    )
+    if updated:
         return None
-    return {"action": "continue", "message": MESSAGE}
+    if attempt == 0:
+        return {"action": "continue", "message": MESSAGE}
+    return {"action": "continue", "message": READ_ONLY_MESSAGE} if read else None
 
 
 __all__ = [
     "MESSAGE",
     "MUTATING_TOOLS",
+    "READING_TOOLS",
+    "READ_ONLY_MESSAGE",
     "check",
     "is_work_path",
     "record",
