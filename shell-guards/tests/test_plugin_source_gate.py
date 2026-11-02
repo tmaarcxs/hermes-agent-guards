@@ -94,6 +94,16 @@ def test_a_non_plugin_command_is_untouched(tmp_path):
     assert plugin_source_gate.activation_block("hermes plugins update some-other") is None
 
 
+def test_a_longer_plugin_name_does_not_match_a_prefix(tmp_path):
+    """``jot`` must not be gated by a command naming ``jot-guards``, nor the reverse."""
+    dirty = make_plugin(tmp_path, name="jot")
+    make_plugin(tmp_path, name="jot-guards")
+    (dirty / "plugin.yaml").write_text("name: jot\n# edited\n")
+    assert plugin_source_gate.activation_block("hermes plugins update jot-guards") is None
+    assert plugin_source_gate.activation_block("hermes plugins update jot") is not None
+    assert plugin_source_gate.activation_block("hermes plugins update hermes-agent-guards/jot-guards") is None
+
+
 def test_check_only_gates_terminal(tmp_path):
     make_plugin(tmp_path)
     (tmp_path / "plugins" / "demo-plugin" / "plugin.yaml").write_text("name: demo\n# edited\n")

@@ -95,6 +95,15 @@ def find_plugin(name: str) -> Optional[Path]:
     return None
 
 
+def _names_plugin(text: str, name: str) -> bool:
+    """True when *name* appears as a whole plugin name, not inside a longer one.
+
+    ``jot`` is a prefix of ``jot-guards``; a substring match made activating the guard
+    refuse because an unrelated plugin's tree was dirty.
+    """
+    return re.search(r"(?<![\w.-])" + re.escape(name) + r"(?![\w.-])", text) is not None
+
+
 def activation_block(command: str) -> Optional[str]:
     """The block message for activating a plugin that is not clean and pushed, or None."""
     text = str(command or "")
@@ -107,7 +116,7 @@ def activation_block(command: str) -> Optional[str]:
         except Exception:
             continue
         for entry in entries:
-            if str(entry) not in text and entry.name not in text:
+            if not _names_plugin(text, entry.name):
                 continue
             if not is_git_checkout(entry):
                 continue
