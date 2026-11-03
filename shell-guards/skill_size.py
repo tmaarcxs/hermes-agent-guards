@@ -104,8 +104,37 @@ def _hermes_home() -> Path:
 
 
 _HOME = _hermes_home()
-ROOTS = [_HOME / "skills", Path.home() / ".agents" / "skills", *(_HOME / "profiles").glob("*/skills")]
 _SKIPPED_PARTS = {".archive", ".curator_backups", ".hub", ".locks"}
+
+
+def _own_profile() -> Optional[str]:
+    """Name of the profile this process serves, or ``None`` for the default one."""
+    home = Path(os.path.realpath(_HOME))
+    profiles = Path(os.path.realpath(Path.home() / ".hermes" / "profiles"))
+    if home == Path(os.path.realpath(Path.home() / ".hermes")):
+        return None
+    try:
+        rel = home.relative_to(profiles)
+    except ValueError:
+        return None
+    return rel.parts[0] if rel.parts else None
+
+
+def _profile_roots() -> list[Path]:
+    own = _own_profile()
+    if own is None:
+        return []
+    return [p for p in (_HOME / "profiles").glob("*/skills") if p.parent.name == own]
+
+
+ROOTS = [_HOME / "skills", Path.home() / ".agents" / "skills", *_profile_roots()]
+"""Skill roots the guard polices.
+
+``profiles/*/skills`` is included only for the profile this process serves: a hook
+runs inside one profile, and walking every profile on disk cost 7.3 s per tool call
+once 46 throwaway profiles existed (13,572 files). A skill the process cannot load
+is not a skill it can grow, so the other profiles' trees are out of scope.
+"""
 
 
 def _roots() -> list[Path]:
