@@ -74,7 +74,9 @@ _TREE_SPLIT = (
     "paths, then retry. When the index itself is at its limit and the new line does not fit, refactor "
     "the skill instead of dropping the change: move an existing section verbatim into a new "
     "references/<topic>.md, and split into more reference files as needed, so the index has room for "
-    "the new line."
+    "the new line. Cheaper than moving a section: if the new text is topical depth rather than an "
+    "always-on rule, write it as a NEW references/<topic>.md and add one pointer line in the index; "
+    "keep only what must load every time in SKILL.md."
 )
 
 _CONTINUE = (
@@ -514,6 +516,7 @@ def check(tool_name: str, args: Any = None, **_kwargs) -> Optional[str]:
         kind = "SKILL.md" if limit == SKILL_LIMIT else "a skill reference file"
         return (
             f"agent-guards blocked {tool_name}: {target.name} would be {after:,} characters; the limit for {kind} "
-            f"is {limit:,} (SKILL.md {SKILL_LIMIT:,}, other skill .md files {REFERENCE_LIMIT:,}). " + _TREE_SPLIT
+            f"is {limit:,} (SKILL.md {SKILL_LIMIT:,}, other skill .md files {REFERENCE_LIMIT:,}). "
+            f"Trim at least {after - limit:,} characters, or take the cheaper route below. " + _TREE_SPLIT
         )
     return None

@@ -70,6 +70,14 @@ def test_skill_manage_patch_over_limit_blocked(root):
     assert blocked(result) and "SKILL.md would be" in result["message"] and "references/<topic>.md" in result["message"]
 
 
+def test_block_names_the_trim_and_the_new_reference_route(root):
+    """The block must offer the cheap exit (a NEW references file) and the exact overage."""
+    result = pre("skill_manage", action="patch", name="demo", old_string="x" * 10, new_string="y" * 7015)
+    message = result["message"]
+    assert "Trim at least 1,155 characters" in message
+    assert "NEW references/<topic>.md" in message
+
+
 def test_skill_manage_patch_within_limit_passes(root):
     assert pre("skill_manage", action="patch", name="demo", old_string="x" * 10, new_string="y" * 50) is None
 
