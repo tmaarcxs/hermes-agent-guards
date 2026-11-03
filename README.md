@@ -1,16 +1,14 @@
 # hermes-agent-guards
 
-A monorepo of four self-contained Hermes Agent plugins: three that block
+A monorepo of five self-contained Hermes Agent plugins: three that block
 recurring agent mistakes before a tool runs and keep delegated Kanban work
-moving, plus `task-retro`, which turns a finished worker card into a
-retrospective. Every guard check fails open: an internal error never blocks a
-tool call.
+moving, plus two smaller guards. Every guard check fails open: an internal
+error never blocks a tool call.
 
 The three guards used to ship as one monolithic `agent-guards` plugin. They are
-now three independent folders, each with its own `plugin.yaml`, its own
+now independent folders, each with its own `plugin.yaml`, its own
 `register()`, and no imports into a sibling folder. Install and enable the ones
-you want; they do not depend on each other. `task-retro` is the same shape: one
-folder, self-contained.
+you want; they do not depend on each other.
 
 ## The plugins
 
@@ -79,25 +77,6 @@ Answers: *is this lifecycle call, board read or wake legitimate?*
   notices — injected into the card's subscribed chat within one dispatcher tick.
   Wakes need `plugins.entries.kanban-guards.allow_gateway_injection: true`.
 
-### `task-retro` — retrospective cards for finished worker cards
-
-Answers: *which finished card earns a retrospective, and when is a queued one
-too old to run?*
-
-- Creates exactly one `retro: <original title>` card per completed worker card
-  (`idempotency_key = "retro:<task_id>"`), assigned to `kanban.default_assignee`
-  and carrying the `task-retro:task-retrospective` skill it ships itself.
-- Skips trivial cards: `min_duration_seconds` (default **900**) is measured on
-  the parent card's **total run wall**, the sum of all its runs — not the
-  completing run, so a card retried after a crash is not mistaken for a short one.
-- Keeps at most three retros active (a lane chain behind the oldest lane tail)
-  and ages out an OPEN retro (`todo`/`ready`) queued longer than
-  `queue_max_age_seconds` (default **21600** = 6 h), archiving it with a comment
-  that names its parent and releasing its queued children. A `running` retro is
-  never aged out. This bounds the backlog; nothing is dropped silently.
-- Never subscribes a chat and fails open: no hook ever raises or blocks a
-  completion.
-
 ### `text-guards` — banned characters in the reply
 
 Answers: *does anything the agent emits contain a character the operator forbids?*
@@ -115,7 +94,6 @@ Each folder's `README.md` documents its own rules in full.
 hermes plugins install tmaarcxs/hermes-agent-guards#shell-guards
 hermes plugins install tmaarcxs/hermes-agent-guards#workspace-guards
 hermes plugins install tmaarcxs/hermes-agent-guards#kanban-guards
-hermes plugins install tmaarcxs/hermes-agent-guards#task-retro
 ```
 
 The `#<subdir>` fragment is the CLI's subdirectory syntax (see
@@ -135,9 +113,11 @@ then refuses to move it. Install without `--ref`, and `hermes plugins update
 shell-guards/       one self-contained plugin (modules + plugin.yaml + tests)
 workspace-guards/   one self-contained plugin
 kanban-guards/      one self-contained plugin
-task-retro/         one self-contained plugin (plugin.yaml + shipped skill + tests)
+jot-guards/         one self-contained plugin
+recall-guards/      one self-contained plugin
+text-guards/        one self-contained plugin
 tests/              cross-plugin checks (helper-copy divergence, transform winner)
-pytest.ini          runs all four folders plus tests/ in one command
+pytest.ini          runs all folders plus tests/ in one command
 CUTOVER.md          ordered activation steps for replacing the old plugin
 ```
 
