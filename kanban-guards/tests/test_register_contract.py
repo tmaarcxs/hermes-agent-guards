@@ -68,13 +68,17 @@ def test_pre_tool_call_check_order_matches_root_at_90456b2():
 
 
 def test_transform_chain_order_matches_root_at_90456b2():
-    """completion -> scope -> show-slim, same order as the root chain."""
+    """completion -> scope, in that order.
+
+    ``kanban_show_slim_gate`` used to close the chain; it was removed on 2026-11-03
+    because slimming a lead's ``kanban_show`` output was board shaping, not a gate.
+    """
     import inspect
 
     source = inspect.getsource(guards._transform_tool_result)
     positions = [
         source.index("completion_gate.transform"),
         source.index("workspace_scope_gate.transform"),
-        source.index("kanban_show_slim_gate.transform"),
     ]
     assert positions == sorted(positions)
+    assert "kanban_show_slim_gate.transform" not in source

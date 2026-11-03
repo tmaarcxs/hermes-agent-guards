@@ -154,10 +154,14 @@ def test_parent_handoff_via_own_show(lead):
 
 
 def test_chain_kanban_show_slimmed_and_list_untouched(lead):
+    """The chain no longer slims a lead's ``kanban_show``: the full payload comes back.
+
+    ``kanban_show_slim_gate`` was dropped from the chain on 2026-11-03 (board shaping,
+    not a gate). The module and its own ``transform`` stay tested below; only its place
+    in the live chain is gone.
+    """
     show = guards._transform_tool_result(tool_name="kanban_show", args={}, result=_show())
-    payload = json.loads(show)
-    assert "worker_context" not in payload
-    assert payload["runs"][0]["summary"] == "run summary text"
+    assert show is None
     list_result = json.dumps({"tasks": [{"id": "a"}], "count": 1})
     assert guards._transform_tool_result(
         tool_name="kanban_list", args={}, result=list_result) is None

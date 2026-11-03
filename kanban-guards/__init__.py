@@ -176,6 +176,12 @@ def _post_tool_call(**kwargs) -> None:
 
 
 def _transform_tool_result(**kwargs) -> Optional[str]:
+    """Completion fix, then workspace scope.
+
+    ``kanban_show_slim_gate`` used to slim a lead's ``kanban_show`` output here. It was
+    dropped on 2026-11-03 as board shaping that added no gate: it only rewrote a result
+    the lead had already asked for, so the full payload now comes back.
+    """
     transformed = None
     try:
         transformed = completion_gate.transform(**kwargs)
@@ -184,12 +190,6 @@ def _transform_tool_result(**kwargs) -> Optional[str]:
     if transformed is None:
         try:
             transformed = workspace_scope_gate.transform(
-                kwargs.get("tool_name") or "", kwargs.get("args"), kwargs.get("result"))
-        except Exception:
-            transformed = None
-    if transformed is None:
-        try:
-            transformed = kanban_show_slim_gate.transform(
                 kwargs.get("tool_name") or "", kwargs.get("args"), kwargs.get("result"))
         except Exception:
             transformed = None

@@ -135,21 +135,16 @@ def test_check_allows_clarify_when_this_turn_read_memory(monkeypatch, tmp_path):
 
 
 
-def test_nudge_fires_on_the_fifth_turn_only(monkeypatch):
-    monkeypatch.setattr(recall_guard.policy, "is_lead", lambda: True)
-    for turn in range(1, 6):
-        text = recall_guard.transform(tool_name="read_file", result="ok", session_id="s", turn_id=f"t{turn}")
-        if turn == 5:
-            assert text and "hindsight_recall" in text
-        else:
-            assert text is None
+def test_nudge_never_fires(monkeypatch):
+    """The periodic reminder is gone (2026-11-03): ``transform`` never appends text.
 
-
-def test_nudge_fires_once_per_qualifying_turn(monkeypatch):
+    It was advisory only and could not block, so it read as noise. The ``clarify``
+    gate below is the part that changes behaviour and it stays.
+    """
     monkeypatch.setattr(recall_guard.policy, "is_lead", lambda: True)
-    for turn in range(1, 6):
-        recall_guard.transform(tool_name="read_file", result="ok", session_id="s", turn_id=f"t{turn}")
-    assert recall_guard.transform(tool_name="read_file", result="ok", session_id="s", turn_id="t5") is None
+    for turn in range(1, 12):
+        assert recall_guard.transform(
+            tool_name="read_file", result="ok", session_id="s", turn_id=f"t{turn}") is None
 
 
 def test_nudge_ignores_non_string_results(monkeypatch):
@@ -161,9 +156,7 @@ def test_nudge_ignores_non_string_results(monkeypatch):
 
 def test_nudge_is_per_session(monkeypatch):
     monkeypatch.setattr(recall_guard.policy, "is_lead", lambda: True)
-    for turn in range(1, 5):
-        recall_guard.transform(tool_name="read_file", result="ok", session_id="a", turn_id=f"t{turn}")
-    assert recall_guard.transform(tool_name="read_file", result="ok", session_id="b", turn_id="t1") is None
-    for turn in range(2, 5):
-        recall_guard.transform(tool_name="read_file", result="ok", session_id="b", turn_id=f"t{turn}")
-    assert recall_guard.transform(tool_name="read_file", result="ok", session_id="b", turn_id="t5") is not None
+    for session in ("a", "b"):
+        for turn in range(1, 8):
+            assert recall_guard.transform(
+                tool_name="read_file", result="ok", session_id=session, turn_id=f"t{turn}") is None

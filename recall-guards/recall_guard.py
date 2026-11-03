@@ -216,15 +216,13 @@ def check(tool_name: str = "", args: Any = None, session_id: str = "", turn_id: 
 
 def transform(tool_name: str = "", result: Any = None, session_id: str = "", turn_id: str = "",
               **kwargs: Any) -> Optional[str]:
-    """``transform_tool_result``: append the periodic memory reminder."""
-    try:
-        if not policy.is_lead() or not isinstance(result, str):
-            return None
-        text = nudge_text(session_id, turn_id, tool_name)
-        if text:
-            return result + "\n\n" + text
-    except Exception:
-        return None
+    """``transform_tool_result``: no reminder.
+
+    The periodic "consult Hindsight" notice every 5th turn was removed at the
+    operator's request (2026-11-03): it is advisory text appended to a tool result,
+    it cannot block anything, and it read as noise. The ``clarify`` gate below is the
+    part that actually changes behaviour, so it stays.
+    """
     return None
 
 
