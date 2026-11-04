@@ -115,6 +115,7 @@ workspace-guards/   one self-contained plugin
 kanban-guards/      one self-contained plugin
 jot-guards/         one self-contained plugin
 recall-guards/      one self-contained plugin
+goal-waker/         one self-contained plugin (resumes parked goals on messaging chats)
 text-guards/        one self-contained plugin
 tests/              cross-plugin checks (helper-copy divergence, transform winner)
 pytest.ini          runs all folders plus tests/ in one command
