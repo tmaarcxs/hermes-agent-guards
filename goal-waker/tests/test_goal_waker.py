@@ -23,6 +23,7 @@ if "goal_waker" not in sys.modules:
 waker = importlib.import_module("goal_waker.waker")
 
 TG = json.dumps({"platform": "telegram", "chat_id": "1"})
+NOW = 1_000_000_000.0
 LOCAL = json.dumps({"platform": "local", "chat_id": "x"})
 
 
@@ -46,16 +47,18 @@ class FakeManager:
 def conn():
     c = sqlite3.connect(":memory:")
     c.execute("create table state_meta (key text, value text)")
-    c.execute("create table sessions (id text, session_key text, origin_json text)")
+    c.execute("create table sessions (id text, session_key text, origin_json text, last_activity_at real)")
     yield c
     c.close()
 
 
-def add(conn, sid, status="active", wait=None, origin=TG, key=None):
+def add(conn, sid, status="active", wait=None, origin=TG, key=None, idle=0.0):
     state = {"status": status, "waiting_on_pid": None, "waiting_on_session": None, "waiting_until": 0.0}
     state.update(wait or {"waiting_until": 123.0})
     conn.execute("insert into state_meta values (?, ?)", (f"goal:{sid}", json.dumps(state)))
-    conn.execute("insert into sessions values (?, ?, ?)", (sid, key or f"agent:main:telegram:dm:1:{sid}", origin))
+    conn.execute(
+        "insert into sessions values (?, ?, ?, ?)", (sid, key or f"agent:main:telegram:dm:1:{sid}", origin, NOW - idle)
+    )
 
 
 def run(conn, mgr, accept=True):
@@ -65,7 +68,7 @@ def run(conn, mgr, accept=True):
         sent.append((text, key))
         return accept
 
-    return waker.sweep(conn, inject, lambda sid: mgr), sent
+    return waker.sweep(conn, inject, lambda sid: mgr, now=NOW), sent
 
 
 def test_a_lifted_barrier_on_a_messaging_chat_injects_the_continuation_into_that_chat(conn):
@@ -89,6 +92,12 @@ def test_a_local_session_is_left_to_its_own_idle_waker(conn):
 
 def test_a_session_with_no_recorded_route_is_skipped(conn):
     add(conn, "s1", origin=None, key="")
+    _, sent = run(conn, FakeManager())
+    assert sent == []
+
+
+def test_a_session_idle_for_days_is_not_woken_because_its_route_is_gone(conn):
+    add(conn, "s1", idle=waker.MAX_IDLE + 1)
     _, sent = run(conn, FakeManager())
     assert sent == []
 

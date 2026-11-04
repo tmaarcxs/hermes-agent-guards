@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 CTX: Any = None
 MIN_INTERVAL = 15.0
 RETRY_SECONDS = 30
+MAX_IDLE = 3 * 86400
 WAIT_FIELDS = ("waiting_on_pid", "waiting_on_session", "waiting_until")
 _LOCK = threading.Lock()
 _state = {"last": 0.0}
@@ -43,9 +44,11 @@ def parked_session_ids(conn: sqlite3.Connection) -> Iterator[str]:
             yield key[len("goal:"):]
 
 
-def messaging_route(conn: sqlite3.Connection, session_id: str) -> Optional[str]:
-    row = conn.execute("select session_key, origin_json from sessions where id = ?", (session_id,)).fetchone()
-    if not row or not row[0] or not row[1]:
+def messaging_route(conn: sqlite3.Connection, session_id: str, now: float) -> Optional[str]:
+    row = conn.execute(
+        "select session_key, origin_json, last_activity_at from sessions where id = ?", (session_id,)
+    ).fetchone()
+    if not row or not row[0] or not row[1] or now - float(row[2] or 0) > MAX_IDLE:
         return None
     try:
         platform = json.loads(row[1]).get("platform")
@@ -54,10 +57,14 @@ def messaging_route(conn: sqlite3.Connection, session_id: str) -> Optional[str]:
     return row[0] if platform and platform != "local" else None
 
 
-def sweep(conn: sqlite3.Connection, inject_fn: Callable[[str, str], bool], manager_factory: Callable[[str], Any]) -> list:
+def sweep(
+    conn: sqlite3.Connection, inject_fn: Callable[[str, str], bool], manager_factory: Callable[[str], Any],
+    now: Optional[float] = None,
+) -> list:
+    now = time.time() if now is None else now
     woken = []
     for session_id in list(parked_session_ids(conn)):
-        route = messaging_route(conn, session_id)
+        route = messaging_route(conn, session_id, now)
         if route is None:
             continue
         mgr = manager_factory(session_id)
