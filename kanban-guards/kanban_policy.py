@@ -12,9 +12,13 @@ can actually claim. A gate here only duplicated that check and blocked a legitim
 installed reviewer, so it is gone.
 """
 
+import re
 from typing import Any, Optional
 
 EXECUTION_OVERRIDES = ("model", "provider", "goal_mode", "goal_max_turns", "max_runtime_seconds")
+
+_CODE_CARD = re.compile(r"(?i)\b(?:implement|freeze|signed commit|commit as)\b")
+_READ_ONLY = re.compile(r"(?i)\bread-only\b")
 
 RETRY_INSTRUCTION = (
     "Then retry the lifecycle call in this same response — do not end on a text-only reply: "
@@ -40,6 +44,12 @@ def violations(tool_name: str, args: dict[str, Any], worker: str) -> list[str]:
         if args.get("triage"):
             found.append("triage is reserved for automatic escalation; create the card in todo")
         found += [f"remove execution override '{key}'" for key in EXECUTION_OVERRIDES if key in args]
+        body = str(args.get("body") or "")
+        if _CODE_CARD.search(body) and not _READ_ONLY.search(body) and "kanban_request_review" not in body:
+            found.append(
+                "a card that produces code must end with kanban_request_review (independent review lane): "
+                "add that to its Acceptance list and never let the worker close it with kanban_complete alone"
+            )
         return found
     return []
 

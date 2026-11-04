@@ -125,3 +125,21 @@ def test_prose_acceptance_body_passes():
 def test_single_readback_passes():
     body = "Verify the image carries the merge commit and run one readback check.\n\n## Acceptance\n1. Image tag recorded"
     assert blocked("kanban_create", {**VALID, "body": body}) is None
+
+
+CODE_BODY = "Implement issue 1.\n\n## Acceptance\n1. Commit one signed commit\n2. Lead owns review and merge"
+
+
+def test_code_card_without_request_review_blocked():
+    result = blocked("kanban_create", {**VALID, "body": CODE_BODY})
+    assert result["action"] == "block" and "kanban_request_review" in result["message"]
+
+
+def test_code_card_with_request_review_passes():
+    body = CODE_BODY + "\n3. Hand off with kanban_request_review"
+    assert blocked("kanban_create", {**VALID, "body": body}) is None
+
+
+def test_read_only_review_card_exempt():
+    body = "Independent read-only review. You did NOT implement it.\n\n## Acceptance\n1. Verdict report"
+    assert blocked("kanban_create", {**VALID, "body": body}) is None
