@@ -65,8 +65,7 @@ Answers: *is this lifecycle call, board read or wake legitimate?*
   iteration cap; keep delegated cards on the configured worker profile; block
   `kanban_complete` until `metadata.acceptance` maps every numbered Acceptance
   item to evidence; keep the published-PR completion duty visible; block
-  contacts with people on GitHub from worker terminals; block
-  `kanban_request_review` until the eight pre-review checks are closed; bounce
+  contacts with people on GitHub from worker terminals; bounce
   a narrated stop after a blocked lifecycle call; block `kanban_schedule`;
   refuse a handoff that preserves a backup copy of the delivered work.
 - Lead gates: scope a lead chat's `kanban_list` result to the cards its own chat

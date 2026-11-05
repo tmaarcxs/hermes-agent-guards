@@ -46,7 +46,7 @@ NEW, by plugin:
 
 ```
 kanban-guards:    checkpoint_gate, kanban_policy, github_contact,
-                  review_gate, handoff_gate, completion_gate, backup_copy_gate,
+                  handoff_gate, completion_gate, backup_copy_gate,
                   schedule_gate
 shell-guards:     paas_promote_gate, skill_size, skill_size(record),
                   background_notify_gate, then terminal/attach/normalize tail
