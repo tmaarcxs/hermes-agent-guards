@@ -58,11 +58,6 @@ rewrite), never blocks.
 No block messages: it injects the goal manager's own continuation prompt on a
 dispatch tick; there is no block/refusal path.
 
-## kanban-card-progress
-
-No block messages: deterministic progress-block writes/strips into card bodies;
-no refusal path puts text in front of the agent.
-
 ## Limit of the inventory
 
 Wakes (`kanban-guards/wakes.py`: stale/loop/churn/waiting/stall/reconcile

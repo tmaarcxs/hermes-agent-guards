@@ -52,7 +52,6 @@ PLUGINS = (
     "provider-guards",
     "text-guards",
     "goal-waker",
-    "kanban-card-progress",
 )
 
 MARKERS = ("agent-guards blocked", "agent-guards bounced", "System: agent-guards", "bounced kanban_")
