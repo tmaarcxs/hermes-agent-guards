@@ -42,7 +42,13 @@ _TARGET_HEADS = frozenset({"touch", "mkdir", "rm"})
 """Heads that create/touch/remove every path operand they name."""
 
 _IN_PLACE = re.compile(r"(?:^|\s)-i(?:\S*\s|\s)")
-"""GNU/BSD in-place marker for ``sed`` (``-i``, ``-i.bak``, ``-i ''``)."""
+"""GNU/BSD in-place marker for ``sed`` and ``perl`` (``-i``, ``-i.bak``, ``-i ''``)."""
+
+_PERL_OPEN = re.compile(r"\bopen\s*\(")
+"""A perl ``open`` call, the only perl shape that writes a file handle."""
+
+_PERL_MODE = re.compile(r"^>{1,2}$")
+"""A pure ``open`` mode literal: ``>`` or ``>>``; a path then follows it."""
 
 _REDIRECT = home_litter_gate._REDIRECT
 _FD_REDIRECT = home_litter_gate._FD_REDIRECT
@@ -288,8 +294,11 @@ def _operand_targets(cwd: Optional[str], segment: str, tokens: List[str]) -> Lis
         targets.extend(operands)
     elif head == "tee":
         targets.append(_paths._join(cwd or "", operands[0]) if operands else "")
-    elif head == "sed" and _IN_PLACE.search(segment):
-        targets.extend(home_litter_gate._sed_destinations(tokens, index))
+    elif head == "sed":
+        if _IN_PLACE.search(segment):
+            targets.extend(home_litter_gate._sed_destinations(tokens, index))
+    elif head == "perl":
+        targets.extend(_perl_targets(tokens, index, segment))
     return targets
 
 
@@ -309,6 +318,62 @@ def _literal_targets(tokens: List[str]) -> List[str]:
     payload = " ".join(tokens)
     literals = home_litter_gate._py_creation_literals(payload)
     return [literal for literal in literals if "/" in literal or literal.startswith("~")]
+
+
+def _perl_targets(tokens: List[str], index: int, segment: str) -> List[str]:
+    """Writes a ``perl`` segment performs: in-place file operands and ``open`` paths.
+
+    ``-i``/``-pi`` either as a lone token with an optional suffix argument
+    (``-i.bak`` stays one token) or inside a flag cluster, marks the
+    non-option operands after the ``-e``/``-p``/``-n`` scripts as in-place
+    targets. An ``open`` call contributes the literal after a ``>``/``>>``
+    mode, or the ``>path`` part of a shared mode-and-path literal.
+    """
+    targets: List[str] = []
+    rest = tokens[index + 1:]
+    in_place = False
+    position = 0
+    while position < len(rest):
+        token = rest[position]
+        if token == "-i":
+            in_place = True
+            if position + 1 < len(rest) and rest[position + 1] == "":
+                position += 1
+        elif token.startswith("-i") and not token.startswith("--"):
+            in_place = True
+        elif "i" in token[1:] and token.startswith("-") and not token.startswith("--") and len(token) > 1:
+            in_place = any(cluster == "i" for cluster in token[1:])
+        elif token in ("-e", "--expression", "-f", "--file"):
+            position += 1
+        elif token.startswith(("-e", "-f")):
+            position += 1
+        elif not token.startswith("-") or token == "-":
+            if in_place:
+                targets.append(token)
+        position += 1
+    if _PERL_OPEN.search(segment):
+        targets.extend(_perl_open_literals(segment))
+    return targets
+
+
+def _perl_open_literals(segment: str) -> List[str]:
+    """Path literals a perl ``open`` call would write.
+
+    ``open(F, '>', 'path')`` puts the path after the mode; for the bare
+    redirect form ``open(F, '>path')`` the mode and path share one literal,
+    and append (``>>``) stays a write shape. Read modes (``<``) never
+    contribute.
+    """
+    literals: List[str] = []
+    for match in _PERL_OPEN.finditer(segment):
+        body = home_litter_gate._py_call_body(segment, match.start())
+        strings = [literal for _, literal in home_litter_gate._PY_STRINGS.findall(body)]
+        for position, literal in enumerate(strings):
+            if _PERL_MODE.match(literal.lstrip(" ")) and position + 1 < len(strings):
+                literals.append(strings[position + 1])
+            elif literal.startswith(">"):
+                literals.append(literal[1:].strip())
+    return literals
 
 
 def terminal_block(command: str, base_cwd: Optional[str] = None) -> Optional[str]:

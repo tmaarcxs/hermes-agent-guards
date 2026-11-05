@@ -114,6 +114,31 @@ def test_terminal_python_inline_write_into_installed_checkout_blocked(home):
     assert terminal(f"python -c \"open('{target}', 'w').write('x')\"", home)
 
 
+def test_terminal_perl_in_place_pi_into_installed_checkout_blocked(home):
+    target = home / ".hermes" / "plugins" / "plugA" / "x.py"
+    assert terminal(f"perl -pi -e 's/a/b/' {target}", home)
+
+
+def test_terminal_perl_in_place_i_into_installed_checkout_blocked(home):
+    target = home / ".hermes" / "plugins" / "plugA" / "x.py"
+    assert terminal(f"perl -i -pe 's/a/b/' {target}", home)
+
+
+def test_terminal_perl_handle_open_into_installed_checkout_blocked(home):
+    target = home / ".hermes" / "plugins" / "plugA" / "x.py"
+    assert terminal(f"perl -e \"open(F, '>', '{target}')\"", home)
+
+
+def test_terminal_perl_lexical_handle_open_into_installed_checkout_blocked(home):
+    target = home / ".hermes" / "plugins" / "plugA" / "x.py"
+    assert terminal(f"perl -e 'open(my $f, \">\", \"{target}\")'", home)
+
+
+def test_terminal_perl_relative_path_under_installed_checkout_blocked(home):
+    top = home / ".hermes" / "plugins" / "plugA"
+    assert terminal(f"cd {top} && perl -pi -e 's/a/b/' x.py", home)
+
+
 def test_terminal_cp_into_installed_checkout_blocked(home):
     target = home / ".hermes" / "plugins" / "plugA"
     assert terminal("cp /tmp/a.py " + str(target), home)
