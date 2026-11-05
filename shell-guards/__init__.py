@@ -28,6 +28,9 @@ Intent (behaviour identical to the monolithic plugin):
 - requires: a ``terminal`` call with ``background=true`` that is not a
   long-lived server declares an outcome channel (``notify=true``, a notify
   pattern list, or a positive ``heartbeat``);
+- rewrites a ``terminal`` command: unsets a ``PYTHONPATH`` that holds a Hermes install
+  site-packages entry, and adds ``set -o pipefail`` to a test runner piped to ``tail``/``head``
+  so the real exit status shows (no "re-run without the pipe" turn);
 - normalizes: empty-string optional Kanban arguments become absent, a
   ``task_id`` of the literal ``$HERMES_KANBAN_TASK`` becomes absent, and a
   doubled ``skill_view`` name ``x:x`` becomes ``x``;
@@ -55,6 +58,7 @@ try:
         plugin_source_gate,
         process_poll_gate,
         skill_size,
+        terminal_env_fix,
         terminal_policy,
     )
 except ImportError:
@@ -146,8 +150,8 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
             found = terminal_policy.terminal_violations(str(args.get("command") or ""), bool(args.get("background")))
             if found:
                 return {"action": "block", "message": "agent-guards blocked terminal [__init__]: " + "; ".join(found)}
-            notify = background_notify_gate.fix(tool_name, args)
-            return {"action": "modify", "args": notify} if notify else None
+            changes = {**(background_notify_gate.fix(tool_name, args) or {}), **(terminal_env_fix.fix(tool_name, args) or {})}
+            return {"action": "modify", "args": changes} if changes else None
         blocked = terminal_policy.attach_cap_block(args)
         if blocked:
             return {"action": "block", "message": stamp(blocked, "__init__")}
