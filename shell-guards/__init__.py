@@ -36,6 +36,13 @@ Intent (behaviour identical to the monolithic plugin):
   get transcribed and corrupted — attach by path);
 - turns a short ``process_manage`` ``wait`` timeout into the configured limit, so a wait runs to
   the process exit;
+- clamps a foreground ``terminal`` ``timeout`` or a ``process_manage`` ``wait`` timeout that
+  exceeds the call deadline (``timeouts.tools.sequential_call``, else 420 s) to deadline minus
+  15 s (405 by default), before dispatch — a call above the deadline is otherwise killed by the
+  host and returns nothing; and appends a deadline note to a ``terminal`` result whose own
+  rewritten timeout killed it (405 s marker), naming the background=true/notify=true
+  replacement call - the host's own deadline kill itself produces a result no transform hook
+  sees, so those deaths stay silent;
 - requires: a ``terminal`` call with ``background=true`` that is not a
   long-lived server declares an outcome channel (``notify=true``, a notify
   pattern list, or a positive ``heartbeat``);
@@ -128,6 +135,9 @@ def _transform_tool_result(**kwargs) -> Optional[str]:
     gets the ORIGINAL result. The core note rewrite and the skill-size flag can therefore
     never both fire on one result (a promotion note result is not a skill write), so
     first-wins is safe: try the note rewrite, then skill_size's flag on the original.
+    The deadline-completion note lives on ``transform_terminal_output`` instead: the
+    host's own deadline kill produces ``_ToolTimeoutResult``, which this hook never
+    sees (``_publish_sequential_result`` skips transforms for timed-out results).
     """
     try:
         rewritten = terminal_policy.rewrite_poll_instructions(kwargs.get("result"))
@@ -149,8 +159,20 @@ def _transform_terminal_output(**kwargs) -> Optional[str]:
     See ``skill_size.transform_terminal_output``: the host keeps only the first
     non-``None`` ``transform_tool_result`` string across plugins, so the flag must ride
     the earlier ``transform_terminal_output`` seam to survive alongside the
-    ``kanban-guards`` delegation nudge.
+    ``kanban-guards`` delegation nudge. The deadline clamp rides the same seam: the
+    terminal tool runs it INSIDE the tool, so the tool's own-timeout death of the
+    rewritten 405 s call gets the ``background=true`` note the later result hooks
+    cannot deliver.
     """
+    if kwargs.get("returncode") == 124:
+        try:
+            note = terminal_policy.tool_note(
+                kwargs.get("output"), kwargs.get("command") or "",
+                kwargs.get("returncode"))
+            if note is not None:
+                return note
+        except Exception:
+            pass
     try:
         return skill_size.transform_terminal_output(
             kwargs.get("command") or "", kwargs.get("output"),
@@ -190,13 +212,15 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
             if found:
                 return {"action": "block", "message": "agent-guards blocked terminal [__init__]: " + "; ".join(found)}
             changes = {**(background_notify_gate.fix(tool_name, args) or {}), **(terminal_env_fix.fix(tool_name, args) or {})}
+            changes = {**(changes or {}), **(terminal_policy.rewrite_deadline_args(tool_name, args) or {})}
             return {"action": "modify", "args": changes} if changes else None
         blocked = terminal_policy.attach_cap_block(args)
         if blocked:
             return {"action": "block", "message": stamp(blocked, "__init__")}
         changes = terminal_policy.normalized_args(tool_name, args)
         if tool_name == "process_manage":
-            changes = {**(changes or {}), **(process_poll_gate.fix(tool_name, args) or {})}
+            changes = {**(changes or {}), **(process_poll_gate.fix(tool_name, args) or {}),
+                       **(terminal_policy.rewrite_deadline_args(tool_name, args) or {})}
         return {"action": "modify", "args": changes} if changes else None
     except Exception:
         return None

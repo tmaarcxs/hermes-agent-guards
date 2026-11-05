@@ -43,15 +43,6 @@ class FakeManager:
         self.reparked.append((seconds, reason))
 
 
-@pytest.fixture
-def conn():
-    c = sqlite3.connect(":memory:")
-    c.execute("create table state_meta (key text, value text)")
-    c.execute("create table sessions (id text, session_key text, origin_json text, last_activity_at real)")
-    yield c
-    c.close()
-
-
 def add(conn, sid, status="active", wait=None, origin=TG, key=None, idle=0.0):
     state = {"status": status, "waiting_on_pid": None, "waiting_on_session": None, "waiting_until": 0.0}
     state.update(wait or {"waiting_until": 123.0})
@@ -61,85 +52,157 @@ def add(conn, sid, status="active", wait=None, origin=TG, key=None, idle=0.0):
     )
 
 
-def run(conn, mgr, accept=True):
+def fresh_conn(*rows):
+    """A sweep-local in-memory db with sessions ``rows`` already inserted.
+
+    Each row is a ``dict`` of ``add()`` arguments.
+    """
+    conn = sqlite3.connect(":memory:")
+    conn.execute("create table state_meta (key text, value text)")
+    conn.execute("create table sessions (id text, session_key text, origin_json text, last_activity_at real)")
+    for row in rows:
+        add(conn, **row)
+    return conn
+
+
+def run(conn, mgrs, accept=True, routes=None):
+    """One sweep call with one ``FakeManager`` per session (default: fresh ones).
+
+    ``routes`` pins the sweep-local routes map when a test simulates a session
+    already woken once; a fresh sweep starts from an empty map.
+    """
     sent = []
 
     def inject(text, key):
         sent.append((text, key))
         return accept
 
-    return waker.sweep(conn, inject, lambda sid: mgr, now=NOW), sent
+    if routes is None:
+        routes = {}
+    managers = dict(mgrs)
+    woken = list(
+        waker.sweep(conn, inject, lambda sid: managers.setdefault(sid, FakeManager()), now=NOW, routes=routes)
+    )
+    return woken, sent, routes
 
 
-def test_a_lifted_barrier_on_a_messaging_chat_injects_the_continuation_into_that_chat(conn):
-    add(conn, "s1")
-    woken, sent = run(conn, FakeManager(barrier_holds=False))
+def test_a_lifted_barrier_on_a_messaging_chat_injects_the_continuation_into_that_chat():
+    conn = fresh_conn({"sid": "s1"})
+    woken, sent, _ = run(conn, {"s1": FakeManager(barrier_holds=False)})
     assert woken == ["s1"]
     assert sent == [("CONTINUE", "agent:main:telegram:dm:1:s1")]
 
 
-def test_a_barrier_that_still_holds_injects_nothing(conn):
-    add(conn, "s1")
-    woken, sent = run(conn, FakeManager(barrier_holds=True))
+def test_a_barrier_that_still_holds_injects_nothing():
+    conn = fresh_conn({"sid": "s1"})
+    woken, sent = run(conn, {"s1": FakeManager(barrier_holds=True)})[:2]
     assert woken == [] and sent == []
 
 
-def test_a_local_session_is_left_to_its_own_idle_waker(conn):
-    add(conn, "s1", origin=LOCAL)
-    _, sent = run(conn, FakeManager())
+def test_a_local_session_is_left_to_its_own_idle_waker():
+    conn = fresh_conn({"sid": "s1o", "origin": LOCAL})
+    _, sent = run(conn, {})[:2]
     assert sent == []
 
 
-def test_a_session_with_no_recorded_route_is_skipped(conn):
-    add(conn, "s1", origin=None, key="")
-    _, sent = run(conn, FakeManager())
+def test_a_session_with_no_recorded_route_is_skipped():
+    conn = fresh_conn({"sid": "s1n", "origin": None, "key": ""})
+    _, sent = run(conn, {})[:2]
     assert sent == []
 
 
-def test_a_session_idle_for_days_is_not_woken_because_its_route_is_gone(conn):
+def test_a_session_idle_for_days_is_not_woken_because_its_route_is_gone():
+    conn = fresh_conn()
     add(conn, "s1", idle=waker.MAX_IDLE + 1)
-    _, sent = run(conn, FakeManager())
+    _, sent = run(conn, {})[:2]
     assert sent == []
 
 
-def test_a_goal_that_is_not_active_is_never_woken(conn):
-    add(conn, "s1", status="paused")
-    _, sent = run(conn, FakeManager())
+def test_a_goal_that_is_not_active_is_never_woken():
+    conn = fresh_conn({"sid": "s1", "status": "paused"})
+    _, sent = run(conn, {})[:2]
     assert sent == []
 
 
-def test_an_active_goal_with_no_barrier_is_never_woken(conn):
-    add(conn, "s1", wait={"waiting_until": 0.0})
-    _, sent = run(conn, FakeManager())
+def test_an_active_goal_with_no_barrier_is_never_woken():
+    conn = fresh_conn({"sid": "s1", "wait": {"waiting_until": 0.0}})
+    _, sent = run(conn, {})[:2]
     assert sent == []
 
 
-def test_a_pid_or_process_session_barrier_counts_as_parked(conn):
-    add(conn, "p", wait={"waiting_on_pid": 77})
-    add(conn, "q", wait={"waiting_on_session": "proc_1"})
-    woken, _ = run(conn, FakeManager())
+def test_a_pid_or_process_session_barrier_counts_as_parked():
+    conn = fresh_conn({"sid": "p", "wait": {"waiting_on_pid": 77}}, {"sid": "q", "wait": {"waiting_on_session": "proc_1"}})
+    woken, _sent, _routes = run(conn, {})
     assert sorted(woken) == ["p", "q"]
 
 
-def test_a_refused_injection_reparks_the_goal_instead_of_leaving_it_active_with_no_turn(conn):
-    add(conn, "s1")
+def test_a_refused_injection_reparks_the_goal_instead_of_leaving_it_active_with_no_turn():
+    conn = fresh_conn({"sid": "s1"})
     mgr = FakeManager()
-    woken, sent = run(conn, mgr, accept=False)
-    assert woken == [] and len(sent) == 1
+    refused = run(conn, {"s1": mgr}, accept=False)[1]
+    assert refused and len(refused) == 1
     assert mgr.reparked and mgr.reparked[0][0] == waker.RETRY_SECONDS
 
 
-def test_an_empty_continuation_prompt_injects_nothing(conn):
-    add(conn, "s1")
-    _, sent = run(conn, FakeManager(prompt=None))
+def test_an_empty_continuation_prompt_injects_nothing():
+    conn = fresh_conn({"sid": "s1"})
+    _, sent = run(conn, {"s1": FakeManager(prompt=None)})[:2]
     assert sent == []
 
 
-def test_a_malformed_goal_row_does_not_stop_the_sweep(conn):
+def test_a_malformed_goal_row_does_not_stop_the_sweep():
+    conn = fresh_conn()
     conn.execute("insert into state_meta values ('goal:bad', 'not json')")
     add(conn, "s1")
-    woken, _ = run(conn, FakeManager())
+    woken, _sent, _routes = run(conn, {})
     assert woken == ["s1"]
+
+
+def test_a_session_woken_once_is_skipped_while_its_goal_row_has_not_advanced():
+    conn = fresh_conn({"sid": "s1"})
+    routes = {"s1": NOW - 60.0}
+    conn.execute("update sessions set last_activity_at = ? where id = 's1'", (NOW - 60.0,))
+    _woken, sent, routes = run(conn, {}, routes=routes)
+    assert sent == []
+    assert routes["s1"] == NOW - 60.0
+
+
+def test_a_session_woken_once_wakes_again_once_its_goal_row_has_advanced():
+    conn = fresh_conn({"sid": "s1"})
+    routes = {"s1": NOW - 60.0}
+    conn.execute("update sessions set last_activity_at = ? where id = 's1'", (NOW - 30.0,))
+    woken, sent, routes = run(conn, {}, routes=routes)
+    assert sent and routes["s1"] == NOW - 30.0
+    assert routes["s1"] > NOW - 60.0
+    conn2 = fresh_conn({"sid": "s1", "idle": 30.0})
+    _woken2, sent2, routes2 = run(conn2, {}, routes=routes)
+    assert sent2 == []
+    assert routes2["s1"] == NOW - 30.0
+
+
+def test_a_refused_injection_leaves_no_debounce_entry_and_reparks_the_goal():
+    conn = fresh_conn({"sid": "s1"})
+    mgr = FakeManager()
+    attempts, routes = run(conn, {"s1": mgr}, accept=False)[1:]
+    assert len(attempts) == 1
+    assert routes == {}
+    assert mgr.reparked and mgr.reparked[0][0] == waker.RETRY_SECONDS
+
+
+def test_an_internal_error_is_swallowed_and_logged_the_fail_open_pin(monkeypatch):
+    """A sweep failure must never raise out of the tick, and never stops later ticks."""
+    failures = []
+    monkeypatch.setattr(waker, "CTX", type("Ctx", (), {})())
+    monkeypatch.setattr(waker, "_home", lambda: (_ for _ in ()).throw(RuntimeError("stop")))
+    monkeypatch.setattr(
+        waker.logger, "warning", lambda *a, **k: failures.append(1)
+    )
+    waker._state["last"] = 0.0
+    waker.on_tick()
+    assert failures == [1]
+    waker._state["last"] = 0.0
+    waker.on_tick()
+    assert failures == [1, 1]
 
 
 def test_register_wires_the_dispatcher_tick_hook():

@@ -1,12 +1,10 @@
 """Keep the agent from asking the operator for what its own memory already answers.
 
-Two gates over the same seam, ``pre_tool_call``:
+One gate over the seam ``pre_tool_call``:
 
 - ``clarify``: asking the operator a question through the form tool is the main
   way the agent returns work to him. When the current turn has not read memory,
   the call is blocked once, with the instruction to read memory first.
-- ``nudge``: an advisory reminder, injected on the first tool call of every Nth
-  user turn, telling the agent to consult Hindsight.
 
 What counts as "has read memory" is a read in THE SAME USER TURN. A read from
 half an hour ago, or from an earlier turn, does not count: the point is that the
@@ -22,7 +20,7 @@ before must still count. It is a fallback, never the primary test.
 Every path fails open — a missing database, a locked file or a schema change
 leaves the call untouched.
 
-Both gates apply to the lead surfaces only. A worker process answers to its card,
+The gate applies to the lead surfaces only. A worker process answers to its card,
 and its memory reads happen through the dispatcher's own prompt, so gating it
 would block legitimate work.
 """
@@ -43,17 +41,7 @@ FALLBACK_WINDOW_SECONDS = 60
 in-process turn record was lost. Never widen this to cover a whole session — a
 stale read is exactly what the gate exists to catch."""
 
-_NUDGE_EVERY_TURNS = 5
-"""Advisory nudge cadence, in user turns of the session."""
-
 _MAX_TRACKED = 400
-
-NUDGE = (
-    "Memory check: {count} user turns have passed in this session. Before the next "
-    "non-trivial step, run `hindsight_recall` on the topic at hand — the operator has "
-    "standing decisions on file, and re-deciding or re-asking what memory already "
-    "answers is the failure this reminder exists to prevent."
-)
 
 BLOCK_MESSAGE = (
     "agent-guards blocked clarify [recall_guard]: this turn has not read memory. Before "
@@ -160,20 +148,6 @@ def recent_read(session_id: str) -> Optional[bool]:
     return read
 
 
-def turn_count(session_id: str, turn_id: str) -> int:
-    """Distinct user turns seen in this session, counting the current one."""
-    session = str(session_id or "")
-    if not session:
-        return 0
-    entry = _state.setdefault(session, {})
-    turns = entry.setdefault("turns", [])
-    turn = str(turn_id or "")
-    if turn and turn not in turns:
-        turns.append(turn)
-        del turns[:-200]
-    return len(turns)
-
-
 def clarify_block(session_id: str, turn_id: str, tool_name: str) -> Optional[str]:
     """The block message for a ``clarify`` call that has not read memory this turn."""
     if str(tool_name or "") != CLARIFY_TOOL:
@@ -183,21 +157,6 @@ def clarify_block(session_id: str, turn_id: str, tool_name: str) -> Optional[str
     if recent_read(session_id) is True:
         return None
     return BLOCK_MESSAGE
-
-
-def nudge_text(session_id: str, turn_id: str, tool_name: str) -> Optional[str]:
-    """The advisory nudge on the first call of every Nth user turn."""
-    if not str(tool_name or ""):
-        return None
-    count = turn_count(session_id, turn_id)
-    if count == 0 or count % _NUDGE_EVERY_TURNS != 0:
-        return None
-    session = str(session_id or "")
-    entry = _state.setdefault(session, {})
-    if entry.get("nudged_turn") == count:
-        return None
-    entry["nudged_turn"] = count
-    return NUDGE.format(count=count)
 
 
 def check(tool_name: str = "", args: Any = None, session_id: str = "", turn_id: str = "",
@@ -214,20 +173,7 @@ def check(tool_name: str = "", args: Any = None, session_id: str = "", turn_id: 
     return None
 
 
-def transform(tool_name: str = "", result: Any = None, session_id: str = "", turn_id: str = "",
-              **kwargs: Any) -> Optional[str]:
-    """``transform_tool_result``: no reminder.
-
-    The periodic "consult Hindsight" notice every 5th turn was removed at the
-    operator's request (2026-11-03): it is advisory text appended to a tool result,
-    it cannot block anything, and it read as noise. The ``clarify`` gate below is the
-    part that actually changes behaviour, so it stays.
-    """
-    return None
-
-
 __all__ = [
-    "BLOCK_MESSAGE", "FALLBACK_WINDOW_SECONDS", "NUDGE", "check", "clarify_block",
-    "nudge_text", "read_this_turn", "recent_read", "record", "reset", "state_db_path",
-    "transform", "turn_count",
+    "BLOCK_MESSAGE", "FALLBACK_WINDOW_SECONDS", "check", "clarify_block",
+    "read_this_turn", "recent_read", "record", "reset", "state_db_path",
 ]

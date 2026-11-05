@@ -29,6 +29,7 @@ dispatches wrapped in ``env`` or another program — those fail open, as does an
 unexpected parsing error.
 """
 
+import json
 import re
 from typing import Optional
 
@@ -52,7 +53,18 @@ _ASSIGN = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)=([^\s;&|]*)")
 _FIELD = re.compile(r"(?:-f|--field)[ =]([A-Za-z_][A-Za-z0-9_]*)=(\x01[^\x01]*\x01|\x02[^\x02]*\x02|[^\s;&|]*)")
 _BLOB_FIELD = re.compile(r"(?:-f|--field)[ =](\x01[^\x01]*\x01|\x02[^\x02]*\x02)")
 _DISPATCH = re.compile(r"gh\s+workflow\s+run\s+(?:\S+[ \t]+)*?paas-promote(?:\.ya?ml)?(?![\w.-])")
+_CURL_DISPATCH = re.compile(
+    r"curl\s+(?:-[A-Za-z]+\s+)*"
+    r"(?:-X\s*POST\s+|--request\s+POST\s+)?"
+    r"https?://[^\s;\n]*api\.github\.com/repos/[^\s;\n]*/actions/workflows/"
+    r"paas-promote(?:\.ya?ml)?/dispatches\b")
+_JSON_PAYLOAD = re.compile(r"\s(?:-d|--data(?:-raw|-binary|-ascii)?)\s*(\x01[^\x01]*\x01|\x02[^\x02]*\x02|\S+)")
 _FILE_FIELD = re.compile(r"(?:^|\s)--field-file[ =]\S+|(?:^|\s)-F[ =]\S+|\b-F\S+")
+_JSON_LABEL_MESSAGE = (
+    "agent-guards blocked terminal: a paas-promote dispatch to des without the \"LABELS\":\"auto-approval\" "
+    "input produces a deployment pull request that stays open until someone notices — only the label "
+    'makes the bot merge it. Add it to the JSON body: -d \'{{...,"LABELS":"auto-approval"}}\'.'
+)
 
 
 class _Unanalyzable(Exception):
@@ -104,12 +116,40 @@ def _inputs(masked: str) -> dict[str, str]:
     return fields
 
 
+def _json_inputs(masked: str) -> Optional[dict[str, str]]:
+    """The ``inputs`` object of a dispatch JSON payload, when parsable.
+
+    The payload is the ``-d``/``--data*`` argument: a quoted blob, so it is
+    decoded as one literal (single-quoted bodies carry no double-quote
+    expansion and vice versa). A body with shell expansion, unbalanced quotes
+    or no JSON shape is out of scope and raises. ``inputs`` absent means the
+    endpoint defaults (``des`` target with no label) — the incident shape.
+    """
+    match = _JSON_PAYLOAD.search(masked)
+    if not match:
+        return None
+    body = _decode(match.group(1))
+    try:
+        data = json.loads(body)
+    except ValueError:
+        raise _Unanalyzable("payload is not JSON")
+    if not isinstance(data, dict):
+        raise _Unanalyzable("payload is not a JSON object")
+    inputs = data.get("inputs")
+    if inputs is None:
+        return {}
+    if not isinstance(inputs, dict):
+        raise _Unanalyzable("inputs is not a JSON object")
+    return {str(key).upper(): value for key, value in inputs.items()
+            if isinstance(value, str)}
+
+
 def _decision(fields: dict[str, str]) -> Optional[str]:
     raw_envs = fields.get("SUPRAENVS", "").strip()
     envs = [item.lower() for item in re.split(r"[,\s]+", raw_envs) if item] if raw_envs else [DEFAULT_ENV]
     if "des" not in envs:
         return None
-    labels = [item.lower() for item in re.split(r"[,\s]+", fields.get("LABELS", "")) if item]
+    labels = [item.lower() for item in re.split(r"[,\s]+", fields.get("LABELS", "").strip()) if item]
     if LABEL in labels:
         return None
     given = fields.get("LABELS", "").strip()
@@ -117,19 +157,37 @@ def _decision(fields: dict[str, str]) -> Optional[str]:
     return MESSAGE.format(flag=f"-f LABELS={corrected}")
 
 
+def _json_decision(fields: Optional[dict[str, str]]) -> Optional[str]:
+    """The curl-shape label check: same whole-token rule, JSON message."""
+    if fields is None:
+        return None
+    raw_envs = str(fields.get("SUPRAENVS", "")).strip()
+    envs = [item.lower() for item in re.split(r"[,\s]+", raw_envs) if item] if raw_envs else [DEFAULT_ENV]
+    if "des" not in envs:
+        return None
+    labels = [item.lower().strip() for item in re.split(r"[,\s]+", str(fields.get("LABELS", "")).strip()) if item.strip()]
+    if LABEL in labels:
+        return None
+    return _JSON_LABEL_MESSAGE.format()
+
+
 def _statement_block(statement: str) -> Optional[str]:
     masked = _mask(statement.strip())
     stripped_of_quotes = re.sub(r"[\x01\x02]", "", masked)
-    if "'" in stripped_of_quotes or '"' in stripped_of_quotes:
+    lead = _LEAD.match(masked)
+    is_dispatch = _DISPATCH.match(masked, len(lead.group(0)) if lead else 0) is not None
+    is_curl = _CURL_DISPATCH.search(masked) is not None
+    if not (is_dispatch or is_curl):
+        return None
+    if "'" in stripped_of_quotes or (is_dispatch and '"' in stripped_of_quotes):
         raise _Unanalyzable("unbalanced quote")
     if _DYNAMIC.search(stripped_of_quotes):
         raise _Unanalyzable("shell expansion outside a quoted value")
     if _FILE_FIELD.search(stripped_of_quotes):
         raise _Unanalyzable("file-based field payload, contents unreadable here")
-    lead = _LEAD.match(masked)
-    if not _DISPATCH.match(masked, len(lead.group(0)) if lead else 0):
-        return None
-    return _decision(_inputs(masked))
+    if is_dispatch:
+        return _decision(_inputs(masked))
+    return _json_decision(_json_inputs(masked))
 
 
 def check(tool_name: str, args) -> Optional[str]:

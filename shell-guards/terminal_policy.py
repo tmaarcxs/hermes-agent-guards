@@ -15,6 +15,13 @@ _SEGMENT_END = re.compile(r"[;\n]|&&|\|\|")
 _QUOTED = re.compile(r"'[^']*'|\"(?:[^\"\\]|\\.)*\"")
 _LOOP = re.compile(r"\b(?:for|while|until)\b")
 _SLEEP = re.compile(_START + r"sleep\s+(\d+(?:\.\d+)?)([smh]?)\b")
+_READ_T = re.compile(_START + r"read\s+(?:-[A-Za-z]+\s+)*-t\s+(\d+(?:\.\d+)?)([smh]?)\b")
+_PY_WAIT = re.compile(r"\btime\.sleep\s*\(([^)]*)\)")
+_SELECT = re.compile(r"\b(?:select\.select|select)\s*\(([^()]*(?:\([^()]*\)[^()]*)*)\)")
+_BACKGROUNDED_INTERP = re.compile(
+    r"(?:^|\n|[;&|(]\s*)(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:sudo\s+|env\s+(?:[-\w]+=?\S*\s+)*)?"
+    r"(?:[A-Za-z0-9_/.~-]*python[0-9.]*|perl\d?)\b[^;\n|&]*?[\"'][^\"']*[\"'][^;\n|&]*&(?=\s|$)"
+)
 _MERGE = re.compile(_START + r"gh\s+pr\s+merge\b")
 _OSASCRIPT = re.compile(_START + r"osascript\b")
 _PUSH = re.compile(_START + r"git\s+push\b")
@@ -39,6 +46,64 @@ _SHELL_C = re.compile(r"(?:bash|sh)\s+-c\s+")
 _UNIT_SECONDS = {"": 1, "s": 1, "m": 60, "h": 3600}
 _MAX_FOREGROUND_SLEEP = 5
 _MAX_LOOP_SLEEP = 3
+
+_WAIT_FOREGROUND_MESSAGE = (
+    "foreground wait of >= 5s (read -t / time.sleep / select) in a foreground terminal call: "
+    "run the wait as terminal(command=<the same command>, background=true, notify=true) "
+    "instead - its completion message wakes you, so never sleep or poll"
+)
+_WAIT_LOOP_MESSAGE = (
+    "polling loop with a wait of >= 3s (read -t / time.sleep / select): "
+    "run the whole wait as terminal(command=<the same loop>, background=true, notify=[<ready pattern>]) "
+    "instead - the ready-pattern match wakes you; never sleep or poll"
+)
+
+
+def _wait_seconds(token: str) -> Optional[float]:
+    try:
+        return float(token)
+    except (TypeError, ValueError):
+        return None
+
+
+def _matches_wait(source: str) -> list[tuple[int, float]]:
+    """(offset, seconds) of every wait-class literal in *source*.
+
+    `read -t N`, `time.sleep(N)` and `select(..., N)` all idle the interpreter
+    for N seconds; select's timeout is its LAST numeric argument. Non-numeric
+    offsets (a variable) fail open — the shape that matters is the literal
+    a model writes while intending to wait.
+    """
+    found: list[tuple[int, float]] = []
+    for match in _READ_T.finditer(source):
+        seconds = _wait_seconds(match.group(1))
+        unit = match.group(2) or "s"
+        if seconds is not None:
+            found.append((match.start(1), seconds * _UNIT_SECONDS.get(unit, 1)))
+    for match in _PY_WAIT.finditer(source):
+        for token in match.group(1).split(","):
+            seconds = _wait_seconds(token.strip())
+            if seconds is not None:
+                found.append((match.start(), seconds))
+                break
+    for match in _SELECT.finditer(source):
+        args = [token.strip() for token in match.group(1).split(",")]
+        seconds = _wait_seconds(args[-1]) if args else None
+        if seconds is not None:
+            found.append((match.start(), seconds))
+    line_end = re.compile(r"[;\n|]")
+    backgrounded = re.compile(r"(?:^|\s)&(?=\s|$)")
+    kept = []
+    for offset, seconds in found:
+        rest = source[offset:]
+        stop = line_end.search(rest)
+        rest = rest[: stop.start()] if stop else rest
+        if backgrounded.search(rest):
+            continue
+        kept.append((offset, seconds))
+    return kept
+
+
 _EMPTY_TO_ABSENT = {"kanban_list": ("assignee", "status", "tenant"), "kanban_create": ("completion_contract",)}
 _ENV_TASK_LITERAL = re.compile(r"^\s*\$?\{?HERMES_KANBAN_TASK\}?\s*$")
 _MAX_INLINE_ATTACH = 256
@@ -58,6 +123,45 @@ def attach_cap_block(args: Optional[dict]) -> Optional[str]:
 def _loop_starts(command: str) -> list[int]:
     """Offsets where a ``for``/``while``/``until`` loop keyword begins."""
     return [m.start() for m in _LOOP.finditer(command)]
+
+
+def _script_and_payload_bodies(source: str) -> list[str]:
+    """Interpreter payload texts the agent actually runs: heredoc bodies and
+    ``python -c``/``perl -e`` string payloads.
+
+    The caller passes the RAW command: heredoc bodies and quoted payloads are
+    exactly what the quote/blanking steps erase from the scanned shell text,
+    so they survive only here. Mention-in-strings stays exempt: the -c payload
+    must be a real quoted argument of an interpreter invocation.
+    """
+    bodies: list[str] = []
+    delim = None
+    body: list[str] = []
+    for line in source.split("\n"):
+        if delim is not None:
+            if line.strip() == delim:
+                if body:
+                    bodies.append("\n".join(body))
+                delim = None
+                body = []
+            else:
+                body.append(line)
+            continue
+        match = re.search(r"<<-?\s*['\"]?(\w[\w.]*)['\"]?", line)
+        if match:
+            delim = match.group(1)
+    for match in re.finditer(
+            r"(?:python\d?(?:\d(?:\.\d+)?)?|perl\d?)\s+(?:-[A-Za-z]+\s+)*-c\s*|perl\s+(?:-[A-Za-z]+\s+)*-e\s*",
+            source):
+        start = match.end()
+        if start < len(source) and source[start] in ("'", '"'):
+            quote = source[start]
+            end = source.find(quote, start + 1)
+            while end > 0 and quote == '"' and source[end - 1] == "\\":
+                end = source.find(quote, end + 1)
+            if end > 0:
+                bodies.append(source[start + 1:end])
+    return bodies
 
 
 def _segments(command: str, pattern: re.Pattern) -> list[str]:
@@ -123,6 +227,7 @@ def terminal_violations(command: str, background: bool) -> list[str]:
     if home:
         found.extend(home)
     source = hermes_home_gate._strip_heredocs(command)
+    raw_command = command
     command = _QUOTED.sub("''", source)
     if not background:
         for match in _SLEEP.finditer(command):
@@ -146,6 +251,30 @@ def terminal_violations(command: str, background: bool) -> list[str]:
                             "instead - the ready-pattern match wakes you; never sleep or poll"
                         )
                         break
+        if not found:
+            waits = _matches_wait(command)
+            if waits:
+                loops = [m.start() for m in _LOOP.finditer(command)]
+                if not loops and any(seconds >= _MAX_FOREGROUND_SLEEP for _, seconds in waits):
+                    found.append(_WAIT_FOREGROUND_MESSAGE)
+                elif loops and any(seconds >= _MAX_LOOP_SLEEP and any(start < offset for start in loops)
+                                   for offset, seconds in waits):
+                    found.append(_WAIT_LOOP_MESSAGE)
+        if not found:
+            for body in _script_and_payload_bodies(raw_command):
+                waits = _matches_wait(_QUOTED.sub("''", body))
+                if not waits:
+                    continue
+                if _BACKGROUNDED_INTERP.search(raw_command):
+                    continue
+                loops = [m.start() for m in _LOOP.finditer(_QUOTED.sub("''", body))]
+                if not loops and any(seconds >= _MAX_FOREGROUND_SLEEP for _, seconds in waits):
+                    found.append(_WAIT_FOREGROUND_MESSAGE)
+                    break
+                if loops and any(seconds >= _MAX_LOOP_SLEEP and any(start < offset for start in loops)
+                                 for offset, seconds in waits):
+                    found.append(_WAIT_LOOP_MESSAGE)
+                    break
     if not found and _loop_starts(command):
         starts = _loop_starts(command)
         for match in _PGREP_FULL.finditer(command):
@@ -225,15 +354,103 @@ def _tool_deadline() -> Optional[float]:
 
 
 def _wait_cap() -> Optional[int]:
-    """A ``process_manage wait`` at or above the call deadline races it and dies without partial output.
+    """A call at or above the deadline races it and dies without partial output.
 
-    Measured over 7 days: ``timeout=420`` errored 649 times out of 1,275 reads, ``timeout=400`` never
-    (787 reads). Keep a 5 s margin under the deadline so the tool's own timeout returns partial output.
+    A foreground ``terminal`` ``timeout`` above the deadline is killed by the host before
+    the tool's own 600 s promotion can run, and a ``process_manage`` ``wait`` at or above
+    it behaves the same. Measured over 7 days: ``timeout=420`` errored 649 times out of
+    1,275 reads, ``timeout=400`` never (787 reads). Keep a 5 s margin under the deadline
+    so the tool's own timeout returns partial output.
     """
     deadline = _tool_deadline()
     if not deadline or deadline <= 6:
         return None
     return int(deadline) - 5
+
+
+def _deadline_margin() -> Optional[int]:
+    """Deadline minus a 15 s margin: the rewrite target for an over-deadline ``timeout``.
+
+    15 s so the model still sees a bounded error surface (a failed command is fine; a
+    deadline death that returns nothing is not).
+    """
+    deadline = _tool_deadline()
+    if not deadline or deadline < 16:
+        return None
+    return int(deadline) - 15
+
+
+def _rewrite_timeout(value: Any, cap: Optional[int]) -> bool:
+    """True when ``value`` is a clamped candidate (an ``int`` above ``cap``)."""
+    return (
+        cap is not None
+        and isinstance(value, int)
+        and not isinstance(value, bool)
+        and value > cap
+    )
+
+
+def rewrite_deadline_args(tool_name: str, args: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """Rewrite a ``timeout`` that exceeds the call deadline to deadline minus 15 s.
+
+    ``terminal`` only in the foreground (a ``background=true`` call is not run under this
+    hook's deadline) and ``process_manage`` ``wait`` (``poll``/``log``/``kill`` do not
+    block). Merged after the existing default-deadline wait clamp (deadline minus 5 s), so
+    an over-deadline wait lands on deadline minus 15 s; the deadline-minus-5 default clamp
+    stays authoritative for the band between the two margins. A rewritten value is below
+    the deadline, so re-entry finds nothing to change. Fails open: a non-integer or
+    non-positive ``timeout``, a missing cap (unresolvable deadline) and any internal error
+    all leave the call untouched.
+    """
+    if tool_name == "terminal" and not bool(args.get("background")):
+        key = "timeout"
+    elif tool_name == "process_manage" and args.get("action") == "wait":
+        key = "timeout"
+    else:
+        return None
+    cap = _deadline_margin()
+    if not _rewrite_timeout(args.get(key), cap):
+        return None
+    return {key: cap}
+
+
+def _tool_note_text(command: str, cap: int) -> str:
+    """The note for the tool's own timeout death of a (rewritten) over-deadline call:
+    what happened and the event-driven way to run the same work."""
+    return (
+        f"Note: guarded - this foreground terminal call was rewritten from a timeout above the "
+        f"{cap + 15:.0f}s call deadline to {cap}s and its own timeout then killed it with partial "
+        f"output above. The next time this command may run that long, declare the outcome channel "
+        f"up front: terminal(command=<the same command>, background=true, notify=true) returns at "
+        f"once and its completion arrives as a message - never re-issue this same foreground call."
+    )
+
+
+def tool_note(output: Any, command: str, returncode: Any, **kwargs) -> Optional[str]:
+    """``transform_terminal_output``: annotate the tool's own-timeout death of a clamped call.
+
+    This seam runs INSIDE the terminal tool (``finalize_foreground_result``), so it also
+    sees the death of the rewritten 405 s call — the reachable complement to the silent
+    pre-call rewrite, because the host's own deadline kill produces ``_ToolTimeoutResult``,
+    which no transform hook sees (``_publish_sequential_result`` skips transforms for
+    timed-out results). Fires only when the output carries the terminal tool's own timeout
+    marker exactly, ``[Command timed out after Ns]`` with N equal to the rewrite cap (so
+    only calls the clamp touched, not an arbitrary ``exit 124`` or the configured default
+    timeout), with ``returncode`` 124 and the marker at the end. Fails open: a non-string
+    output, another exit code or an unresolvable deadline leave the output untouched.
+    """
+    if returncode != 124 or not isinstance(output, str) or not output:
+        return None
+    cap = _deadline_margin()
+    if cap is None:
+        return None
+    marker = f"[Command timed out after {cap}s]"
+    if not output.rstrip().endswith(marker):
+        return None
+    try:
+        return output + "\n\n" + _tool_note_text(command, cap)
+    except Exception:
+        return None
 
 
 def normalized_args(tool_name: str, args: dict[str, Any]) -> Optional[dict[str, Any]]:

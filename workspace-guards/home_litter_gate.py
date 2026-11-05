@@ -57,7 +57,8 @@ _MESSAGE = (
     "the Hermes scratch dir (~/.hermes/cache/scratch), TMPDIR/tmp or the board's "
     "kanban attachments directory; repo work goes in "
     "<main-repo>/.worktrees/<task>/ or ~/git_repos/ad-hoc/<task>/, and the kanban "
-    "DB lives at ~/.hermes/kanban.db (never a bare relative 'kanban.db')."
+    "DB lives at ~/.hermes/kanban.db (never a bare relative 'kanban.db'). "
+    "Workspace-targeted rewrite of this call: {rewrite}"
 )
 
 _CREATE_HEADS = ("cp", "mv", "rsync", "install", "touch", "mkdir")
@@ -579,17 +580,97 @@ def _config_cwd() -> Optional[str]:
         return process_cwd or None
 
 
+_DEFAULT_CWD = "~"
+"""The home-root cwd view for the rewrite's per-operand decision: the block
+only ever fires when an operand creates a new top-level entry under the home,
+so testing each operand against the home root is exactly the condition."""
+
+
+def _workspace_rewrite(command: Optional[str], tool: str) -> str:
+    """The same call re-targeted into the task workspace, derived from the
+    real operands.
+
+    A block message that only names permitted ZONES sent 18/40 sampled
+    sessions straight back to the identical littering call (t_8fdd0a3e §4):
+    the model still had to invent the path itself. The message now carries
+    the rewritten call so the retry is a copy, not a new decision. Only the
+    creating head's own tokens are re-targeted (`mkdir`/`touch` get every
+    operand; copies keep their flags and re-target the destination); unknown
+    shapes degrade to the generic `$HERMES_KANBAN_WORKSPACE` pointer.
+    """
+    workspace = "$HERMES_KANBAN_WORKSPACE"
+    if tool in ("write_file", "patch"):
+        return f"{tool}(path={workspace}/<name>, ...)"
+    if not command:
+        return f"workspace={workspace}/<name>"
+    try:
+        tokens = _paths._tokens(command.strip())
+    except Exception:
+        return f"workspace={workspace}/<name>"
+    index = _head_index(tokens)
+    if index >= len(tokens):
+        return f"workspace={workspace}/<name>"
+    head = tokens[index].lower()
+    if head in ("mkdir", "touch"):
+        arg_options = _MKDIR_ARG_OPTIONS if head == "mkdir" else _TOUCH_ARG_OPTIONS
+        rebuilt = tokens[index:index + 1]
+        position = index + 1
+        retargeted = False
+        while position < len(tokens):
+            token = tokens[position]
+            if _option_consumes_next(token, arg_options):
+                rebuilt.extend(tokens[position:position + 2])
+                position += 2
+                continue
+            if token.startswith("-") and token != "-":
+                rebuilt.append(token)
+                position += 1
+                continue
+            entry = _new_top_level_entry(_paths._join(_DEFAULT_CWD, token), None)
+            if entry:
+                name = token.rsplit("/", 1)[-1] if token.startswith("~") else token
+                rebuilt.append(workspace + "/" + name)
+                retargeted = True
+            else:
+                rebuilt.append(token)
+            position += 1
+        return " ".join(rebuilt) if retargeted else f"{head} {workspace}/<name>"
+    if head in _CREATE_HEADS:
+        parts = tokens[index:]
+        for position in range(len(parts) - 1, -1, -1):
+            token = parts[position]
+            if not token.startswith("-") and _new_top_level_entry(
+                    _paths._join(_DEFAULT_CWD, token), None):
+                parts[position] = workspace + "/" + token
+                return " ".join(parts)
+        return f"{head} ... {workspace}/<name>"
+    return f"workspace={workspace}/<name>"
+
+
 def terminal_violations(command: str, base_cwd: Optional[str] = None) -> list[str]:
     blanked = _paths._strip_heredoc_bodies(command)
     for cwd, segment in _paths._segments(blanked, base_cwd):
         entry = _offending(_creation_targets(cwd, segment), cwd)
         if entry:
-            return [_MESSAGE.format(tool="terminal", entry="~/" + entry)]
+            rewrite = _workspace_rewrite_for_segment(segment, cwd)
+            return [_MESSAGE.format(tool="terminal", entry="~/" + entry, rewrite=rewrite)]
     for body in _paths._script_bodies(command):
         entry = _offending(_py_creation_literals(body), base_cwd)
         if entry:
-            return [_MESSAGE.format(tool="terminal", entry="~/" + entry)]
+            return [_MESSAGE.format(
+                tool="terminal", entry="~/" + entry,
+                rewrite="$HERMES_KANBAN_WORKSPACE/<name>")]
     return []
+
+
+def _workspace_rewrite_for_segment(segment: str, cwd: Optional[str]) -> str:
+    """The workspace rewrite built from the ONE segment that litters, with
+    its separators intact (`cd ~ && mkdir x` keeps the `cd` prefix)."""
+    for split_token in ("&&", ";", "|"):
+        if split_token in segment:
+            head, _, tail = segment.rpartition(split_token)
+            return head + split_token + " " + _workspace_rewrite(tail, "terminal")
+    return _workspace_rewrite(segment, "terminal")
 
 
 def check(tool_name: str, args: Any, **kwargs: Any) -> Optional[str]:
@@ -601,7 +682,9 @@ def check(tool_name: str, args: Any, **kwargs: Any) -> Optional[str]:
         if path and workspace and not path.startswith(("/", "~", "$")):
             path = workspace.rstrip("/") + "/" + path
         entry = _new_top_level_entry(path)
-        return _MESSAGE.format(tool=tool_name, entry="~/" + entry) if entry else None
+        return (_MESSAGE.format(tool=tool_name, entry="~/" + entry,
+                                rewrite=_workspace_rewrite(path, tool_name))
+                if entry else None)
     if tool_name != "terminal":
         return None
     found = terminal_violations(str(args.get("command") or ""), _resolved_cwd(args, kwargs))

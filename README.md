@@ -18,7 +18,9 @@ Answers: *is this shell command safe to run?*
 
 - Blocks `git stash` writes for workers (the stash stack is shared by every worktree), `process_manage` `poll`, a foreground `sleep` of 5 s or more, and a polling loop holding a
   `sleep` of 3 s or more (run the wait in the background with a notification
-  channel; `wait` returns at the process exit).
+  channel; `wait` returns at the process exit). The same thresholds cover the
+  equivalent idle-wait shapes: `read -t N`, and `time.sleep(N)`/`select(..., N)`
+  inside a `python -c`/`perl -e` payload or heredoc script.
 - Blocks a `pgrep -f`/`pkill -f` inside a loop, in the foreground *and* in the
   background: the pattern is part of the loop shell's own command line, so the
   loop matches itself and never exits (observed: two waiters held 8 h on
@@ -49,10 +51,21 @@ Answers: *is this shell command safe to run?*
   message gives the corrected command with the real default branch.
 - Turns `notify=true` on for a bounded `background=true` terminal job that declares no outcome
   channel (`notify=true`, a notify pattern list, or a positive `heartbeat`), so its completion
-  event wakes the agent.
-- Blocks a `paas-promote` dispatch to `des` without the `auto-approval` label.
+  event wakes the agent. Workers get the insert directly; the lead gets a block whose message
+  names the exact call shape.
+- Blocks a `paas-promote` dispatch to `des` without the `auto-approval` label, in both dispatch
+  shapes (`gh workflow run` and the raw JSON `curl .../workflows/dispatches` POST) and after
+  stripping whitespace around `LABELS` items.
 - Blocks `kanban_attach` with more than 256 characters of inline base64
   (attach by path instead) and normalizes known-bad optional arguments.
+- Rewrites a `terminal`/`process_manage wait` `timeout` above the call
+  deadline (`timeouts.tools.sequential_call`, else 420 s) down to 15 s under
+  it (405 by default) so the tool's own timeout returns partial output
+  instead of the host killing the whole slot; a `terminal` result whose own
+  rewritten timeout killed it gets a note naming the
+  `background=true, notify=true` replacement call (the host's own deadline
+  kill produces a result no transform hook sees, so those deaths stay
+  silent).
 - Keeps skill markdown files under their size limit (blocks a call that would
   push one over; flags after the fact one that landed over).
 
@@ -66,7 +79,9 @@ Answers: *is this path one the agent may write to?*
   state), the host's main checkouts, other workers' workspaces.
 - Blocks creating a new top-level entry directly under the home directory,
   resolving the command's real cwd from the terminal tool's `workdir` argument
-  and the session's recorded cwd, not only an in-string `cd`.
+  and the session's recorded cwd, not only an in-string `cd`; the block message
+  names the exact workspace-targeted rewrite of the offending call
+  (`mkdir -p $HERMES_KANBAN_WORKSPACE/<name>`).
 - Blocks writes (`write_file`, `patch`, terminal redirect/tee/sed -i/perl -i,
   inline python/perl writes, `cp`/`mv`/`rm`/`touch`/`mkdir`, `git checkout --`/
   `restore`/`apply`) that target an installed plugin checkout
@@ -78,6 +93,16 @@ Answers: *is this path one the agent may write to?*
 - When the profile config sets `kanban.default_assignee`, rejects a
   `kanban_create` whose `dir`/`worktree` workspace_path leaves the placement
   convention.
+- Escalates a call the same guard already blocked twice in one session: the
+  repeated block result is REWRITTEN (never blocked in advance — every call
+  still reaches the real guards) into a verdict that says repetition cannot
+  pass and names the way out — the exact change the original block states, or
+  `kanban_block(reason="...")` in a worker session — with the original block
+  text kept below it. `kanban_block`/`kanban_heartbeat` results are never
+  escalated; every error fails open. Reaches registry-dispatched tools
+  (`kanban_*`, skill, MCP); terminal-class blocked results do not fire
+  transform hooks in the core, so repeats of those stay out of reach without
+  a core change.
 
 ### `kanban-guards` — Kanban worker, lead and wake discipline
 
@@ -149,9 +174,10 @@ then refuses to move it. Install without `--ref`, and `hermes plugins update
 shell-guards/       one self-contained plugin (modules + plugin.yaml + tests)
 workspace-guards/   one self-contained plugin
 kanban-guards/      one self-contained plugin
-jot-guards/         one self-contained plugin
+jot-guards/         placeholder; its nudge gate was removed (shaping, not enforcement)
 recall-guards/      one self-contained plugin
-goal-waker/         one self-contained plugin (resumes parked goals on messaging chats)
+goal-waker/         one self-contained plugin (resumes parked goals on messaging chats; one wake
+                    per goal-row advance)
 text-guards/        one self-contained plugin
 provider-guards/    one self-contained plugin (retry an upstream HTTP 424)
 tests/              cross-plugin checks (helper-copy divergence, transform winner)

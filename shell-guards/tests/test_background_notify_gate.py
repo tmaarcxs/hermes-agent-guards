@@ -110,6 +110,47 @@ def test_not_a_worker_is_exempt(monkeypatch):
     assert call({"background": True, "command": "python3 replay.py"}) is None
 
 
+"""Round-2: worker contexts get the insert, not the block.
+
+The audit (t_8fdd0a3e §3) measured 51 worker sessions re-sending the
+identically blocked call 3+ times (compliance 6/40): the block restated the
+fix the hook could have applied itself. A worker process now gets
+``notify=true`` inserted directly; the lead keeps the block (it may
+deliberately send a silent job and choose the channel).
+"""
+
+
+def test_worker_context_gets_modify_with_notify_true(monkeypatch):
+    monkeypatch.setenv("HERMES_KANBAN_TASK", "t_self")
+    result = guards._pre_tool_call(
+        tool_name="terminal", args={"background": True, "command": "python3 replay.py > replay.log 2>&1"})
+    assert result and result["action"] == "modify"
+    assert result["args"]["notify"] is True
+    assert result["args"].get("block") is None
+
+
+def test_lead_context_still_blocks(monkeypatch):
+    monkeypatch.delenv("HERMES_KANBAN_TASK", raising=False)
+    result = guards._pre_tool_call(
+        tool_name="terminal", args={"background": True, "command": "python3 replay.py > replay.log 2>&1"})
+    assert result is None or result["action"] == "modify"
+    assert not result or "notify" not in (result.get("args") or {})
+    block = gate.check(
+        "terminal", {"background": True, "command": "python3 replay.py > replay.log 2>&1"})
+    assert block and "terminal(command=<same command>, background=true, notify=true)" in block
+    assert "python3 replay.py > replay.log 2>&1" not in block
+
+
+def test_fixed_call_passes(monkeypatch):
+    monkeypatch.setenv("HERMES_KANBAN_TASK", "t_self")
+    args = {"background": True, "command": "python3 replay.py > replay.log 2>&1"}
+    result = guards._pre_tool_call(tool_name="terminal", args=args)
+    assert result and result["action"] == "modify"
+    merged = {**args, **result["args"], "command": args["command"]}
+    assert gate.check("terminal", merged) is None
+    assert gate.fix("terminal", merged) is None
+
+
 def test_message_carries_the_fix():
     result = call({"background": True, "command": "python3 replay.py"})
     assert "notify=true" in result
@@ -122,16 +163,25 @@ def test_block_message_is_compact_and_names_the_fix():
     assert "notify=true" in result
 
 
-def test_fix_turns_notify_on_for_a_silent_bounded_job():
+def test_fix_turns_notify_on_for_a_silent_bounded_job(monkeypatch):
+    monkeypatch.setenv("HERMES_KANBAN_TASK", "t_self")
     assert gate.fix("terminal", {"background": True, "command": "python3 replay.py"}) == {"notify": True}
 
 
-def test_fix_leaves_a_job_that_already_has_a_channel():
+def test_fix_leaves_a_job_that_already_has_a_channel(monkeypatch):
+    monkeypatch.setenv("HERMES_KANBAN_TASK", "t_self")
     assert gate.fix("terminal", {"background": True, "command": "python3 replay.py", "notify": True}) is None
     assert gate.fix("terminal", {"background": True, "command": "python3 long.py", "heartbeat": 120}) is None
 
 
-def test_plugin_hook_modifies_instead_of_blocking():
+def test_fix_without_a_worker_context_keeps_the_block(monkeypatch):
+    """The lead (no HERMES_KANBAN_TASK) stays on the block path."""
+    monkeypatch.delenv("HERMES_KANBAN_TASK", raising=False)
+    assert gate.fix("terminal", {"background": True, "command": "python3 replay.py"}) is None
+
+
+def test_plugin_hook_modifies_instead_of_blocking(monkeypatch):
+    monkeypatch.setenv("HERMES_KANBAN_TASK", "t_self")
     result = guards._pre_tool_call(
         tool_name="terminal", args={"background": True, "command": "python3 replay.py > replay.log 2>&1"}
     )

@@ -24,6 +24,7 @@ Exempt:
 Fails open.
 """
 
+import os
 import re
 from typing import Any, Optional
 
@@ -115,9 +116,32 @@ def check(tool_name: str, args: Any) -> Optional[str]:
         return None
     if not _policy.configured_worker():
         return None
+    if os.environ.get("HERMES_KANBAN_TASK"):
+        return None
     return MESSAGE + (" " + _RETRY_INSTRUCTION if _RETRY_INSTRUCTION else "")
 
 
 def fix(tool_name: str, args: Any) -> Optional[dict]:
-    """The args change that gives a silent bounded background job its completion event."""
-    return {"notify": True} if check(tool_name, args) else None
+    """The args change that gives a silent bounded background job its completion event.
+
+    Only worker processes (``HERMES_KANBAN_TASK`` set) get the ``notify=true``
+    insert: 51 worker sessions re-sent the identically blocked call three or
+    more times (the message failed to steer) and the insert IS the correction
+    the message names. Every other context keeps the block.
+    """
+    if not os.environ.get("HERMES_KANBAN_TASK"):
+        return None
+    return {"notify": True} if _missing_channel(tool_name, args) else None
+
+
+def _missing_channel(tool_name: str, args: Any) -> bool:
+    if tool_name != "terminal" or not isinstance(args, dict) or not args.get("background"):
+        return False
+    if args.get("pty"):
+        return False
+    notify = args.get("notify")
+    has_notify = notify is True or (isinstance(notify, (list, tuple)) and len(notify) > 0)
+    heartbeat = args.get("heartbeat")
+    if has_notify or (isinstance(heartbeat, (int, float)) and heartbeat > 0):
+        return False
+    return not _final_statement_is_server(str(args.get("command") or ""))
