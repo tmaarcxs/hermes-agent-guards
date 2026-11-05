@@ -73,8 +73,9 @@ workspace entries keep theirs).
    transforms are joined on two hooks.** OLD ran one callback that chained
    `completion_gate → workspace_scope_gate → kanban_show_slim_gate → skill_size →
    lead_work_nudge`. NEW splits that into two plugins: `kanban-guards` keeps
-   `completion_gate → workspace_scope_gate → kanban_show_slim_gate →
-   lead_work_nudge` (unchanged inside the plugin) and `shell-guards` owns
+   `completion_gate → workspace_scope_gate → lead_work_nudge` (unchanged inside the
+   plugin; `kanban_show_slim_gate` left the chain on 2026-11-03 and its file was
+   deleted — it was board shaping, not a gate) and `shell-guards` owns
    `skill_size`. The host keeps the **first non-`None` string** and drops the rest
    (`model_tools.py:849-866`); callbacks do **not** chain — every callback receives
    the ORIGINAL result, so a plugin cannot build on the previous plugin's output.

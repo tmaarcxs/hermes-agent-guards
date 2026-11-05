@@ -99,7 +99,7 @@ Answers: *is this lifecycle call, board read or wake legitimate?*
   (uncovered paths in the handoff text, or unpushed git commits with no bundle
   or patch artifact) — the workspace is deleted on completion.
 - Lead gates: scope a lead chat's `kanban_list` result to the cards its own chat
-  thread is subscribed to; slim the lead's `kanban_show` deterministically.
+  thread is subscribed to.
 - Wakes: run every Kanban wake on one shared event-driven chassis over
   `board_watch` — stale parked cards, review-loop thresholds, the churn corner,
   waiting-on-external-gate runs, dispatcher stalls and unreconciled delivery

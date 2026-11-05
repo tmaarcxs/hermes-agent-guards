@@ -21,6 +21,7 @@ def kw(session="s1", calls=None):
 def worker_setup(monkeypatch):
     monkeypatch.setattr(guards.kanban_policy, "configured_worker", lambda: "worker")
     monkeypatch.setenv("HERMES_KANBAN_TASK", "t_1a2b3c4d")
+    monkeypatch.delenv("HERMES_PROFILE", raising=False)
     gate.reset()
     yield
     gate.reset()
@@ -86,6 +87,38 @@ def test_failed_checkpoint_call_does_not_discharge(monkeypatch):
 def test_request_review_also_discharges():
     done(tool="kanban_request_review", calls=BASE)
     assert pre(calls=BASE + 5) is None
+
+
+def test_reviewer_profile_process_is_exempt(monkeypatch):
+    """A reviewer process runs long evidence jobs; the checkpoint duty is the
+    dispatcher-owned worker's (audit FIX 1: 10 consecutive false positives in
+    local-a442f76e18ff97ba2a6ad1). The dispatcher pins HERMES_PROFILE per spawned
+    process (``profiles.py``), and ``kanban.default_assignee`` is the worker identity
+    kanban_policy already computes: other profiles pass, the worker keeps the duty."""
+    monkeypatch.setenv("HERMES_PROFILE", "reviewer")
+    assert pre(calls=BASE + 500) is None
+    assert pre(tool="terminal", args={"command": "git fetch"}, session="s-other", calls=BASE + 900) is None
+
+
+def test_worker_profile_process_keeps_the_duty(monkeypatch):
+    monkeypatch.setenv("HERMES_PROFILE", "worker")
+    assert pre(calls=BASE) is not None
+
+
+def test_unresolvable_profile_falls_back_to_the_old_behavior(monkeypatch):
+    monkeypatch.delenv("HERMES_PROFILE", raising=False)
+    assert pre(calls=BASE) is not None
+
+
+def test_reviewer_profile_process_with_400_calls_and_no_checkpoint_is_not_blocked(monkeypatch):
+    monkeypatch.setenv("HERMES_PROFILE", "reviewer")
+    assert pre(calls=400) is None
+
+
+def test_dispatcher_owned_worker_process_with_400_calls_is_blocked(monkeypatch):
+    monkeypatch.setenv("HERMES_PROFILE", "worker")
+    blocked = pre(calls=400)
+    assert blocked is not None and "kanban_comment" in blocked["message"]
 
 
 def test_lead_process_is_never_blocked(monkeypatch):
