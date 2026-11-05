@@ -1,5 +1,5 @@
 name: goal-waker
-version: "0.1.0"
+version: "0.2.0"
 description: >-
   Resume a parked /goal on a messaging chat when its wait barrier lifts. The gateway
   clears a goal barrier (timer, pid, process session) only while it evaluates a turn,
@@ -7,7 +7,10 @@ description: >-
   parked for hours. On each dispatcher tick (about every 60 s) the waker finds the
   active goals that carry a barrier, asks the goal manager whether it still holds, and
   injects the goal continuation prompt into the owning chat session once it lifted.
-  Local CLI/TUI sessions are skipped (they have their own idle waker). A refused
+  Local CLI/TUI sessions are skipped (they have their own idle waker). A session is
+  woken at most once per goal-row advance: the sweep records the session's
+  last_activity_at at injection time and skips the session until that value moves,
+  so a quiet chat gets one wake, not one per tick. A refused
   injection re-parks the goal for 30 s so it is retried and never left active with no
   turn coming. Needs plugins.entries.<id>.allow_gateway_injection: true.
 author: "kur4i"

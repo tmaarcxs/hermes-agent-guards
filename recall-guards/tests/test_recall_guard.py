@@ -1,4 +1,7 @@
-"""Behaviour of the recall gates: the per-turn clarify block and the periodic nudge.
+"""Behaviour of the recall gate: the per-turn clarify block.
+
+The advisory nudge/transform seam was removed (2026-11-03, dead code deleted
+2026-11-05): a reminder shapes behavior instead of enforcing it.
 
 The real store is never touched: every test points ``HERMES_HOME`` at a temporary
 home whose ``state.db`` carries the one table the guard reads.
@@ -135,28 +138,15 @@ def test_check_allows_clarify_when_this_turn_read_memory(monkeypatch, tmp_path):
 
 
 
-def test_nudge_never_fires(monkeypatch):
-    """The periodic reminder is gone (2026-11-03): ``transform`` never appends text.
+def test_the_removed_shaping_surface_stays_gone():
+    """The advisory nudge/transform seam is removed: no reminder API at all.
 
-    It was advisory only and could not block, so it read as noise. The ``clarify``
-    gate below is the part that changes behaviour and it stays.
+    The periodic "consult Hindsight" notice was removed at the operator's request
+    (2026-11-03); the leftover no-op ``transform`` plus the ``NUDGE``/``nudge_text``
+    code behind it went with it: a reminder shapes behavior instead of enforcing
+    it. The clarify block above is the part that changes behaviour and it stays.
     """
-    monkeypatch.setattr(recall_guard.policy, "is_lead", lambda: True)
-    for turn in range(1, 12):
-        assert recall_guard.transform(
-            tool_name="read_file", result="ok", session_id="s", turn_id=f"t{turn}") is None
-
-
-def test_nudge_ignores_non_string_results(monkeypatch):
-    monkeypatch.setattr(recall_guard.policy, "is_lead", lambda: True)
-    for turn in range(1, 6):
-        recall_guard.transform(tool_name="read_file", result=None, session_id="s", turn_id=f"t{turn}")
-    assert recall_guard.transform(tool_name="read_file", result={"a": 1}, session_id="s", turn_id="t6") is None
-
-
-def test_nudge_is_per_session(monkeypatch):
-    monkeypatch.setattr(recall_guard.policy, "is_lead", lambda: True)
-    for session in ("a", "b"):
-        for turn in range(1, 8):
-            assert recall_guard.transform(
-                tool_name="read_file", result="ok", session_id=session, turn_id=f"t{turn}") is None
+    assert "transform" not in vars(recall_guard)
+    assert "nudge_text" not in vars(recall_guard)
+    assert "NUDGE" not in vars(recall_guard)
+    assert "turn_count" not in vars(recall_guard)

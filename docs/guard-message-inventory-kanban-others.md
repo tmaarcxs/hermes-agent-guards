@@ -37,10 +37,9 @@ concrete alternative and were left unchanged. The mechanical net
 
 ## jot-guards
 
-| Gate | Trigger | Before | After | Alternative |
-|---|---|---|---|---|
-| `jot_nudge.MESSAGE` (pre_verify) | work turn changed files, no mutating Jot tool | OK | "Update it now, in this same response: `jot_read` first, then `jot_update`/`jot_set_task`, one generic line per outcome..." | two exact tool calls in order |
-| `jot_nudge.READ_ONLY_MESSAGE` | turn read Jot but wrote nothing, attempt 1 | OK | "Write the outcome now with `jot_update`/`jot_set_task`, one generic line with its state and next step, or state in your answer why this turn changed no tracked outcome." | exact calls + the escape |
+No block messages: the plugin's only gate (a `pre_verify` continue directive
+reminding the lead to update Jot) was removed — a reminder shapes behavior
+instead of enforcing it. The plugin registers no hooks today.
 
 ## text-guards
 

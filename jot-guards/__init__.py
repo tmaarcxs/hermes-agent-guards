@@ -1,27 +1,18 @@
-"""jot-guards: keep the Jot weekly board current before a work turn ends.
+"""jot-guards: enforcement gate for the Jot weekly board.
 
-One gate only: ``pre_verify`` (the ``stop_gate`` sibling in ``kanban-guards`` rides the same
-hook) asks the agent to record its outcome on Jot when the turn changed files in a work
-repository and called no mutating Jot tool. ``post_tool_call`` feeds it the turn's Jot usage.
-Imports are lazy so a bare ``pytest`` collecting this ``__init__.py`` as a top-level package
-still imports cleanly. Every callback fails open: a broken check can never wedge the turn.
+Every hook this folder once shipped — the ``pre_verify`` continue directive that
+reminded the lead to record the turn's outcome on Jot — was behavior shaping, not
+enforcement, so it is removed. What enforcing the board update would actually
+mean (a block that strips or refuses a turn) has no hook seam here, so this
+plugin currently ships no gate and registers nothing; the manifest entry keeps
+the name issued so a stale ``plugins.entries`` config lines does not error.
+Any future gate here must block, strip or transform and fail open.
 """
 
 
 def register(ctx) -> None:
-    from . import jot_nudge
-
-    ctx.register_hook("post_tool_call", _post_tool_call)
-    ctx.register_hook("pre_verify", jot_nudge.check)
-
-
-def _post_tool_call(**kwargs) -> None:
-    try:
-        from . import jot_nudge
-
-        jot_nudge.record(**kwargs)
-    except Exception:
-        pass
+    """Register no hooks: the folder has no gate to run."""
+    return None
 
 
 __all__ = ["register"]

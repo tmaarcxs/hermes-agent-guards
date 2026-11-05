@@ -174,9 +174,10 @@ then refuses to move it. Install without `--ref`, and `hermes plugins update
 shell-guards/       one self-contained plugin (modules + plugin.yaml + tests)
 workspace-guards/   one self-contained plugin
 kanban-guards/      one self-contained plugin
-jot-guards/         one self-contained plugin
+jot-guards/         placeholder; its nudge gate was removed (shaping, not enforcement)
 recall-guards/      one self-contained plugin
-goal-waker/         one self-contained plugin (resumes parked goals on messaging chats)
+goal-waker/         one self-contained plugin (resumes parked goals on messaging chats; one wake
+                    per goal-row advance)
 text-guards/        one self-contained plugin
 provider-guards/    one self-contained plugin (retry an upstream HTTP 424)
 tests/              cross-plugin checks (helper-copy divergence, transform winner)

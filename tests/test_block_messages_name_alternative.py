@@ -48,7 +48,6 @@ PLUGINS = (
     "shell-guards",
     "workspace-guards",
     "recall-guards",
-    "jot-guards",
     "provider-guards",
     "text-guards",
     "goal-waker",
