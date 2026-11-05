@@ -34,6 +34,13 @@ Answers: *is this shell command safe to run?*
 - Blocks recursive deletion of a live Hermes home (`rm` with a recursive flag,
   `find -delete`, `rsync --delete` on a protected destination, python
   `rmtree`-family calls), including through a runner chain after a pipe.
+- Blocks a `gh pr create --base` or `az repos pr create --target-branch`/`-t`
+  (and a `git checkout -b`/`switch -c`/`worktree add -b`/`branch` start point)
+  that names a long-lived integration branch (`main`, `master`, `develop`,
+  `trunk`, `dev`) different from the repo's real default branch — read from
+  `refs/remotes/origin/HEAD` in the command's repo, never hard-coded; a stacked
+  PR on a feature or release branch and an omitted base pass, and the block
+  message gives the corrected command with the real default branch.
 - Turns `notify=true` on for a bounded `background=true` terminal job that declares no outcome
   channel (`notify=true`, a notify pattern list, or a positive `heartbeat`), so its completion
   event wakes the agent.

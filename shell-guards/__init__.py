@@ -67,6 +67,7 @@ try:
     from . import (
         _policy,
         background_notify_gate,
+        base_branch_gate,
         git_stash_gate,
         hermes_home_gate,
         hermes_home_search_gate,
@@ -168,6 +169,7 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
         (lambda: skill_size.record(tool_name, args, **kwargs), "skill_size"),
         (lambda: process_poll_gate.check(tool_name, args), "process_poll_gate"),
         (lambda: git_stash_gate.check(tool_name, args), "git_stash_gate"),
+        (lambda: base_branch_gate.check(tool_name, args), "base_branch_gate"),
         (lambda: hermes_home_search_gate.check(tool_name, args), "hermes_home_search_gate"),
     ):
         try:
