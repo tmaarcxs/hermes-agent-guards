@@ -20,32 +20,6 @@ def assert_retry_instruction(message: str) -> None:
     assert VIOLATION_CLAUSE in message, message
 
 
-def test_kanban_policy_block_carries_retry_instruction(monkeypatch):
-    policy = guards.kanban_policy
-    monkeypatch.setattr(policy, "configured_worker", lambda: "worker")
-    body = "Goal: spec\n\n## Acceptance\n1. check"
-    result = guards._pre_tool_call(
-        tool_name="kanban_request_review",
-        args={"summary": "s", "reviewer": "someone-else"},
-        task_id="", session_id="",
-    )
-    assert result["action"] == "block"
-    assert_retry_instruction(result["message"])
-
-
-def test_review_gate_block_carries_retry_instruction(monkeypatch):
-    import json
-    monkeypatch.setattr(guards.kanban_policy, "configured_worker", lambda: "worker")
-    gate = guards.review_gate
-    todo_items = [{"id": "1", "content": "Contract coverage", "status": "pending"}]
-    guards._post_tool_call(tool_name="todo_list", args={"todos": todo_items},
-                           result=json.dumps({"todos": todo_items}), status="ok", session_id="s9")
-    result = guards._pre_tool_call(tool_name="kanban_request_review", args={"summary": "s"}, session_id="s9")
-    assert result["action"] == "block"
-    assert_retry_instruction(result["message"])
-    gate.reset()
-
-
 def test_completion_gate_missing_and_unmet_blocks_carry_retry_instruction(monkeypatch):
     monkeypatch.setattr(guards.kanban_policy, "configured_worker", lambda: "worker")
     monkeypatch.setenv("HERMES_KANBAN_TASK", "t_1")

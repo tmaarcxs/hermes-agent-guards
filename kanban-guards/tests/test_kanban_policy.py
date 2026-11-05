@@ -58,9 +58,7 @@ def test_review_reviewer_not_gated_by_this_plugin():
     setup had no reviewer profile. Once a real ``reviewer`` profile existed and was on
     ``kanban.dispatch_profiles``, the gate blocked a legitimate handoff. It is removed.
 
-    Asserted at the policy layer only: the full ``_pre_tool_call`` chain also runs
-    ``review_gate``, which legitimately blocks this stub for lacking pre-review checks,
-    so routing through it would test that gate instead of this one.
+    Asserted at the policy layer only: the policy layer is tested on its own.
     """
     assert policy.check("kanban_request_review", {"summary": "s"}) is None
     assert policy.check("kanban_request_review", {"summary": "s", "reviewer": "worker"}) is None

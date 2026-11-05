@@ -9,8 +9,7 @@ description: >-
   published-PR completion duty visible (reminder on kanban_show, fix suffix on the
   "PR acceptance missing" rejection), block contacts with people on GitHub from worker
   terminals (review requests, assignees, @mention comments) with owner-approval and
-  needs_input guidance, block kanban_request_review until the eight pre-review checks
-  are closed with receipt anchors, bounce once per session a narrated stop after a
+  needs_input guidance, bounce once per session a narrated stop after a
   blocked lifecycle call, block kanban_schedule (it ends the run with no timer), and
   refuse a handoff that preserves a backup/rollback copy of the delivered work.
   A dispatcher-tick observer auto-lifts the active_pr respawn guard when a human

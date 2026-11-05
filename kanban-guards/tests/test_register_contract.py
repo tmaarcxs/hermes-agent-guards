@@ -6,7 +6,7 @@ Acceptance 3 of the kanban-guards split card. The order source is root
   ``pre_verify`` (stop_gate.check), ``transform_tool_result`` and wakes;
 - the ``pre_tool_call`` tuple (lines 274-291) lists the checks in one fixed order;
   this plugin keeps only the Kanban checks, in the same relative order:
-  checkpoint_gate, kanban_policy, github_contact, review_gate,
+  checkpoint_gate, kanban_policy, github_contact,
   handoff_gate, completion_gate, backup_copy_gate, schedule_gate (the shell-side
   entries — workspace_write_gate, home_litter_gate, workspace_convention,
   paas_promote_gate, skill_size, background_notify_gate — belong to other plugins);
@@ -50,15 +50,12 @@ def test_pre_tool_call_check_order_matches_root_at_90456b2():
     """Kanban-order pin, derived from the root tuple at 90456b2: keep the relative
     order of the checks this plugin owns, dropping the shell-owned entries.
 
-    ``round_cap_gate`` is appended after ``review_gate`` (its sibling on the same
-    lifecycle tool): a card past the round ceiling must be told to stop rather than
-    blocked by a pre-review checklist, so the ceiling gets the later slot."""
+    ``round_cap_gate`` follows ``pr_link_gate`` and precedes ``handoff_gate``."""
     assert list(guards._PRE_TOOL_CALL_CHECK_ORDER) == [
         "checkpoint_gate",
         "kanban_policy",
         "github_contact",
         "pr_link_gate",
-        "review_gate",
         "round_cap_gate",
         "handoff_gate",
         "completion_gate",
