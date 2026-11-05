@@ -26,9 +26,8 @@ def clean_state(monkeypatch, tmp_path):
 
 def make_plugin(tmp_path: Path, name: str = "demo-plugin") -> Path:
     """A plugin dir that is a git checkout with an upstream and a clean tree."""
-    remote = tmp_path / "remote.git"
-    if not remote.exists():
-        subprocess.run(["git", "init", "--bare", "-q", str(remote)], check=True)
+    remote = tmp_path / f"{name}.git"
+    subprocess.run(["git", "init", "--bare", "-q", str(remote)], check=True)
     plugin = tmp_path / "plugins" / name
     plugin.mkdir(parents=True)
     subprocess.run(["git", "init", "-q", str(plugin)], check=True)
