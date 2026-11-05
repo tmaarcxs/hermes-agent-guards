@@ -67,6 +67,14 @@ Answers: *is this path one the agent may write to?*
 - Blocks creating a new top-level entry directly under the home directory,
   resolving the command's real cwd from the terminal tool's `workdir` argument
   and the session's recorded cwd, not only an in-string `cd`.
+- Blocks writes (`write_file`, `patch`, terminal redirect/tee/sed -i/perl -i,
+  inline python/perl writes, `cp`/`mv`/`rm`/`touch`/`mkdir`, `git checkout --`/
+  `restore`/`apply`) that target an installed plugin checkout
+  (`~/.hermes/plugins/<name>/` or `~/.hermes/profiles/<profile>/plugins/<name>/`
+  whose nearest git work tree carries an origin remote) and names the exact
+  cycle instead: the matching working clone under `~/git_repos`, its
+  `git worktree add` command, and `hermes -p <profile> plugins update <name>`
+  for every installed copy.
 - When the profile config sets `kanban.default_assignee`, rejects a
   `kanban_create` whose `dir`/`worktree` workspace_path leaves the placement
   convention.
