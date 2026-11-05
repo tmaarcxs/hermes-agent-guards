@@ -30,7 +30,7 @@ imports nothing from sibling plugins.
 """
 
 try:
-    from . import home_litter_gate, plugin_local_edit_gate, workspace_convention
+    from . import home_litter_gate, plugin_local_edit_gate, repeat_block_gate, workspace_convention
 except ImportError:
     if __name__ != "__init__":
         raise
@@ -45,19 +45,36 @@ _MODULES = None  # bound lazily so the bare-pytest synthetic shape stays inert
 
 def register(ctx) -> None:
     ctx.register_hook("pre_tool_call", _pre_tool_call)
+    ctx.register_hook("transform_tool_result", _transform_tool_result)
 
 
 def _modules():
     global _MODULES
     if _MODULES is None:
-        from . import home_litter_gate, plugin_local_edit_gate, workspace_convention
+        from . import home_litter_gate, plugin_local_edit_gate, repeat_block_gate, workspace_convention
 
-        _MODULES = (home_litter_gate, plugin_local_edit_gate, workspace_convention)
+        _MODULES = (home_litter_gate, plugin_local_edit_gate, repeat_block_gate, workspace_convention)
     return _MODULES
 
 
+def _transform_tool_result(**kwargs):
+    """``transform_tool_result``: escalate a repeated identical guard block.
+
+    Only the outcome is consulted: the real guards always ran; a second block
+    of the same call is replaced by the escalation. Every error leaves the
+    result untouched (the original block text still reaches the model).
+    """
+    home_litter_gate, plugin_local_edit_gate, repeat_block_gate, workspace_convention = _modules()
+    try:
+        return repeat_block_gate.transform(
+            kwargs.get("tool_name") or "", kwargs.get("args"), kwargs.get("result"),
+            session_id=str(kwargs.get("session_id") or ""))
+    except Exception:
+        return None
+
+
 def _pre_tool_call(tool_name: str = "", args=None, **kwargs):
-    home_litter_gate, plugin_local_edit_gate, workspace_convention = _modules()
+    home_litter_gate, plugin_local_edit_gate, _repeat_block_gate, workspace_convention = _modules()
 
     def stamp(message: str, name: str) -> str:
         marker = message.find(": ")
