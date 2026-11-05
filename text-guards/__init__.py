@@ -1,12 +1,12 @@
-"""text-guards: cut the forbidden characters out of anything the agent emits.
+"""text-guards: cut the forbidden character out of anything the agent emits.
 
-The operator forbids the section sign and the em dash. Two seams cover every path where text
+The operator forbids the section sign. Two seams cover every path where text
 leaves the agent:
 
 - ``transform_llm_output`` cleans the final reply, before delivery and before the assistant row
   is persisted.
 - ``pre_tool_call`` rewrites the tool arguments, so a comment body, a file written by
-  ``write_file``/``patch``, or a shell command never carries the characters either.
+  ``write_file``/``patch``, or a shell command never carries the character either.
 
 Both replace each occurrence, with its surrounding spaces, by a single space, and both leave
 everything else alone. Any error lets the original value through.
@@ -14,7 +14,7 @@ everything else alone. Any error lets the original value through.
 
 import re
 
-FORBIDDEN = "\u00a7\u2014"
+FORBIDDEN = "\u00a7"
 
 _PATTERN = re.compile(r"[ \t]*[" + FORBIDDEN + r"][ \t]*")
 
