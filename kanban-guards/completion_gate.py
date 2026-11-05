@@ -49,12 +49,15 @@ UNMET_MESSAGE = (
 REVIEWER_MESSAGE = (
     "agent-guards blocked kanban_complete: this reviewer approval would close the card, but Acceptance items "
     "{pending} are post-review steps (merge, deploy, close) with no evidence, so completing now loses them "
-    "(a completion from review marks the card done — there is no approved-and-returned state). Record the verdict "
-    "as APPROVED in a card comment, then hand the card back to the implementer with kanban_request_review naming "
-    "the implementer provenance of the latest review handoff as reviewer: the request ends this review run with a "
-    "ready-for-review event (request_changes stays reserved for real rejections, which must keep their rejection "
-    "event), the implementer runs the remaining steps in its own run, and only its evidenced kanban_complete "
-    "can mark the card done. "
+    "(a completion from review marks the card done — there is no approved-and-returned state). Do BOTH now, "
+    "in this response: "
+    "a) record the verdict — kanban_comment(task_id=\"<this card>\", body=\"VERDICT: APPROVED <full evidence "
+    "and receipts>\"); "
+    "b) hand the card back to the implementer — kanban_request_review(task_id=\"<this card>\", "
+    "reviewer=\"<the implementer provenance of the latest review handoff>\", summary=\"APPROVED, verdict "
+    "recorded in the comment above\"): the request ends this review run with a ready-for-review event and the "
+    "implementer runs the remaining post-review steps in its own run — only its evidenced kanban_complete can "
+    "mark the card done, which is why the exit here is the request, never a completion. "
     "If those items are genuinely already evidenced, retry kanban_complete with the full metadata.acceptance map. "
 )
 

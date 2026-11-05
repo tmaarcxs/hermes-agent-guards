@@ -55,13 +55,10 @@ Lead-process gates:
 - ``workspace_scope_gate`` scopes a lead ``kanban_list`` result to the cards the calling
   chat thread is subscribed to (``kanban_notify_subs`` platform/chat_id/thread_id): other
   chats' cards are hidden, ``count`` follows and ``hidden_foreign`` reports how many were
-  hidden; worker processes and origin-less calls (CLI, cron, TUI) pass through unchanged;
-- ``kanban_show_slim_gate`` deterministically slims a lead ``kanban_show`` result:
-  ``worker_context`` (a byte-duplicate of the structured fields) is removed and fixed
-  text-free event kinds (heartbeat and dispatcher bookkeeping) are dropped; ``runs`` and
-  every other text-bearing field stay byte-identical, so summaries, review verdicts and
-  errors are preserved; the result adverts ``removed_fields``/``dropped_event_rows``;
-  worker processes and non-``kanban_show`` results pass through unchanged.
+  hidden; worker processes and origin-less calls (CLI, cron, TUI) pass through unchanged.
+  (``kanban_show_slim_gate`` used to sit next to it, slimming a lead's ``kanban_show``;
+  the module was deleted on 2026-11-05 — it only rewrote a result the lead had already
+  asked for.)
 
 Wakes (needs ``plugins.entries.kanban-guards.allow_gateway_injection: true`` after the
 split cutover):
@@ -104,7 +101,7 @@ try:
     from typing import Optional
 
 
-    from . import active_pr_unblock, backup_copy_gate, board_watch, checkpoint_gate, completion_gate, delivered_pr_park, github_contact, handoff_gate, kanban_policy, kanban_show_slim_gate, pr_link_gate, round_cap_gate, scratch_artifact_gate, schedule_gate, stop_gate, unused_code_gate, wakes, workspace_scope_gate
+    from . import active_pr_unblock, backup_copy_gate, board_watch, checkpoint_gate, completion_gate, delivered_pr_park, github_contact, handoff_gate, kanban_policy, pr_link_gate, round_cap_gate, scratch_artifact_gate, schedule_gate, stop_gate, unused_code_gate, wakes, workspace_scope_gate
 except ImportError:
     if __name__ != "__init__":
         raise
@@ -186,7 +183,8 @@ def _transform_tool_result(**kwargs) -> Optional[str]:
 
     ``kanban_show_slim_gate`` used to slim a lead's ``kanban_show`` output here. It was
     dropped on 2026-11-03 as board shaping that added no gate: it only rewrote a result
-    the lead had already asked for, so the full payload now comes back.
+    the lead had already asked for, so the full payload now comes back. The module was
+    deleted outright once no import referenced it.
     """
     transformed = None
     try:

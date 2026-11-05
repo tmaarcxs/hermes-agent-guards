@@ -10,8 +10,8 @@ Acceptance 3 of the kanban-guards split card. The order source is root
   handoff_gate, completion_gate, backup_copy_gate, schedule_gate (the shell-side
   entries — home_litter_gate, workspace_convention,
   paas_promote_gate, skill_size, background_notify_gate — belong to other plugins);
-- the ``transform_tool_result`` chain (lines 233-265) keeps completion_gate,
-  workspace_scope_gate, kanban_show_slim_gate, then the lead nudge last; the root's
+  the ``transform_tool_result`` chain (lines 233-265) keeps completion_gate,
+  workspace_scope_gate, then the lead nudge last; the root's
   ``skill_size.transform`` entry belongs to shell-guards.
 """
 
@@ -73,7 +73,8 @@ def test_transform_chain_order_matches_root_at_90456b2():
     """completion -> scope, in that order.
 
     ``kanban_show_slim_gate`` used to close the chain; it was removed on 2026-11-03
-    because slimming a lead's ``kanban_show`` output was board shaping, not a gate.
+    and the module itself deleted with the audit fixes; an import of it anywhere in
+    the plugin fails this whole suite at collection.
     """
     import inspect
 
@@ -83,4 +84,4 @@ def test_transform_chain_order_matches_root_at_90456b2():
         source.index("workspace_scope_gate.transform"),
     ]
     assert positions == sorted(positions)
-    assert "kanban_show_slim_gate.transform" not in source
+    assert not hasattr(guards, "kanban_show_slim_gate")

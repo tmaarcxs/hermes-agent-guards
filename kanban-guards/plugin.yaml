@@ -1,5 +1,5 @@
 name: kanban-guards
-version: "0.3.0"
+version: "0.3.1"
 description: >-
   Kanban discipline for worker and lead processes. Worker gates keep a dispatcher-owned
   run honest: force a budget checkpoint comment before the run is cut at the iteration
@@ -24,8 +24,7 @@ description: >-
   8 work calls without a kanban_create to
   split the remaining work across parallel cards, scope a lead chat's kanban_list result
   to the cards its own chat thread is subscribed to (worker processes and origin-less
-  calls pass through), and slim the lead's kanban_show deterministically (worker_context
-  dropped, text-free bookkeeping events dropped, text-bearing fields byte-identical).
+  calls pass through), and
   Wakes run every Kanban wake on one shared event-driven chassis over board_watch —
   stale parked cards once per parked stretch, review-loop change-request thresholds at
   3/6/9..., the 10-change-request churn corner, waiting-on-external-gate runs, dispatcher

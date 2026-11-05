@@ -121,6 +121,10 @@ def check(tool_name: str = "", args: Any = None, **kwargs: Any) -> Optional[str]
         return None
     if not (os.environ.get("HERMES_KANBAN_TASK") or "").strip():
         return None
+    profile = (os.environ.get("HERMES_PROFILE") or "").strip()
+    worker = kanban_policy.configured_worker()
+    if profile and profile != worker:
+        return None
     if tool_name in _CHECKPOINT_TOOLS:
         return None
     if tool_name == "tool_call" and _inner_calls_checkpoint(args):

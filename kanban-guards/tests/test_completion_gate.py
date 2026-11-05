@@ -123,6 +123,22 @@ def test_reviewer_block_directs_to_request_changes_with_retry_instruction():
     assert_retry_instruction(message)
 
 
+def test_reviewer_block_names_the_comment_then_request_review_exit_in_that_order():
+    """The legal exit is TWO calls this response: record the verdict comment, then the
+    return request. Both must appear as copyable call shapes, comment first — 58% of
+    blocked reviewer sessions ended with no lifecycle call because the old message
+    narrated the exit in prose without either call shape (10 sampled sessions). The
+    message never names the rejection path: an approval routed through any rejection
+    shape misleads the lead (test_reviewer_return_instruction pins that)."""
+    message = reviewer_check({})
+    assert "kanban_comment(task_id=" in message
+    assert "kanban_request_review(task_id=" in message
+    assert message.index("this reviewer approval would close the card") < message.index("kanban_comment(task_id=")
+    assert message.index("kanban_comment(task_id=") < message.index("kanban_request_review(task_id=")
+    assert "kanban_request_changes" not in message
+    assert "retry kanban_complete with the full metadata.acceptance map" in message
+
+
 def test_reviewer_unmet_evidence_for_post_review_item_is_blocked():
     message = reviewer_check({
         "review_verdict": "APPROVE",
