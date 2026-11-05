@@ -65,7 +65,12 @@ Answers: *is this lifecycle call, board read or wake legitimate?*
 - Worker gates: force a budget checkpoint comment before a run is cut at the
   iteration cap; keep delegated cards on the configured worker profile; block
   `kanban_complete` until `metadata.acceptance` maps every numbered Acceptance
-  item to evidence; keep the published-PR completion duty visible; block
+  item to evidence; block a `kanban_request_review`/`kanban_complete` whose diff
+  added unused private Python names or imports (leading-underscore module-level
+  names nothing references — one `git grep -w` per batch decides, test references
+  count, `__all__` names and dunders are exempt — and imports the module never
+  uses, with `__init__.py` re-exports exempt); keep the published-PR completion
+  duty visible; block
   contacts with people on GitHub from worker terminals; bounce
   a narrated stop after a blocked lifecycle call; block `kanban_schedule`;
   refuse a handoff that preserves a backup copy of the delivered work; block a

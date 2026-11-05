@@ -26,6 +26,13 @@ Worker-process gates:
   lacks exactly one closing keyword (``Closes #N``);
 - ``handoff_gate`` bounces, once per session, a ``kanban_block`` whose reason says the
   worker's part is finished and only lead-owned steps remain; that is a completion;
+- ``unused_code_gate`` blocks ``kanban_request_review`` and ``kanban_complete`` for cards
+  whose git-worktree diff (merge-base with the remote default branch vs the working
+  tree, committed plus uncommitted) ADDED module-level private Python names (leading
+  single underscore; ``__all__`` names and dunders exempt) or imports nothing in the
+  repo references — one ``git grep -w`` per batch decides, a reference in a test counts
+  and a re-export in a package ``__init__.py`` keeps an import alive; the message names
+  each ``file:line:name`` and the exact fix (delete them, rerun the tests);
 - ``schedule_gate`` blocks ``kanban_schedule``: it ends the run without a timer, so a
   self-scheduled card silently stops;
 - ``backup_copy_gate`` blocks a ``kanban_complete`` (or block/comment) handoff whose
@@ -97,7 +104,7 @@ try:
     from typing import Optional
 
 
-    from . import active_pr_unblock, backup_copy_gate, board_watch, checkpoint_gate, completion_gate, delivered_pr_park, github_contact, handoff_gate, kanban_policy, kanban_show_slim_gate, pr_link_gate, round_cap_gate, scratch_artifact_gate, schedule_gate, stop_gate, wakes, workspace_scope_gate
+    from . import active_pr_unblock, backup_copy_gate, board_watch, checkpoint_gate, completion_gate, delivered_pr_park, github_contact, handoff_gate, kanban_policy, kanban_show_slim_gate, pr_link_gate, round_cap_gate, scratch_artifact_gate, schedule_gate, stop_gate, unused_code_gate, wakes, workspace_scope_gate
 except ImportError:
     if __name__ != "__init__":
         raise
@@ -130,6 +137,7 @@ _PRE_TOOL_CALL_CHECKS = (
     ("scratch_artifact_gate", lambda tool_name, args, kwargs: scratch_artifact_gate.check(tool_name, args)),
     ("backup_copy_gate", lambda tool_name, args, kwargs: backup_copy_gate.check(tool_name, args)),
     ("schedule_gate", lambda tool_name, args, kwargs: schedule_gate.check(tool_name, args)),
+    ("unused_code_gate", lambda tool_name, args, kwargs: unused_code_gate.check(tool_name, args)),
 )
 
 

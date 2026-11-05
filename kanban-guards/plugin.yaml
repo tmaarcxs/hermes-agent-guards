@@ -1,11 +1,14 @@
 name: kanban-guards
-version: "0.2.0"
+version: "0.3.0"
 description: >-
   Kanban discipline for worker and lead processes. Worker gates keep a dispatcher-owned
   run honest: force a budget checkpoint comment before the run is cut at the iteration
   cap, keep delegated cards on the configured worker profile (right assignee, out of
   triage, no execution overrides, numbered Acceptance list), block kanban_complete until
-  metadata.acceptance maps every numbered Acceptance item to evidence, keep the
+  metadata.acceptance maps every numbered Acceptance item to evidence, block a review
+  request or completion whose git-worktree diff added unused private Python names or
+  imports (one git grep -w per batch decides; __all__ names, dunders and __init__.py
+  re-exports are exempt), keep the
   published-PR completion duty visible (reminder on kanban_show, fix suffix on the
   "PR acceptance missing" rejection), block contacts with people on GitHub from worker
   terminals (review requests, assignees, @mention comments) with owner-approval and
