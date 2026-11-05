@@ -39,3 +39,31 @@ def test_non_python_commands_are_untouched_and_rewrite_is_idempotent():
     assert fix("terminal", {"command": once}) is None
     assert fix("read_file", {"command": "python3 -V"}) is None
     assert fix("terminal", {"command": "  "}) is None
+
+
+def test_recursive_grep_skips_the_bulk_directories(tmp_path):
+    (tmp_path / "node_modules" / "pkg").mkdir(parents=True)
+    (tmp_path / ".git").mkdir()
+    (tmp_path / "src").mkdir()
+    (tmp_path / "node_modules" / "pkg" / "a.txt").write_text("needle\n")
+    (tmp_path / ".git" / "b.txt").write_text("needle\n")
+    (tmp_path / "src" / "c.txt").write_text("needle\n")
+    out = subprocess.run(["bash", "-c", fix("terminal", {"command": "grep -rn needle ."})["command"]], capture_output=True, text=True, cwd=tmp_path).stdout
+    assert "src/c.txt" in out and "node_modules" not in out and ".git" not in out
+
+
+def test_grep_rewrite_is_scoped_and_idempotent():
+    rewritten = fix("terminal", {"command": "cd repo && grep -rln foo src | head -5"})["command"]
+    assert "grep --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=.venv -rln foo src | head -5" in rewritten
+    assert fix("terminal", {"command": rewritten}) is None
+    for untouched in (
+        "grep foo file.txt",
+        "grep -n foo file.txt",
+        "grep -rn foo . --exclude-dir=dist",
+        "grep -rn react node_modules/react/package.json",
+        "git grep -n foo",
+        'echo "grep -rn foo ."',
+        "cat <<'EOF'\ngrep -rn foo .\nEOF",
+        "ls -r",
+    ):
+        assert fix("terminal", {"command": untouched}) is None, untouched

@@ -8,6 +8,10 @@
    model to re-run the command without the pipe. ``set -o pipefail`` gives the real
    status up front, so no re-run is needed. Only test runners: ``cmd | head`` would
    otherwise turn a harmless SIGPIPE into a failure.
+3. A recursive ``grep`` without ``--exclude-dir`` walks ``node_modules``, ``.git`` and ``.venv``.
+   Over 30 days of worker runs, recursive searches of 30 s or more were 25 % of the long
+   foreground terminal time and most had no exclusion. The three directories are excluded
+   unless the command already names ``--exclude-dir`` or ``node_modules``.
 
 The child shell can inherit the leak even when this process env is clean (Hermes builds
 the child env itself), so the rewrite keys on the command (python-like tools), not on
@@ -17,11 +21,32 @@ the child env itself), so the rewrite keys on the command (python-like tools), n
 import re
 from typing import Optional
 
+from . import terminal_policy
+
 _MARK = "case \":$PYTHONPATH:\" in *\"/.hermes/installs/\"*)"
 _UNSET = _MARK + " unset PYTHONPATH;; esac; "
 _RUNNER = re.compile(r"\b(?:pytest|unittest|ruff|mypy)\b")
 _PIPE_TO_VIEWER = re.compile(r"(?<!\|)\|(?!\|)\s*(?:tail|head)\b[^|]*$")
+_GREP = re.compile(terminal_policy._START + r"(?P<tool>grep|egrep|fgrep)(?=\s)(?P<rest>[^;|&\n]*)")
+_RECURSIVE = re.compile(r"(?:^|\s)(?:--recursive|-[A-Za-z]*[rR][A-Za-z]*)(?=\s|$)")
+_EXCLUDES = " --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=.venv"
 _PYTHONISH = re.compile(r"(?:^|[\s;&|(/])(?:python[0-9.]*|pytest|pip[0-9.]*|uv|tox|nox|poetry|coverage)(?=[\s;&|)]|$)")
+
+
+def _exclude_bulk_dirs(command: str) -> str:
+    """Keep a recursive ``grep`` out of ``node_modules``, ``.git`` and ``.venv`` unless it names them."""
+    if "<<" in command or "grep" not in command:
+        return command
+    masked = terminal_policy._QUOTED.sub(lambda m: m.group()[0] + "x" * (len(m.group()) - 2) + m.group()[-1], command)
+    cuts = [
+        m.end("tool")
+        for m in _GREP.finditer(masked)
+        if _RECURSIVE.search(m.group("rest")) and "--exclude-dir" not in command[m.end("tool"): m.end()]
+        and "node_modules" not in command[m.end("tool"): m.end()]
+    ]
+    for cut in reversed(cuts):
+        command = command[:cut] + _EXCLUDES + command[cut:]
+    return command
 
 
 def fix(tool_name: str, args: dict) -> Optional[dict]:
@@ -31,4 +56,5 @@ def fix(tool_name: str, args: dict) -> Optional[dict]:
     prefix = _UNSET if _PYTHONISH.search(command) else ""
     if _RUNNER.search(command) and _PIPE_TO_VIEWER.search(command) and "pipefail" not in command:
         prefix += "set -o pipefail; "
-    return {"command": prefix + command} if prefix else None
+    rewritten = prefix + _exclude_bulk_dirs(command)
+    return {"command": rewritten} if rewritten != command else None
