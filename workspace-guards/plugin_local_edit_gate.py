@@ -279,7 +279,11 @@ def _segment_allowed(tokens: List[str], segment: str) -> bool:
 
 
 def _operand_targets(cwd: Optional[str], segment: str, tokens: List[str]) -> List[str]:
-    """Path operands a segment writes into, per head shape; fail-open gaps named in the docstring."""
+    """Path operands a segment writes into, per head shape; fail-open gaps named in the docstring.
+
+    A ``for``/``while``/``do`` control segment has no path operands of its own —
+    its tokens are loop variable names and list words — so it contributes none.
+    """
     targets: List[str] = []
     unquoted = _REMOVE_QUOTES.sub("''", segment)
     for match in _REDIRECT.finditer(unquoted):
@@ -287,6 +291,8 @@ def _operand_targets(cwd: Optional[str], segment: str, tokens: List[str]) -> Lis
             targets.append(_paths._join(cwd or "", match.group(1)))
     index = home_litter_gate._head_index(tokens)
     head = tokens[index].lower() if index < len(tokens) else ""
+    if head in ("for", "while", "until", "do", "if", "then", "else", "elif"):
+        return []
     operands = [token for token in tokens[index + 1:] if not token.startswith("-")]
     if head in _COPY_HEADS:
         targets.extend(operands[-1:])
