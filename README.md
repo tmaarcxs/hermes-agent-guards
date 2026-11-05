@@ -47,8 +47,12 @@ Answers: *is this shell command safe to run?*
   that names a long-lived integration branch (`main`, `master`, `develop`,
   `trunk`, `dev`) different from the repo's real default branch — read from
   `refs/remotes/origin/HEAD` in the command's repo, never hard-coded; a stacked
-  PR on a feature or release branch and an omitted base pass, and the block
-  message gives the corrected command with the real default branch.
+  PR on a feature or release branch and an omitted base pass, and so does a
+  promotion PR whose head (`--head`/`-H`, Azure `--source-branch`, or the
+  branch checked out in the call's repo) is the default branch; the block
+  message gives the corrected command with the real default branch, swapping
+  only the flagged branch so quoted `--title`/`--body` text is preserved
+  verbatim (and naming the passing call shape when no single edit works).
 - Turns `notify=true` on for a bounded `background=true` terminal job that declares no outcome
   channel (`notify=true`, a notify pattern list, or a positive `heartbeat`), so its completion
   event wakes the agent. Workers get the insert directly; the lead gets a block whose message

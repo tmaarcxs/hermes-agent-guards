@@ -22,15 +22,24 @@ Blocked shapes
   the future PR would land on the wrong trunk. A start at the repo's own
   default branch, at a feature/release branch, or at no explicit start passes.
 
+A promotion PR passes: when the head (``--head``/``-H``, the corresponding
+Azure ``--source-branch``/``-s``, or, absent a flag, the branch checked out in
+the call's repo) is the repo's default branch, the PR only syncs the default
+into a long branch (develop into main for the Gitflow-to-trunk migration) and
+is exactly what the rule wants to allow. A head that is not the default is
+still blocked, even when it equals the proposed base: no base rewrite could
+make that call pass, so the message then names the passing shape instead of a
+command.
+
 The repo is resolved from the call's real cwd: the ``workdir`` argument, then a
 ``cd`` inside the command (it moves the cwd for the statements after it), then
 ``git -C`` per git statement; for ``gh`` calls with ``--repo``/``-R`` the named
 repo is matched against the cwd's own repo or a directory beside it, and a repo
 with no local clone beside the cwd fails open. The correction in the block
-message replaces every word-boundary occurrence of the blocked branch name with
-the real default branch, so the printed command raises nothing else and, run as
-printed, passes this gate. Every parse surprise, missing tool, subprocess
-timeout or unexpected error fails open without blocking.
+message swaps only the flagged branch value, so quoted ``--title``/``--body``
+text comes back byte-identical, and the printed command passes this gate when
+run as printed. Every parse surprise, missing tool, subprocess timeout or
+unexpected error fails open without blocking.
 """
 
 import re
@@ -59,25 +68,27 @@ _GH_PR_CREATE = re.compile(r"gh\s+(?:\S+\s+){0,6}pr\s+create\b")
 _AZ_PR_CREATE = re.compile(r"az\s+(?:\S+\s+){0,6}pr\s+create\b")
 _GH_REPO = re.compile(r"(?:^|\s)(?:--repo|-R)(?:=|\s+)(?P<repo>[^\s;&|]+)")
 _GH_BASE = re.compile(r"(?:^|\s)--base(?:=|\s+)(?P<branch>[^\s;&|]+)")
+_GH_HEAD = re.compile(r"(?:^|\s)(?:--head|-H)(?:=|\s+)(?P<branch>[^\s;&|]+)")
 _AZ_TARGET = re.compile(r"(?:^|\s)(?:--target-branch|-t)(?:=|\s+)(?P<branch>[^\s;&|]+)")
+_AZ_SOURCE = re.compile(r"(?:^|\s)(?:--source-branch|-s)(?:=|\s+)(?P<branch>[^\s;&|]+)")
 
 _GH_MESSAGE = (
     "agent-guards blocked terminal: `gh pr create --base {base}` sends this pull request to "
     "integration branch '{base}' while the repo's real default branch is '{default}' (integration "
     "branches other than the default never deploy; a stacked PR on a feature or release branch "
-    "stays allowed). Run instead: {corrected}"
+    "stays allowed). {fix}"
 )
 
 _AZ_MESSAGE = (
     "agent-guards blocked terminal: `az repos pr create --target-branch {base}` sends this pull "
     "request to integration branch '{base}' while the repo's real default branch is '{default}' "
-    "(integration branches other than the default never deploy). Run instead: {corrected}"
+    "(integration branches other than the default never deploy). {fix}"
 )
 
 _BRANCH_MESSAGE = (
     "agent-guards blocked terminal: starting branch at integration branch '{base}' while "
     "the repo's real default branch is '{default}' points the future pull request at the wrong "
-    "trunk. Run instead: {corrected}"
+    "trunk. {fix}"
 )
 
 
@@ -106,13 +117,75 @@ def _is_integration_ref(ref: str) -> bool:
     return ref in INTEGRATION
 
 
-def _corrected(command: str, base: str, default: str) -> str:
-    return re.sub(rf"\b{re.escape(base)}\b", default, command)
+def _quoted_spans(raw: str) -> list:
+    """Spans of the raw command that are data: quoted text and ``$(...)`` bodies."""
+    return [m.span() for m in _MASK.finditer(raw)]
 
-def _message(template: str, base: str, default: str, command: str) -> str:
-    return template.format(
-        base=_branch_name(base), default=default, corrected=_corrected(command, base, default)
-    )
+
+def _swap_flag(raw: str, pattern, default: str) -> Optional[str]:
+    """``raw`` with the last flagged branch value replaced; quoted title/body text stays byte-identical.
+
+    shortcut: the last match wins, so a command holding two wrong-base statements has only the
+    second corrected; the first is blocked with its own message anyway.
+    """
+    spans = _quoted_spans(raw)
+    target = None
+    for match in pattern.finditer(raw):
+        if not any(start <= match.start("branch") < end for start, end in spans):
+            target = match
+    if target is None:
+        return None
+    return raw[: target.start("branch")] + default + raw[target.end("branch") :]
+
+
+def _swap_token(raw: str, token: str, default: str) -> Optional[str]:
+    """``raw`` with the last occurrence of ``token`` outside quoted data replaced."""
+    spans = _quoted_spans(raw)
+    at = raw.rfind(token)
+    while at >= 0 and any(start <= at < end for start, end in spans):
+        at = raw.rfind(token, 0, at)
+    return None if at < 0 else raw[:at] + default + raw[at + len(token) :]
+
+
+def _current_head(repo_dir: str) -> Optional[str]:
+    """The checked-out branch, the head ``gh``/``az`` use when no flag is given.
+
+    Only when the branch exists on the remote (``refs/remotes/origin/<branch>``):
+    a branch never pushed cannot be a pull-request head, and treating an
+    unpushed local branch as one would pass a wrong-base PR.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", repo_dir, "symbolic-ref", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode != 0:
+            return None
+        branch = result.stdout.strip()
+        pushed = subprocess.run(
+            ["git", "-C", repo_dir, "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{branch}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except Exception:
+        return None
+    return branch if branch and pushed.returncode == 0 else None
+
+
+def _message(template: str, base: str, default: str, corrected: Optional[str]) -> str:
+    """The block text: the corrected command, or the passing call shape when none exists."""
+    if corrected:
+        fix = f"Run instead: {corrected}"
+    else:
+        fix = (
+            "No single edit of this command passes; open the pull request from the branch that "
+            f"holds the work: `gh pr create --base {default} --head <branch>` (Azure: "
+            f"`az repos pr create --target-branch {default} --source-branch <branch>`)."
+        )
+    return template.format(base=_branch_name(base), default=default, fix=fix)
 
 
 def _branch_name(ref: str) -> str:
@@ -239,7 +312,7 @@ def _gh_repo_dir(statement: str, cwd: Optional[str]) -> Optional[str]:
     return str(beside) if beside.is_dir() else None
 
 
-def _git_statement_block(statement: str, cwd: Optional[str]) -> Optional[str]:
+def _git_statement_block(statement: str, cwd: Optional[str], raw: str) -> Optional[str]:
     match = _GIT.match(statement)
     if match is None:
         return None
@@ -251,10 +324,10 @@ def _git_statement_block(statement: str, cwd: Optional[str]) -> Optional[str]:
     default = default_branch(repo_dir) if repo_dir else None
     if default is None or _branch_name(start) == default:
         return None
-    return _message(_BRANCH_MESSAGE, start, default, statement)
+    return _message(_BRANCH_MESSAGE, start, default, _swap_token(raw, start, default))
 
 
-def _gh_statement_block(statement: str, cwd: Optional[str]) -> Optional[str]:
+def _gh_statement_block(statement: str, cwd: Optional[str], raw: str) -> Optional[str]:
     if _GH_PR_CREATE.search(statement) is None:
         return None
     repo_dir = _gh_repo_dir(statement, cwd)
@@ -267,10 +340,15 @@ def _gh_statement_block(statement: str, cwd: Optional[str]) -> Optional[str]:
     base = bases[-1]
     if _branch_name(base) not in INTEGRATION or base == default:
         return None
-    return _message(_GH_MESSAGE, base, default, statement)
+    heads = _GH_HEAD.findall(statement)
+    head = _branch_name(heads[-1]) if heads else (_current_head(repo_dir) if repo_dir else None)
+    if head == default:
+        return None
+    corrected = None if head == _branch_name(base) else _swap_flag(raw, _GH_BASE, default)
+    return _message(_GH_MESSAGE, base, default, corrected)
 
 
-def _az_statement_block(statement: str, cwd: Optional[str]) -> Optional[str]:
+def _az_statement_block(statement: str, cwd: Optional[str], raw: str) -> Optional[str]:
     if _AZ_PR_CREATE.search(statement) is None:
         return None
     default = default_branch(cwd) if cwd else None
@@ -282,24 +360,31 @@ def _az_statement_block(statement: str, cwd: Optional[str]) -> Optional[str]:
     target = targets[-1]
     if _branch_name(target) not in INTEGRATION or target == default:
         return None
-    return _message(_AZ_MESSAGE, target, default, statement)
+    sources = _AZ_SOURCE.findall(statement)
+    source = _branch_name(sources[-1]) if sources else None
+    if source == default:
+        return None
+    corrected = None if source == _branch_name(target) else _swap_flag(raw, _AZ_TARGET, default)
+    return _message(_AZ_MESSAGE, target, default, corrected)
 
 
-def _statement_block(statement: str, cwd: Optional[str]) -> Optional[str]:
+def _statement_block(statement: str, cwd: Optional[str], raw: str) -> Optional[str]:
+    """``statement`` is the stripped statement; ``raw`` the whole command, whose quoted text is data."""
     statement = statement.strip()
     if not statement or _CD.match(statement):
         return None
     if _GH_PR_CREATE.search(statement) is not None:
-        return _gh_statement_block(statement, cwd)
+        return _gh_statement_block(statement, cwd, raw)
     if _AZ_PR_CREATE.search(statement) is not None:
-        return _az_statement_block(statement, cwd)
-    return _git_statement_block(statement, cwd)
+        return _az_statement_block(statement, cwd, raw)
+    return _git_statement_block(statement, cwd, raw)
 
 
 def _check(command: str, workdir) -> Optional[str]:
     if not command.strip():
         return None
-    masked = _mask(hermes_home_gate._strip_heredocs(command))
+    raw = hermes_home_gate._strip_heredocs(command)
+    masked = _mask(raw)
     if not _CANDIDATE.search(_strip_masked(masked)):
         return None
     cwd = str(workdir) if workdir else None
@@ -310,7 +395,7 @@ def _check(command: str, workdir) -> Optional[str]:
             if cd:
                 cwd = _cd_target(cwd, cd.group("dir"))
                 continue
-        blocked = _statement_block(_strip_masked(statement), cwd)
+        blocked = _statement_block(_strip_masked(statement), cwd, raw)
         if blocked:
             return blocked
     return None

@@ -24,6 +24,7 @@ def make_repo(root: Path, name: str, default: str, origin_head: bool = True) -> 
     _git(repo, "add", "f.txt")
     _git(repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "x")
     if origin_head:
+        _git(repo, "update-ref", f"refs/remotes/origin/{default}", "HEAD")
         _git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", f"refs/remotes/origin/{default}")
     return str(repo)
 
@@ -60,12 +61,12 @@ def message_of(command, repo, workdir=True):
 
 
 def test_gh_pr_create_wrong_long_lived_base_is_blocked(repos):
-    message = message_of("gh pr create --title t --base develop", repos["main"])
+    message = message_of("gh pr create --title t --base develop --head feature/x", repos["main"])
     assert "default branch is 'main'" in message
 
 
 def test_gh_pr_create_base_attribute_form_is_blocked(repos):
-    assert blocked("gh pr create --base=develop", repos["main"])
+    assert blocked("gh pr create --base=develop --head feature/x", repos["main"])
 
 
 def test_gh_pr_create_default_base_passes(repos):
@@ -109,7 +110,7 @@ def test_az_pr_create_feature_target_passes(repos):
 
 
 def test_develop_default_repo_gh_base_main_is_blocked(repos):
-    message = message_of("gh pr create --base main", repos["develop"])
+    message = message_of("gh pr create --base main --head feature/x", repos["develop"])
     assert "default branch is 'develop'" in message
     assert check("gh pr create --base develop", repos["develop"]) is None
 
@@ -178,7 +179,7 @@ def test_cd_in_command_resolves_the_repo(repos):
 
 
 def test_cd_updates_the_cwd_for_later_statements(repos):
-    command = "cd '%s'; gh pr create --base develop" % repos["main"]
+    command = "cd '%s'; gh pr create --base develop --head feature/x" % repos["main"]
     assert message_of(command, None, workdir=False)
 
 
@@ -192,23 +193,27 @@ def test_cd_to_missing_directory_fails_open(repos):
 
 
 def test_gh_repo_flag_without_local_clone_fails_open(repos):
-    assert check("gh pr create -R org/app-wflow --base develop", repos["plain"]) is None
-    assert check("gh pr create --repo org/app-wflow --base develop", None, workdir=False) is None
+    assert check("gh pr create -R org/app-wflow --base develop --head feature/x", repos["plain"]) is None
+    assert check("gh pr create --repo org/app-wflow --base develop --head feature/x", None, workdir=False) is None
 
 
 def test_gh_repo_local_name_resolves(repos):
     name = Path(repos["main"]).name
-    assert message_of("cd '%s' && gh pr create -R %s --base develop" % (repos["main"], name), None, workdir=False)
+    assert message_of(
+        "cd '%s' && gh pr create -R %s --base develop --head feature/x" % (repos["main"], name),
+        None,
+        workdir=False,
+    )
 
 
 
 
 def test_no_origin_head_fails_open(repos):
-    assert check("gh pr create --base develop", repos["nohead"]) is None
+    assert check("gh pr create --base develop --head feature/x", repos["nohead"]) is None
 
 
 def test_not_a_git_repo_fails_open(repos):
-    assert check("gh pr create --base develop", repos["plain"]) is None
+    assert check("gh pr create --base develop --head feature/x", repos["plain"]) is None
 
 
 def test_internal_error_fails_open(repos, monkeypatch):
@@ -216,11 +221,11 @@ def test_internal_error_fails_open(repos, monkeypatch):
         raise RuntimeError("boom")
 
     monkeypatch.setattr(gate, "default_branch", boom)
-    assert check("gh pr create --base develop", repos["main"]) is None
+    assert check("gh pr create --base develop --head feature/x", repos["main"]) is None
 
 
 def test_not_terminal_and_bad_args_fail_open():
-    assert gate.check("read_file", {"command": "gh pr create --base develop"}) is None
+    assert gate.check("read_file", {"command": "gh pr create --base develop --head feature/x"}) is None
     assert gate.check("terminal", None) is None
     assert gate.check("terminal", {}) is None
 
@@ -234,7 +239,7 @@ def test_other_commands_pass(repos):
 @pytest.mark.parametrize(
     "command,repo_key",
     [
-        ("gh pr create --title t --base develop", "main"),
+        ("gh pr create --title t --base develop --head feature/x", "main"),
         ("az repos pr create -t main", "master"),
         ("git checkout -b x origin/develop", "main"),
     ],
@@ -245,9 +250,79 @@ def test_message_names_the_corrected_command_that_passes(repos, command, repo_ke
     assert check(corrected, repos[repo_key]) is None, corrected
 
 
+@pytest.mark.parametrize(
+    "command",
+    [
+        "gh pr create --base main --head develop",
+        "gh pr create --base main -H develop",
+        "gh pr create --base main --head=develop",
+        "gh pr create --base main --head origin/develop",
+    ],
+)
+def test_promotion_pr_from_default_branch_passes(repos, command):
+    assert check(command, repos["develop"]) is None
+
+
+def test_promotion_pr_with_long_title_and_body_passes(repos):
+    command = (
+        "gh pr create --repo org/app --base main --head develop "
+        '--title "chore: sync develop into main before trunk-based development" '
+        '--body "Prerequisite for the trunk-based migration; see the migration ticket."'
+    )
+    assert check(command, repos["develop"]) is None
+
+
+def test_feature_head_to_wrong_long_base_is_still_blocked(repos):
+    assert blocked("gh pr create --base main --head feature/x", repos["develop"])
+
+
+def test_main_default_repo_promotion_from_main_passes(repos):
+    assert check("gh pr create --base develop --head main", repos["main"]) is None
+    assert blocked("gh pr create --base develop --head feature/x", repos["main"])
+
+
+def test_az_promotion_from_default_source_passes(repos):
+    assert check(
+        "az repos pr create --target-branch master --source-branch develop", repos["develop"]
+    ) is None
+    assert blocked(
+        "az repos pr create --target-branch master --source-branch feature/x", repos["develop"]
+    )
+
+
+def test_gh_pr_create_without_head_uses_the_checked_out_branch(repos, tmp_path):
+    """The cwd's checked-out branch is the head ``gh`` uses when ``--head`` is absent."""
+    repo = make_repo(tmp_path, "cwd-head", "develop")
+    _git(repo, "update-ref", "refs/remotes/origin/feature/x", "HEAD")
+    _git(repo, "checkout", "-q", "-b", "feature/x")
+    assert blocked("gh pr create --base main", repo)
+    _git(repo, "checkout", "-q", "develop")
+    assert check("gh pr create --base main", repo) is None
+
+
+def test_corrected_command_keeps_title_and_body_bytes(repos):
+    title = "chore: sync develop into main before trunk-based development"
+    body = "Prerequisite for the trunk-based migration; see the migration ticket."
+    command = 'gh pr create --base develop --head feature/x --title "%s" --body "%s"' % (title, body)
+    message = message_of(command, repos["main"])
+    corrected = message.rsplit("Run instead: ", 1)[1].splitlines()[0]
+    assert '--title "%s"' % title in corrected
+    assert '--body "%s"' % body in corrected
+    assert "--base main" in corrected
+    assert check(corrected, repos["main"]) is None
+
+
+def test_no_corrected_command_prints_no_command(repos):
+    command = "gh pr create --base main --head main --title 'sync'"
+    message = message_of(command, repos["develop"])
+    assert "Run instead:" not in message
+    assert "--head <branch>" in message
+
+
 def test_hook_blocks_with_attribution(repos):
     result = guards._pre_tool_call(
-        tool_name="terminal", args={"command": "gh pr create --base develop", "workdir": repos["main"]}
+        tool_name="terminal",
+        args={"command": "gh pr create --base develop --head feature/x", "workdir": repos["main"]},
     )
     assert result["action"] == "block" and "[base_branch_gate]" in result["message"]
 
