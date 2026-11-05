@@ -66,6 +66,7 @@ def test_pre_tool_call_check_order_matches_root_at_90456b2():
         "backup_copy_gate",
         "schedule_gate",
         "unused_code_gate",
+        "cli_create_gate",
     ]
 
 

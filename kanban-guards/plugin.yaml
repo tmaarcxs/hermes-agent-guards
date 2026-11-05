@@ -1,5 +1,5 @@
 name: kanban-guards
-version: "0.3.1"
+version: "0.4.0"
 description: >-
   Kanban discipline for worker and lead processes. Worker gates keep a dispatcher-owned
   run honest: force a budget checkpoint comment before the run is cut at the iteration
@@ -15,6 +15,10 @@ description: >-
   needs_input guidance, bounce once per session a narrated stop after a
   blocked lifecycle call, block kanban_schedule (it ends the run with no timer), and
   refuse a handoff that preserves a backup/rollback copy of the delivered work.
+  A lead-side rail: the lead terminal cannot create cards via `hermes kanban create`
+  (that path writes no chat subscription, so the card finishes in silence); the block
+  message rebuilds the exact kanban_create tool call from the blocked command's own
+  flags — worker and reviewer runs keep the CLI.
   A dispatcher-tick observer auto-lifts the active_pr respawn guard when a human
   unblocked the card after its PR comment: it hops the card to another existing
   profile and back, so core's own guard sees a real handoff and the card spawns;

@@ -123,7 +123,10 @@ Answers: *is this lifecycle call, board read or wake legitimate?*
   scratch-workspace handoff that names deliverables only inside the workspace
   (uncovered paths in the handoff text, or unpushed git commits with no bundle
   or patch artifact) — the workspace is deleted on completion.
-- Lead gates: scope a lead chat's `kanban_list` result to the cards its own chat
+- Lead gates: steer a lead terminal away from `hermes kanban create` (the CLI
+  leaves the new card without a chat subscription) toward the `kanban_create`
+  tool, naming the exact call rebuilt from the blocked command's flags;
+  scope a lead chat's `kanban_list` result to the cards its own chat
   thread is subscribed to.
 - Wakes: run every Kanban wake on one shared event-driven chassis over
   `board_watch` — stale parked cards, review-loop thresholds, the churn corner,
