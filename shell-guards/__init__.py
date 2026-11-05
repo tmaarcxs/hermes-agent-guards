@@ -7,7 +7,9 @@ background-jobs outcome-channel requirement, the inline-attach cap, argument
 normalization and the skill-file size guard.
 
 Intent (behaviour identical to the monolithic plugin):
-- blocks: ``git stash`` writes (push, pop, drop, apply, clear; ``list``/``show`` pass) for
+- blocks: recursive ``find``/``grep -r``/``rg`` over the whole Hermes home, ``installs`` or
+  ``benchmarks`` (about 2.5 million files; minutes per call);
+  ``git stash`` writes (push, pop, drop, apply, clear; ``list``/``show`` pass) for
   workers, because the stash stack is shared by every worktree of the repo;
   ``process_manage`` ``poll`` (``wait`` returns at the process exit, ``log``
   reads output); foreground ``sleep`` of 5 s or more, or a ``for``/``while``/``until``
@@ -57,6 +59,7 @@ try:
         background_notify_gate,
         git_stash_gate,
         hermes_home_gate,
+        hermes_home_search_gate,
         paas_promote_gate,
         plugin_source_gate,
         process_poll_gate,
@@ -141,6 +144,7 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
         (lambda: skill_size.record(tool_name, args, **kwargs), "skill_size"),
         (lambda: process_poll_gate.check(tool_name, args), "process_poll_gate"),
         (lambda: git_stash_gate.check(tool_name, args), "git_stash_gate"),
+        (lambda: hermes_home_search_gate.check(tool_name, args), "hermes_home_search_gate"),
     ):
         try:
             blocked = check()

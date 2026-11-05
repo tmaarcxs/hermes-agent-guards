@@ -4,6 +4,7 @@ Self-contained agent-guards plugin for terminal command hygiene.
 
 ## Blocks
 
+- Recursive `find`, `grep -r`, `rg`, `ag` and `fd` over the whole Hermes home, `installs` or `benchmarks` (about 2.5 million files, minutes per call). Searches inside `skills`, `memories`, `plugins`, `profiles/<name>`, `kanban` and `hermes-agent` pass, and so does `find` with `-maxdepth` 2 or less. Every profile.
 - `git stash` writes (push, pop, drop, apply, clear; `list` and `show` pass), for workers. The stash stack is shared by every worktree of the repository, so a pop or drop can restore or destroy another lane's changes or your own. Compare against the base with `git show HEAD:<file>`, `git diff` or `git worktree add /tmp/<name> HEAD`.
 - `process_manage` `poll`. `wait` returns the moment the process exits (a `timeout` shorter than the configured limit is lifted to it), `log` reads output, and a `notify=true` job sends its completion as a message.
 - Foreground `sleep` of 5s or more, or a `for`/`while`/`until` polling loop holding a `sleep` of 3s or more. Run the wait with `background=true` and a notify channel. Heredoc bodies and quoted strings are exempt.
