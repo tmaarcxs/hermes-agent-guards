@@ -13,12 +13,16 @@ Intent (behaviour identical to the monolithic plugin):
   workers, because the stash stack is shared by every worktree of the repo;
   ``process_manage`` ``poll`` (``wait`` returns at the process exit, ``log``
   reads output); foreground ``sleep`` of 5 s or more, or a ``for``/``while``/``until``
-  polling loop holding a ``sleep`` of 3 s or more (run the wait with
-  ``background=true`` and a notify channel);
+  polling loop holding a ``sleep`` of 3 s or more (run the wait as
+  ``terminal(command=<the same command/loop>, background=true, notify=true)``,
+  loops with ``notify=[<ready pattern>]``);
   a ``pgrep -f``/``pkill -f`` inside a loop in the foreground *and* the
   background (the pattern is part of the loop shell's own command line, so it
   self-matches and never exits — use ``pgrep -x`` or test the target directly);
-  ``gh pr merge`` without ``--match-head-commit``; ``osascript``; ``git push``
+  ``gh pr merge`` without ``--match-head-commit`` (add
+  ``--match-head-commit <head-sha-of-the-pull-request>`` to the same call, the
+  sha comes from ``gh pr view <number> --json headRefOid``); ``osascript`` (use
+  ego-browser); ``git push``
   with a bare ``--force``/``-f``; ``gh auth switch``/``login``/``logout``/
   ``refresh`` (they change the shared active account for every Hermes process -
   act as another account with ``GH_TOKEN=$(gh auth token -u <user>) <command>``,
@@ -35,6 +39,12 @@ Intent (behaviour identical to the monolithic plugin):
 - rewrites a ``terminal`` command: unsets a ``PYTHONPATH`` that holds a Hermes install
   site-packages entry, and adds ``set -o pipefail`` to a test runner piped to ``tail``/``head``
   so the real exit status shows (no "re-run without the pipe" turn);
+- rewrites: a ``transform_tool_result`` turns Hermes core's poll-only promoted-process
+  note ("poll it with process(action=\"poll\", session_id=...)") into the event-driven
+  instruction consistent with the guards: ``process_manage(action="wait", session_id=...)``
+  or ``process_manage(action="log", session_id=...)``, and an interrupted wait means end
+  the turn and wait again in a later turn - never poll, never sleep. The note variant that
+  already carries ``notify_on_complete=true`` keeps its poll hint;
 - normalizes: empty-string optional Kanban arguments become absent, a
   ``task_id`` of the literal ``$HERMES_KANBAN_TASK`` becomes absent, and a
   doubled ``skill_view`` name ``x:x`` becomes ``x``;
@@ -106,6 +116,20 @@ def _pre_verify(**kwargs) -> Optional[dict]:
 
 
 def _transform_tool_result(**kwargs) -> Optional[str]:
+    """Rewrite core's poll-only promoted note first; the skill-size flag rides after.
+
+    The host keeps the FIRST non-``None`` string across plugins (``model_tools.py``
+    ``_apply_transform_tool_result_hook``), and callbacks do not chain — every callback
+    gets the ORIGINAL result. The core note rewrite and the skill-size flag can therefore
+    never both fire on one result (a promotion note result is not a skill write), so
+    first-wins is safe: try the note rewrite, then skill_size's flag on the original.
+    """
+    try:
+        rewritten = terminal_policy.rewrite_poll_instructions(kwargs.get("result"))
+        if rewritten is not None:
+            return rewritten
+    except Exception:
+        pass
     try:
         return skill_size.transform(
             kwargs.get("tool_name") or "", kwargs.get("args"), kwargs.get("result"),

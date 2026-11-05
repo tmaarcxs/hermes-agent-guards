@@ -13,7 +13,8 @@ def worker_setup(monkeypatch):
 
 def test_poll_is_blocked():
     message = gate.check("process_manage", {"action": "poll", "session_id": "proc_1"})
-    assert message and "poll is not allowed" in message and "process_manage wait" in message
+    assert message and "poll is not allowed" in message
+    assert 'process_manage(action="wait", session_id=...)' in message
 
 
 def test_other_actions_are_not_blocked():

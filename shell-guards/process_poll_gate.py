@@ -15,9 +15,12 @@ from typing import Any, Optional
 from . import _policy
 
 MESSAGE = (
-    "agent-guards blocked process_manage: poll is not allowed. Never poll or sleep for a background "
-    "process: process_manage wait returns the moment it exits, log reads its output, and a notify=true "
-    "job sends its completion as a message."
+    "agent-guards blocked process_manage: poll is not allowed - it costs a full turn and returns nothing "
+    "to act on. For the same process now: process_manage(action=\"wait\", session_id=...) returns the "
+    "moment it exits, process_manage(action=\"log\", session_id=...) reads its output, and a job was "
+    "launched with terminal(background=true, notify=true) sends its completion as a message. If the wait "
+    "comes back interrupted with no new output, end the turn and re-issue the wait in a later turn - "
+    "never poll, never sleep."
 )
 
 
