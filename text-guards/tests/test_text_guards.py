@@ -25,18 +25,15 @@ def test_removes_the_character_and_keeps_words_apart():
     )
 
 
-def test_removes_the_em_dash():
+def test_the_em_dash_is_left_alone():
     mod = _load()
-    assert mod.strip_forbidden(f"two things block this {EM_DASH} both in config") == (
-        "two things block this both in config"
-    )
-    assert mod.strip_forbidden(f"a {EM_DASH}b{EM_DASH} c") == "a b c"
+    assert mod.strip_forbidden(f"two things {EM_DASH} both in config") is None
 
 
 def test_no_character_leaves_the_reply_alone():
     mod = _load()
     assert mod.strip_forbidden("seccion 4.3, sin caracteres raros") is None
-    assert mod.strip_forbidden("a - b and c d") is None  # hyphen and en dash stay
+    assert mod.strip_forbidden("a - b and c d") is None
 
 
 def test_handles_repeated_and_adjacent_characters():
@@ -62,14 +59,9 @@ def test_tool_arguments_are_rewritten_before_the_call():
     assert out["args"]["path"] == "doc.md"
 
 
-def test_tool_arguments_with_an_em_dash_are_rewritten():
+def test_tool_arguments_with_an_em_dash_are_untouched():
     mod = _load()
-    out = mod.rewrite_arguments(
-        tool_name="write_file",
-        args={"path": "rev.md", "content": f"verdict {EM_DASH} reason here"},
-    )
-    assert out["action"] == "modify"
-    assert out["args"]["content"] == "verdict reason here"
+    assert mod.rewrite_arguments(tool_name="write_file", args={"content": f"verdict {EM_DASH} reason"}) is None
 
 
 def test_nested_arguments_are_cleaned():

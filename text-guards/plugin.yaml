@@ -1,5 +1,5 @@
 name: text-guards
-version: "0.2.0"
+version: "0.3.0"
 description: >-
   Cut the section-sign character out of anything the agent emits. The operator forbids it, so
   the guard removes it in two places: `transform_llm_output` cleans the final reply before
