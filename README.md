@@ -31,6 +31,12 @@ Answers: *is this shell command safe to run?*
   active gh account for every Hermes process, so act as another account with
   `GH_TOKEN=$(gh auth token -u <user>) <command>` instead (default
   `acme-bot`); `gh auth status`/`token` stay allowed.
+- Blocks an unsigned `git commit`/`git commit --amend` in a repo that requires
+  signed commits: a `github.com` origin whose `origin/<default>` last-20 history
+  is >= 90% signed decides it, from local data only (Azure remotes never
+  require signing); the block message names the exact command with `-S` and the
+  `git config` lines that make signing permanent. Verdict cached per repo for
+  10 minutes, no network, fails open.
 - Blocks recursive deletion of a live Hermes home (`rm` with a recursive flag,
   `find -delete`, `rsync --delete` on a protected destination, python
   `rmtree`-family calls), including through a runner chain after a pipe.
