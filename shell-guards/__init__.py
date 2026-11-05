@@ -7,7 +7,9 @@ background-jobs outcome-channel requirement, the inline-attach cap, argument
 normalization and the skill-file size guard.
 
 Intent (behaviour identical to the monolithic plugin):
-- blocks: ``process_manage`` ``poll`` (``wait`` returns at the process exit, ``log``
+- blocks: ``git stash`` writes (push, pop, drop, apply, clear; ``list``/``show`` pass) for
+  workers, because the stash stack is shared by every worktree of the repo;
+  ``process_manage`` ``poll`` (``wait`` returns at the process exit, ``log``
   reads output); foreground ``sleep`` of 5 s or more, or a ``for``/``while``/``until``
   polling loop holding a ``sleep`` of 3 s or more (run the wait with
   ``background=true`` and a notify channel);
@@ -53,6 +55,7 @@ try:
     from . import (
         _policy,
         background_notify_gate,
+        git_stash_gate,
         hermes_home_gate,
         paas_promote_gate,
         plugin_source_gate,
@@ -137,6 +140,7 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
         (lambda: skill_size.check(tool_name, args), "skill_size"),
         (lambda: skill_size.record(tool_name, args, **kwargs), "skill_size"),
         (lambda: process_poll_gate.check(tool_name, args), "process_poll_gate"),
+        (lambda: git_stash_gate.check(tool_name, args), "git_stash_gate"),
     ):
         try:
             blocked = check()
