@@ -7,9 +7,10 @@ background-jobs outcome-channel requirement, the inline-attach cap, argument
 normalization and the skill-file size guard.
 
 Intent (behaviour identical to the monolithic plugin):
-- blocks: foreground ``sleep`` of 30 s or more, or a ``for``/``while``/``until``
-  polling loop holding a ``sleep`` of 15 s or more (run the wait with
-  ``background=true`` and a notify channel, or poll once without sleeping);
+- blocks: ``process_manage`` ``poll`` (``wait`` returns at the process exit, ``log``
+  reads output); foreground ``sleep`` of 5 s or more, or a ``for``/``while``/``until``
+  polling loop holding a ``sleep`` of 3 s or more (run the wait with
+  ``background=true`` and a notify channel);
   a ``pgrep -f``/``pkill -f`` inside a loop in the foreground *and* the
   background (the pattern is part of the loop shell's own command line, so it
   self-matches and never exits — use ``pgrep -x`` or test the target directly);
@@ -22,6 +23,8 @@ Intent (behaviour identical to the monolithic plugin):
   a ``paas-promote`` dispatch to ``des`` without the ``auto-approval`` label;
   ``kanban_attach`` with more than 256 characters of inline base64 (the bytes
   get transcribed and corrupted — attach by path);
+- turns a short ``process_manage`` ``wait`` timeout into the configured limit, so a wait runs to
+  the process exit;
 - requires: a ``terminal`` call with ``background=true`` that is not a
   long-lived server declares an outcome channel (``notify=true``, a notify
   pattern list, or a positive ``heartbeat``);
@@ -50,6 +53,7 @@ try:
         hermes_home_gate,
         paas_promote_gate,
         plugin_source_gate,
+        process_poll_gate,
         skill_size,
         terminal_policy,
     )
@@ -128,6 +132,7 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
         (lambda: plugin_source_gate.check(tool_name, args), "plugin_source_gate"),
         (lambda: skill_size.check(tool_name, args), "skill_size"),
         (lambda: skill_size.record(tool_name, args, **kwargs), "skill_size"),
+        (lambda: process_poll_gate.check(tool_name, args), "process_poll_gate"),
     ):
         try:
             blocked = check()
@@ -147,6 +152,8 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
         if blocked:
             return {"action": "block", "message": stamp(blocked, "__init__")}
         changes = terminal_policy.normalized_args(tool_name, args)
+        if tool_name == "process_manage":
+            changes = {**(changes or {}), **(process_poll_gate.fix(tool_name, args) or {})}
         return {"action": "modify", "args": changes} if changes else None
     except Exception:
         return None

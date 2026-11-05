@@ -4,7 +4,8 @@ Self-contained agent-guards plugin for terminal command hygiene.
 
 ## Blocks
 
-- Foreground `sleep` of 30s or more, or a `for`/`while`/`until` polling loop holding a `sleep` of 15s or more. Run the wait with `background=true` and a notify channel, or poll once and re-issue without sleeping. Heredoc bodies and quoted strings are exempt.
+- `process_manage` `poll`. `wait` returns the moment the process exits (a `timeout` shorter than the configured limit is lifted to it), `log` reads output, and a `notify=true` job sends its completion as a message.
+- Foreground `sleep` of 5s or more, or a `for`/`while`/`until` polling loop holding a `sleep` of 3s or more. Run the wait with `background=true` and a notify channel. Heredoc bodies and quoted strings are exempt.
 - `gh pr merge` without `--match-head-commit` — merges must pin the verified head.
 - `osascript` — desktop automation goes through ego-browser.
 - `gh auth switch`, `gh auth login`, `gh auth logout`, `gh auth refresh` — they change the shared active account for every Hermes process, and Hermes reads its Copilot token from the active account. To act as another account, set it in the command itself: `GH_TOKEN=$(gh auth token -u <user>) <command>`; the default active account is `acme-bot`. `gh auth status` and `gh auth token` stay allowed.

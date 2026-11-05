@@ -1,9 +1,10 @@
 name: shell-guards
-version: "0.3.0"
+version: "0.4.0"
 description: >
-  Terminal command hygiene - block foreground sleeps of 30s or more and polling
-  loops holding a 15s+ sleep (run the wait with background=true and a notify
-  channel, or poll once without sleeping), block a `pgrep -f`/`pkill -f` inside
+  Terminal command hygiene - block `process_manage` poll, foreground sleeps of 5s or more and polling
+  loops holding a 3s+ sleep (run the wait with background=true and a notify
+  channel; `wait` returns at the process exit and a short wait timeout is lifted
+  to the configured limit), block a `pgrep -f`/`pkill -f` inside
   a loop (it self-matches the loop's own command line and never exits; use
   `pgrep -x` or test the target directly), block `gh pr merge` without
   `--match-head-commit` so merges pin the verified head, block `osascript`

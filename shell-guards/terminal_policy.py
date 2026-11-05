@@ -37,8 +37,8 @@ _GH_AUTH = re.compile(
 _SHELL_C = re.compile(r"(?:bash|sh)\s+-c\s+")
 
 _UNIT_SECONDS = {"": 1, "s": 1, "m": 60, "h": 3600}
-_MAX_FOREGROUND_SLEEP = 30
-_MAX_LOOP_SLEEP = 15
+_MAX_FOREGROUND_SLEEP = 5
+_MAX_LOOP_SLEEP = 3
 _EMPTY_TO_ABSENT = {"kanban_list": ("assignee", "status", "tenant"), "kanban_create": ("completion_contract",)}
 _ENV_TASK_LITERAL = re.compile(r"^\s*\$?\{?HERMES_KANBAN_TASK\}?\s*$")
 _MAX_INLINE_ATTACH = 256
@@ -129,8 +129,8 @@ def terminal_violations(command: str, background: bool) -> list[str]:
             seconds = float(match.group(1)) * _UNIT_SECONDS[match.group(2)]
             if seconds >= _MAX_FOREGROUND_SLEEP:
                 found.append(
-                    "foreground sleep >= 30s: run the wait with background=true and notify=true, "
-                    "or poll once now and re-issue without sleeping"
+                    "foreground sleep >= 5s: run the wait with background=true and notify=true; "
+                    "its completion message wakes you, so never sleep or poll"
                 )
                 break
         if not found:
@@ -140,8 +140,8 @@ def terminal_violations(command: str, background: bool) -> list[str]:
                     seconds = float(match.group(1)) * _UNIT_SECONDS[match.group(2)]
                     if seconds >= _MAX_LOOP_SLEEP and any(start < match.start() for start in loop_starts):
                         found.append(
-                            "polling loop with sleep >= 15s: run the whole wait with background=true "
-                            "and notify=[<ready pattern>], or poll once without sleeping"
+                            "polling loop with sleep >= 3s: run the whole wait with background=true "
+                            "and notify=[<ready pattern>]; never sleep or poll"
                         )
                         break
     if not found and _loop_starts(command):

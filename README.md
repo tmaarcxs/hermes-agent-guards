@@ -16,9 +16,9 @@ you want; they do not depend on each other.
 
 Answers: *is this shell command safe to run?*
 
-- Blocks a foreground `sleep` of 30 s or more, or a polling loop holding a
-  `sleep` of 15 s or more (run the wait in the background with a notification
-  channel, or poll once and re-issue without sleeping).
+- Blocks `process_manage` `poll`, a foreground `sleep` of 5 s or more, and a polling loop holding a
+  `sleep` of 3 s or more (run the wait in the background with a notification
+  channel; `wait` returns at the process exit).
 - Blocks a `pgrep -f`/`pkill -f` inside a loop, in the foreground *and* in the
   background: the pattern is part of the loop shell's own command line, so the
   loop matches itself and never exits (observed: two waiters held 8 h on

@@ -13,6 +13,7 @@ guards = sys.modules["shell_guards"]
 
 REGISTERED_GUARDS = [
     "skill_size",
+    "process_poll_gate",
 ]
 
 
