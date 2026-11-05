@@ -1,5 +1,5 @@
 name: shell-guards
-version: "0.12.0"
+version: "0.12.1"
 description: >
   Also block recursive find/grep -r/rg over the user home or / (with the Hermes home, installs and
   benchmarks), and keep a recursive grep out of node_modules, .git and .venv unless the command names
@@ -30,7 +30,11 @@ description: >
   worktree add -b / branch); the default branch is read from
   `refs/remotes/origin/HEAD` in the command's repo (no network, an absent
   symref fails open), a stacked PR on a feature or release branch passes, and
-  the block message names the real default branch and the corrected command; turn `notify=true` on for every bounded `background=true` terminal job that
+  so does a promotion PR whose head (--head/-H, Azure --source-branch, or the
+  branch checked out in the call's repo) is the default branch; the block
+  message names the real default branch and the corrected command, which swaps
+  only the flagged branch so quoted --title/--body text is preserved verbatim
+  (and names the passing call shape when no single edit works); turn `notify=true` on for every bounded `background=true` terminal job that
   declares no outcome channel (`notify=true`, a notify pattern list or a positive
   `heartbeat` - servers and pty sessions exempt), block an unsigned `git commit`
   (or `--amend`) in a repo that requires signed commits - decided locally from a
