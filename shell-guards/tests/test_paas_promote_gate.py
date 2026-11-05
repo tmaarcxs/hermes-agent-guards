@@ -130,3 +130,56 @@ def test_dispatch_entry_point_blocks_the_incident_and_passes_the_fix():
     assert incident["action"] == "block" and check(INCIDENT).split(": ", 1)[1] in incident["message"]
     assert "[paas_promote_gate]" in incident["message"]
     assert guards._pre_tool_call("terminal", {"command": CORRECTED}) is None
+
+
+"""Round-2: the JSON `dispatches` endpoint shape and LABELS whitespace.
+
+The audit's §6 probe dispatched with raw
+`curl -XPOST .../workflows/dispatches -d '{"ref":..., "inputs":{"DEPLOY_TARGET":"des"}}'`
+and passed; a `-f LABELS='auto-approval '` (trailing space) validated as
+labelled. Both are the same deployment risk as the gh form.
+"""
+
+_CURL_INCIDENT = (
+    "curl -XPOST https://api.github.com/repos/x/y/actions/workflows/paas-promote/dispatches "
+    "-d '{\"ref\":\"main\",\"inputs\":{\"DEPLOY_TARGET\":\"des\"}}'"
+)
+_CURL_LABELLED = _CURL_INCIDENT.replace(
+    '{"DEPLOY_TARGET":"des"}',
+    '{"DEPLOY_TARGET":"des","LABELS":"auto-approval"}')
+
+
+@pytest.mark.parametrize("command", [
+    _CURL_INCIDENT,
+    _CURL_INCIDENT.replace("-d ", "--data "),
+    _CURL_INCIDENT.replace("{'ref':'main'", '{"ref":"develop"'),
+    "curl -X POST https://api.github.com/repos/x/y/actions/workflows/paas-promote.yml/dispatches "
+    "-d '{\"ref\":\"main\",\"inputs\":{\"SUPRAENVS\":\"des\"}}'",
+])
+def test_curl_dispatch_without_label_blocked(command):
+    assert blocked(command), command
+
+
+def test_curl_dispatch_block_names_the_json_label_field():
+    message = check(_CURL_INCIDENT)
+    assert message and "auto-approval" in message
+    assert '"LABELS":"auto-approval"' in message, message
+
+
+@pytest.mark.parametrize("command", [
+    _CURL_LABELLED,
+    _CURL_INCIDENT.replace("paas-promote", "other-workflow"),
+    "curl -s https://api.github.com/repos/x/y/actions/workflows/paas-promote",
+    "curl -XPOST https://api.github.com/repos/x/y/actions/workflows/deploy/dispatches "
+    "-d '{\"ref\":\"main\"}'",
+    'curl -d \'{"ref":"main","inputs":{"DEPLOY_TARGET":"$TARGET"}}\' '
+    "https://api.github.com/repos/x/y/actions/workflows/paas-promote/dispatches",
+])
+def test_curl_dispatch_allowed_shapes(command):
+    assert not blocked(command), command
+
+
+def test_labels_surrounding_whitespace_still_counts_as_the_label():
+    assert not blocked("gh workflow run paas-promote -f DEPLOY_TARGET=des -f LABELS='auto-approval '")
+    assert not blocked("gh workflow run paas-promote -f DEPLOY_TARGET=des -f LABELS=' auto-approval , x '")
+    assert blocked("gh workflow run paas-promote -f DEPLOY_TARGET=des -f LABELS='auto approval '")

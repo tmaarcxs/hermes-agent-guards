@@ -975,3 +975,50 @@ def test_mkdir_newthing_still_blocked(monkeypatch):
     message = worker_terminal("mkdir -p ~/newthing")
     assert message and "home_litter_gate" in message
     assert "~/newthing" in message
+
+
+"""Round-8: the message names the exact rewritten mkdir for the real call.
+
+The audit (t_8fdd0a3e §4) measured 18/40 same-tool retries: the message said
+WHERE to work but not WHAT to run, so the model re-issued the same littering
+command. The message must derive `mkdir -p $HERMES_KANBAN_WORKSPACE/<name>`
+from the actual call (its own flags and every operand that litters), and that
+command must pass the gate when replayed.
+"""
+
+
+@pytest.mark.parametrize("command,operand,entry", [
+    ("cd ~ && mkdir scratch", "mkdir $HERMES_KANBAN_WORKSPACE/scratch", "scratch"),
+    ("cd ~ && mkdir -p wt/t_x", "mkdir -p $HERMES_KANBAN_WORKSPACE/wt/t_x", "wt"),
+    ("cd ~ && mkdir -m 755 brandnew", "mkdir -m 755 $HERMES_KANBAN_WORKSPACE/brandnew", "brandnew"),
+    ("mkdir -p ~/newthing", "mkdir -p $HERMES_KANBAN_WORKSPACE/newthing", "newthing"),
+    ("cd ~ && mkdir -p scratch/f3 other", "mkdir -p $HERMES_KANBAN_WORKSPACE/scratch/f3 $HERMES_KANBAN_WORKSPACE/other", "scratch"),
+])
+def test_block_message_names_the_exact_mkdir(monkeypatch, command, operand, entry):
+    message = worker_terminal(command)
+    assert message and "home_litter_gate" in message, command
+    assert operand in message, (command, message)
+    assert entry in message, (command, message)
+
+
+def test_named_mkdir_replay_passes_the_gate(monkeypatch):
+    """The alternative must actually work: replaying the named command blocks
+    nothing (its workspace target is allowed)."""
+    for command in ("cd ~ && mkdir scratch", "cd ~ && mkdir -p wt/t_x"):
+        message = worker_terminal(command)
+        assert message, command
+        start = message.index("mkdir -p $HERMES_KANBAN_WORKSPACE") \
+            if "mkdir -p $HERMES_KANBAN_WORKSPACE" in message \
+            else message.index("mkdir $HERMES_KANBAN_WORKSPACE")
+        tail = message[start:].split("Workspace-targeted", 1)[0].split("  ", 1)[0]
+        named = tail.strip()
+        assert named.startswith("mkdir"), named
+        assert worker_terminal(named) is None, named
+
+
+def test_touch_block_names_the_exact_rewrite(monkeypatch):
+    """A non-mkdir create head gets the same treatment: the workspace-targeted
+    rewrite lands in the message verbatim."""
+    message = worker_terminal("cd ~ && touch notes.md")
+    assert message and "touch $HERMES_KANBAN_WORKSPACE/notes.md" in message
+    assert "HERMES_KANBAN_WORKSPACE" in message

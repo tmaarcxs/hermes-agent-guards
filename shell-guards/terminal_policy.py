@@ -15,6 +15,13 @@ _SEGMENT_END = re.compile(r"[;\n]|&&|\|\|")
 _QUOTED = re.compile(r"'[^']*'|\"(?:[^\"\\]|\\.)*\"")
 _LOOP = re.compile(r"\b(?:for|while|until)\b")
 _SLEEP = re.compile(_START + r"sleep\s+(\d+(?:\.\d+)?)([smh]?)\b")
+_READ_T = re.compile(_START + r"read\s+(?:-[A-Za-z]+\s+)*-t\s+(\d+(?:\.\d+)?)([smh]?)\b")
+_PY_WAIT = re.compile(r"\btime\.sleep\s*\(([^)]*)\)")
+_SELECT = re.compile(r"\b(?:select\.select|select)\s*\(([^()]*(?:\([^()]*\)[^()]*)*)\)")
+_BACKGROUNDED_INTERP = re.compile(
+    r"(?:^|\n|[;&|(]\s*)(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:sudo\s+|env\s+(?:[-\w]+=?\S*\s+)*)?"
+    r"(?:[A-Za-z0-9_/.~-]*python[0-9.]*|perl\d?)\b[^;\n|&]*?[\"'][^\"']*[\"'][^;\n|&]*&(?=\s|$)"
+)
 _MERGE = re.compile(_START + r"gh\s+pr\s+merge\b")
 _OSASCRIPT = re.compile(_START + r"osascript\b")
 _PUSH = re.compile(_START + r"git\s+push\b")
@@ -39,6 +46,64 @@ _SHELL_C = re.compile(r"(?:bash|sh)\s+-c\s+")
 _UNIT_SECONDS = {"": 1, "s": 1, "m": 60, "h": 3600}
 _MAX_FOREGROUND_SLEEP = 5
 _MAX_LOOP_SLEEP = 3
+
+_WAIT_FOREGROUND_MESSAGE = (
+    "foreground wait of >= 5s (read -t / time.sleep / select) in a foreground terminal call: "
+    "run the wait as terminal(command=<the same command>, background=true, notify=true) "
+    "instead - its completion message wakes you, so never sleep or poll"
+)
+_WAIT_LOOP_MESSAGE = (
+    "polling loop with a wait of >= 3s (read -t / time.sleep / select): "
+    "run the whole wait as terminal(command=<the same loop>, background=true, notify=[<ready pattern>]) "
+    "instead - the ready-pattern match wakes you; never sleep or poll"
+)
+
+
+def _wait_seconds(token: str) -> Optional[float]:
+    try:
+        return float(token)
+    except (TypeError, ValueError):
+        return None
+
+
+def _matches_wait(source: str) -> list[tuple[int, float]]:
+    """(offset, seconds) of every wait-class literal in *source*.
+
+    `read -t N`, `time.sleep(N)` and `select(..., N)` all idle the interpreter
+    for N seconds; select's timeout is its LAST numeric argument. Non-numeric
+    offsets (a variable) fail open — the shape that matters is the literal
+    a model writes while intending to wait.
+    """
+    found: list[tuple[int, float]] = []
+    for match in _READ_T.finditer(source):
+        seconds = _wait_seconds(match.group(1))
+        unit = match.group(2) or "s"
+        if seconds is not None:
+            found.append((match.start(1), seconds * _UNIT_SECONDS.get(unit, 1)))
+    for match in _PY_WAIT.finditer(source):
+        for token in match.group(1).split(","):
+            seconds = _wait_seconds(token.strip())
+            if seconds is not None:
+                found.append((match.start(), seconds))
+                break
+    for match in _SELECT.finditer(source):
+        args = [token.strip() for token in match.group(1).split(",")]
+        seconds = _wait_seconds(args[-1]) if args else None
+        if seconds is not None:
+            found.append((match.start(), seconds))
+    line_end = re.compile(r"[;\n|]")
+    backgrounded = re.compile(r"(?:^|\s)&(?=\s|$)")
+    kept = []
+    for offset, seconds in found:
+        rest = source[offset:]
+        stop = line_end.search(rest)
+        rest = rest[: stop.start()] if stop else rest
+        if backgrounded.search(rest):
+            continue
+        kept.append((offset, seconds))
+    return kept
+
+
 _EMPTY_TO_ABSENT = {"kanban_list": ("assignee", "status", "tenant"), "kanban_create": ("completion_contract",)}
 _ENV_TASK_LITERAL = re.compile(r"^\s*\$?\{?HERMES_KANBAN_TASK\}?\s*$")
 _MAX_INLINE_ATTACH = 256
@@ -58,6 +123,45 @@ def attach_cap_block(args: Optional[dict]) -> Optional[str]:
 def _loop_starts(command: str) -> list[int]:
     """Offsets where a ``for``/``while``/``until`` loop keyword begins."""
     return [m.start() for m in _LOOP.finditer(command)]
+
+
+def _script_and_payload_bodies(source: str) -> list[str]:
+    """Interpreter payload texts the agent actually runs: heredoc bodies and
+    ``python -c``/``perl -e`` string payloads.
+
+    The caller passes the RAW command: heredoc bodies and quoted payloads are
+    exactly what the quote/blanking steps erase from the scanned shell text,
+    so they survive only here. Mention-in-strings stays exempt: the -c payload
+    must be a real quoted argument of an interpreter invocation.
+    """
+    bodies: list[str] = []
+    delim = None
+    body: list[str] = []
+    for line in source.split("\n"):
+        if delim is not None:
+            if line.strip() == delim:
+                if body:
+                    bodies.append("\n".join(body))
+                delim = None
+                body = []
+            else:
+                body.append(line)
+            continue
+        match = re.search(r"<<-?\s*['\"]?(\w[\w.]*)['\"]?", line)
+        if match:
+            delim = match.group(1)
+    for match in re.finditer(
+            r"(?:python\d?(?:\d(?:\.\d+)?)?|perl\d?)\s+(?:-[A-Za-z]+\s+)*-c\s*|perl\s+(?:-[A-Za-z]+\s+)*-e\s*",
+            source):
+        start = match.end()
+        if start < len(source) and source[start] in ("'", '"'):
+            quote = source[start]
+            end = source.find(quote, start + 1)
+            while end > 0 and quote == '"' and source[end - 1] == "\\":
+                end = source.find(quote, end + 1)
+            if end > 0:
+                bodies.append(source[start + 1:end])
+    return bodies
 
 
 def _segments(command: str, pattern: re.Pattern) -> list[str]:
@@ -123,6 +227,7 @@ def terminal_violations(command: str, background: bool) -> list[str]:
     if home:
         found.extend(home)
     source = hermes_home_gate._strip_heredocs(command)
+    raw_command = command
     command = _QUOTED.sub("''", source)
     if not background:
         for match in _SLEEP.finditer(command):
@@ -146,6 +251,30 @@ def terminal_violations(command: str, background: bool) -> list[str]:
                             "instead - the ready-pattern match wakes you; never sleep or poll"
                         )
                         break
+        if not found:
+            waits = _matches_wait(command)
+            if waits:
+                loops = [m.start() for m in _LOOP.finditer(command)]
+                if not loops and any(seconds >= _MAX_FOREGROUND_SLEEP for _, seconds in waits):
+                    found.append(_WAIT_FOREGROUND_MESSAGE)
+                elif loops and any(seconds >= _MAX_LOOP_SLEEP and any(start < offset for start in loops)
+                                   for offset, seconds in waits):
+                    found.append(_WAIT_LOOP_MESSAGE)
+        if not found:
+            for body in _script_and_payload_bodies(raw_command):
+                waits = _matches_wait(_QUOTED.sub("''", body))
+                if not waits:
+                    continue
+                if _BACKGROUNDED_INTERP.search(raw_command):
+                    continue
+                loops = [m.start() for m in _LOOP.finditer(_QUOTED.sub("''", body))]
+                if not loops and any(seconds >= _MAX_FOREGROUND_SLEEP for _, seconds in waits):
+                    found.append(_WAIT_FOREGROUND_MESSAGE)
+                    break
+                if loops and any(seconds >= _MAX_LOOP_SLEEP and any(start < offset for start in loops)
+                                 for offset, seconds in waits):
+                    found.append(_WAIT_LOOP_MESSAGE)
+                    break
     if not found and _loop_starts(command):
         starts = _loop_starts(command)
         for match in _PGREP_FULL.finditer(command):

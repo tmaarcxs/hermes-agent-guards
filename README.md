@@ -18,7 +18,9 @@ Answers: *is this shell command safe to run?*
 
 - Blocks `git stash` writes for workers (the stash stack is shared by every worktree), `process_manage` `poll`, a foreground `sleep` of 5 s or more, and a polling loop holding a
   `sleep` of 3 s or more (run the wait in the background with a notification
-  channel; `wait` returns at the process exit).
+  channel; `wait` returns at the process exit). The same thresholds cover the
+  equivalent idle-wait shapes: `read -t N`, and `time.sleep(N)`/`select(..., N)`
+  inside a `python -c`/`perl -e` payload or heredoc script.
 - Blocks a `pgrep -f`/`pkill -f` inside a loop, in the foreground *and* in the
   background: the pattern is part of the loop shell's own command line, so the
   loop matches itself and never exits (observed: two waiters held 8 h on
@@ -49,8 +51,11 @@ Answers: *is this shell command safe to run?*
   message gives the corrected command with the real default branch.
 - Turns `notify=true` on for a bounded `background=true` terminal job that declares no outcome
   channel (`notify=true`, a notify pattern list, or a positive `heartbeat`), so its completion
-  event wakes the agent.
-- Blocks a `paas-promote` dispatch to `des` without the `auto-approval` label.
+  event wakes the agent. Workers get the insert directly; the lead gets a block whose message
+  names the exact call shape.
+- Blocks a `paas-promote` dispatch to `des` without the `auto-approval` label, in both dispatch
+  shapes (`gh workflow run` and the raw JSON `curl .../workflows/dispatches` POST) and after
+  stripping whitespace around `LABELS` items.
 - Blocks `kanban_attach` with more than 256 characters of inline base64
   (attach by path instead) and normalizes known-bad optional arguments.
 - Rewrites a `terminal`/`process_manage wait` `timeout` above the call
@@ -74,7 +79,9 @@ Answers: *is this path one the agent may write to?*
   state), the host's main checkouts, other workers' workspaces.
 - Blocks creating a new top-level entry directly under the home directory,
   resolving the command's real cwd from the terminal tool's `workdir` argument
-  and the session's recorded cwd, not only an in-string `cd`.
+  and the session's recorded cwd, not only an in-string `cd`; the block message
+  names the exact workspace-targeted rewrite of the offending call
+  (`mkdir -p $HERMES_KANBAN_WORKSPACE/<name>`).
 - Blocks writes (`write_file`, `patch`, terminal redirect/tee/sed -i/perl -i,
   inline python/perl writes, `cp`/`mv`/`rm`/`touch`/`mkdir`, `git checkout --`/
   `restore`/`apply`) that target an installed plugin checkout

@@ -1,5 +1,5 @@
 name: workspace-guards
-version: "0.9.0"
+version: "0.9.1"
 description: Keeps the home directory clean and card workspaces where they belong. Blocks creating new top-level entries directly under the home directory, resolving the command's real cwd from the terminal tool's `workdir` argument and the session's recorded cwd, not only an in-string `cd`; blocks writes into an installed plugin checkout (`~/.hermes/plugins/<name>/` or a profile's `plugins/<name>/` that is a git checkout with an origin), naming the matching clone, the `git worktree add` command and the `hermes plugins update` sync calls; when the profile config sets `kanban.default_assignee`, rejects a `kanban_create` whose `dir`/`worktree` workspace_path leaves the placement convention (outside `<main-checkout>/.worktrees/<task>/` or `~/git_repos/ad-hoc/`) and, for every kind including an explicit `scratch` path or an omitted kind, a workspace_path that is a main checkout, the home dir or a direct child of it; and escalates a call the same guard already blocked twice in one session by rewriting the repeated block into a verdict that repetition cannot pass (worker sessions are pointed at `kanban_block`), never blocking in advance and failing open.
 author: "shard-guard"
 kind: standalone

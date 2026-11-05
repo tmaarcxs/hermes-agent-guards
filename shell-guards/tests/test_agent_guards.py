@@ -88,7 +88,6 @@ def test_blocks(command):
         "git push origin feature/x-f",
         "python3 -c \"print('sleep 600')\"",
         "cat > poll.sh <<'EOF'\nfor i in $(seq 1 30); do sleep 60; done\nEOF\nbash poll.sh",
-        "python3 - <<'PYEOF'\nimport time\ntime.sleep(600)\nPYEOF",
         "grep -rn \"osascript\\\\|--admin\\\\|gh pr merge\" ~/.hermes/plugins",
         "python3 -c 'p=\"backups/worker-osascript-prohibition\"; print(p)'",
         "gh pr merge 1 --merge --match-head-commit \"$h\"",
@@ -108,7 +107,85 @@ def test_allows(command):
 
 
 def test_background_sleep_allowed():
-    assert run("sleep 600", background=True) is None
+    result = run("sleep 600", background=True)
+    assert result is None or result["action"] == "modify"
+
+
+"""Round-2: the wait-class scan covers `read -t`, `time.sleep`/`select()` in
+python `-c` payloads and the same shapes inside heredoc bodies.
+
+The audit's §6 probes walked past the sleep scan with `read -t 30`,
+`python3 -c "import time; time.sleep(30)"`, `perl -e 'select(...)'` and
+`for ...; do read -t 5 x; done` — the very idle-wait the sleep rules exist to
+end. The alternates get the same thresholds (5 s foreground, 3 s in a loop)
+and the same background=true notify=true alternative message.
+"""
+
+
+@pytest.mark.parametrize("command", [
+    "read -t 30 </dev/null",
+    "read -t 45; echo done",
+    "for i in 1 2 3; do read -t 8 x; done",
+    "while ! gh pr view 1; do read -t 5 x; done",
+    "python3 -c \"import time; time.sleep(30)\"",
+    "python3 -c \"import time\\nfor i in range(3): time.sleep(6)\"",
+    "python3 -c \"import select; select.select([], [], [], 30)\"",
+    "perl -e 'select(undef,undef,undef,30)'",
+    "useradd -e 2020 x",
+    "python3 -c \"import time; print(time.time())\"",
+    "python3 -c \"time.sleep(2)\"",
+    "read -t 3 x",
+    "echo 'read -t 30' > notes.md",
+    "grep -rn 'time.sleep' script.py",
+    "python3 -c \"import time; time.sleep(30)\" & wait",
+])
+def test_new_wait_shapes_decide_correctly(command):
+    """Blocked rows are the audit's bypasses; allowed rows are mentions,
+    sub-threshold waits, contract-required env fixups or a shell-backgrounded
+    interpreter (the whole job returns immediately, the sleep exemption's
+    own shape)."""
+    result = run(command)
+    should_block = command in {
+        "read -t 30 </dev/null",
+        "read -t 45; echo done",
+        'python3 -c "import time; time.sleep(30)"',
+        'python3 -c "import time\\nfor i in range(3): time.sleep(6)"',
+        'python3 -c "import select; select.select([], [], [], 30)"',
+        "perl -e 'select(undef,undef,undef,30)'",
+    }
+    should_block_loop = command in {
+        "for i in 1 2 3; do read -t 8 x; done",
+        "while ! gh pr view 1; do read -t 5 x; done",
+    }
+    if should_block or should_block_loop:
+        assert result is not None and result["action"] == "block", command
+        expected = "notify=[<ready pattern>]" if should_block_loop else "notify=true)"
+        assert expected in result["message"], (command, result["message"])
+    else:
+        assert result is None or result["action"] == "modify", command
+
+
+def test_wait_background_with_notify_allowed():
+    result = run("read -t 45; echo done", background=True)
+    assert result is None or result["action"] == "modify"
+
+
+def test_python_heredoc_long_wait_blocked():
+    command = "python3 - <<'PYEOF'\nimport time\ntime.sleep(600)\nPYEOF"
+    result = run(command)
+    assert result is not None and result["action"] == "block"
+    assert "background=true, notify=true" in result["message"]
+
+
+def test_python_heredoc_short_wait_allowed():
+    command = "python3 - <<'PYEOF'\nimport time\ntime.sleep(2)\nPYEOF"
+    assert run(command) is None or run(command)["action"] == "modify"
+
+
+def test_shell_heredoc_read_t_loop_blocked():
+    command = "bash - <<'EOF'\nwhile ! [ -f ready ]; do read -t 10 x; done\necho ready\nEOF"
+    result = run(command)
+    assert result is not None and result["action"] == "block"
 
 
 @pytest.mark.parametrize(
