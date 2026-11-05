@@ -1,5 +1,5 @@
 name: shell-guards
-version: "0.7.0"
+version: "0.8.0"
 description: >
   Block recursive find/grep -r/rg over the whole Hermes home, installs or benchmarks (about 2.5 million
   files; minutes per call, often the 420 s limit) - search the directory that holds the target instead.

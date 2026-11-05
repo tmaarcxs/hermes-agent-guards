@@ -30,8 +30,8 @@ from typing import Any, Optional
 from . import _policy
 
 MESSAGE = (
-    "agent-guards blocked terminal: give this background=true job an outcome channel — "
-    "add notify=true (or heartbeat>0) or run it foreground."
+    "agent-guards blocked terminal: this background=true job has no outcome channel. Add one: "
+    "terminal(command=<same command>, background=true, notify=true)."
 )
 
 _RETRY_INSTRUCTION = getattr(_policy, "RETRY_INSTRUCTION", "")

@@ -129,8 +129,9 @@ def terminal_violations(command: str, background: bool) -> list[str]:
             seconds = float(match.group(1)) * _UNIT_SECONDS[match.group(2)]
             if seconds >= _MAX_FOREGROUND_SLEEP:
                 found.append(
-                    "foreground sleep >= 5s: run the wait with background=true and notify=true; "
-                    "its completion message wakes you, so never sleep or poll"
+                    "foreground sleep >= 5s in a foreground terminal call: run the wait as "
+                    "terminal(command=<the same command>, background=true, notify=true) "
+                    "instead - its completion message wakes you, so never sleep or poll"
                 )
                 break
         if not found:
@@ -140,8 +141,9 @@ def terminal_violations(command: str, background: bool) -> list[str]:
                     seconds = float(match.group(1)) * _UNIT_SECONDS[match.group(2)]
                     if seconds >= _MAX_LOOP_SLEEP and any(start < match.start() for start in loop_starts):
                         found.append(
-                            "polling loop with sleep >= 3s: run the whole wait with background=true "
-                            "and notify=[<ready pattern>]; never sleep or poll"
+                            "polling loop with sleep >= 3s: run the whole wait as "
+                            "terminal(command=<the same loop>, background=true, notify=[<ready pattern>]) "
+                            "instead - the ready-pattern match wakes you; never sleep or poll"
                         )
                         break
     if not found and _loop_starts(command):
@@ -155,7 +157,11 @@ def terminal_violations(command: str, background: bool) -> list[str]:
                 )
                 break
     if any("--match-head-commit" not in segment for segment in _segments(command, _MERGE)):
-        found.append("gh pr merge needs --match-head-commit <verified head sha>")
+        found.append(
+            "gh pr merge without a pinned head: add --match-head-commit <head-sha-of-the-pull-request> "
+            "to this exact call (read the sha from `gh pr view <number> --json headRefOid`), so the "
+            "merge applies to the verified head"
+        )
     if _OSASCRIPT.search(command):
         found.append("osascript is not allowed: use ego-browser for browser work")
     if any(_BARE_FORCE.search(segment) for segment in _segments(command, _PUSH)):
@@ -163,6 +169,45 @@ def terminal_violations(command: str, background: bool) -> list[str]:
     if _gh_auth_blocked(command, source):
         found.append(_GH_AUTH_MESSAGE)
     return found
+
+
+def rewrite_poll_instructions(result: Any) -> Optional[str]:
+    """Rewrite core's poll-only promoted-process note to the instruction the guards enforce.
+
+    Hermes core promotes an over-cap foreground ``terminal`` call to a tracked background
+    process and attaches a note telling the model to poll it with ``process(action="poll")``
+    (``tools/terminal_tool.py`` ``_PROMOTED_NOTE_POLL_ONLY``); ``process_poll_gate`` blocks
+    ``poll`` for workers, so a worker following that note loops between core's text and the
+    guard. The note rides the result JSON's ``promoted_from_foreground`` field, which a
+    ``transform_tool_result`` hook still sees after the tool returns. The note that already
+    carries ``notify_on_complete=true`` (a notification will arrive) keeps its poll hint:
+    there ``poll`` is a "sooner" convenience the guard does not need to fight. Fails open:
+    a non-string, non-JSON or unmatchable result returns ``None`` untouched.
+    """
+    if not isinstance(result, str) or "promoted_from_foreground" not in result:
+        return None
+    try:
+        import json
+
+        data = json.loads(result)
+        note = data.get("promoted_from_foreground") if isinstance(data, dict) else None
+    except Exception:
+        return None
+    if not isinstance(note, str) or "poll it with process" not in note:
+        return None
+    data["promoted_from_foreground"] = _POLL_NOTE_REPLACEMENT
+    return json.dumps(data, ensure_ascii=False)
+
+
+_POLL_NOTE_REPLACEMENT = (
+    "Requested foreground timeout {requested}s exceeds the {cap}s cap, so this command was started as a "
+    "tracked background process instead of being refused. Do NOT re-run it. Do not poll it either: "
+    "this session cannot receive completion notifications, so retrieve the outcome when you need it with "
+    'process_manage(action="wait", session_id=<session_id>) (returns the moment the process exits) or '
+    'process_manage(action="log", session_id=<session_id>) (reads the output so far). If the wait comes '
+    "back interrupted with no new output, END the turn and re-issue the wait in a later turn — never "
+    "sleep, never poll."
+)
 
 
 def _tool_deadline() -> Optional[float]:

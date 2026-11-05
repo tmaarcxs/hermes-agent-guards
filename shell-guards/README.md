@@ -7,18 +7,22 @@ Self-contained agent-guards plugin for terminal command hygiene.
 - Recursive `find`, `grep -r`, `rg`, `ag` and `fd` over the whole Hermes home, `installs` or `benchmarks` (about 2.5 million files, minutes per call). Searches inside `skills`, `memories`, `plugins`, `profiles/<name>`, `kanban` and `hermes-agent` pass, and so does `find` with `-maxdepth` 2 or less. Every profile.
 - `git stash` writes (push, pop, drop, apply, clear; `list` and `show` pass), for workers. The stash stack is shared by every worktree of the repository, so a pop or drop can restore or destroy another lane's changes or your own. Compare against the base with `git show HEAD:<file>`, `git diff` or `git worktree add /tmp/<name> HEAD`.
 - `process_manage` `poll`. `wait` returns the moment the process exits (a `timeout` shorter than the configured limit is lifted to it), `log` reads output, and a `notify=true` job sends its completion as a message.
-- Foreground `sleep` of 5s or more, or a `for`/`while`/`until` polling loop holding a `sleep` of 3s or more. Run the wait with `background=true` and a notify channel. Heredoc bodies and quoted strings are exempt.
-- `gh pr merge` without `--match-head-commit` — merges must pin the verified head.
+- Foreground `sleep` of 5s or more, or a `for`/`while`/`until` polling loop holding a `sleep` of 3s or more. The block message gives the exact call shape: `terminal(command=<the same command/loop>, background=true, notify=true)` (loops: `notify=[<ready pattern>]`). Heredoc bodies and quoted strings are exempt.
+- `gh pr merge` without `--match-head-commit` — the block message shows the corrected call: add `--match-head-commit <head-sha-of-the-pull-request>` (read the sha from `gh pr view <number> --json headRefOid`).
 - `osascript` — desktop automation goes through ego-browser.
 - `gh auth switch`, `gh auth login`, `gh auth logout`, `gh auth refresh` — they change the shared active account for every Hermes process, and Hermes reads its Copilot token from the active account. To act as another account, set it in the command itself: `GH_TOKEN=$(gh auth token -u <user>) <command>`; the default active account is `acme-bot`. `gh auth status` and `gh auth token` stay allowed.
 - `git push` with a bare `--force`/`-f` — use `--force-with-lease`.
 - Recursive deletion of a live Hermes home (`rm` with a recursive flag, `find -delete`, `rsync --delete` on a protected destination, python `rmtree`-family calls in `-c` payloads or heredocs) aimed at `$HERMES_HOME`, `~/.hermes`, any user's literal absolute form, the `profiles` subtree or an ancestor of these, including stages reached through a runner chain after a pipe. Deeper nests and quoted/heredoc prose stay allowed; for tests create a throwaway home with `mktemp -d` inside the scratch workspace and delete the printed directory by its literal path.
 - A `paas-promote` workflow dispatch targeting `des` without the `auto-approval` label in `LABELS` — the deployment pull request would stay open until someone notices. The block message names the corrected `-f LABELS=...` flag.
-- `kanban_attach` with more than 256 characters of inline base64 — the model transcribes those bytes and corrupts them; attach by path (`artifacts=[absolute path]`).
+- `kanban_attach` with more than 256 characters of inline base64 — the model transcribes those bytes and corrupts them; the block message shows the replacement arguments (`artifacts=[absolute path]`, then sha256-compare the stored file).
 
 ## Requires
 
-- A `terminal` call with `background=true` that is not a long-lived server (vite, http.server, uvicorn, gunicorn, local proxies, databases, containers — detected conservatively from the final statement) declares an outcome channel: `notify=true`, a non-empty notify pattern list, or a positive `heartbeat`. When it declares none, the hook turns `notify=true` on instead of blocking. Pty sessions are exempt.
+- A `terminal` call with `background=true` that is not a long-lived server (vite, http.server, uvicorn, gunicorn, local proxies, databases, containers — detected conservatively from the final statement) declares an outcome channel: `notify=true`, a non-empty notify pattern list, or a positive `heartbeat`. When it declares none, the hook turns `notify=true` on instead of blocking (worker setups), and the block message names the exact call shape `terminal(command=<same command>, background=true, notify=true)`. Pty sessions are exempt.
+
+## Rewrites
+
+- The poll-only promoted-process note from Hermes core ("This session cannot receive completion notifications, so poll it with process(action=\"poll\", session_id=...) until it exits") is rewritten by a `transform_tool_result` to the event-driven instruction consistent with the guards: retrieve the outcome with `process_manage(action="wait", session_id=...)` or `process_manage(action="log", session_id=...)`, and when the wait returns interrupted with no new output, end the turn and wait again in a later turn — never poll, never sleep. The note that already carries `notify_on_complete=true` (the completion arrives as a notification) keeps its poll "if you need it sooner" hint.
 
 ## Normalizes
 
