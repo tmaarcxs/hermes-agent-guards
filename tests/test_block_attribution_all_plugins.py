@@ -14,7 +14,7 @@ import pytest
 from _plugin_loader import load_plugin
 
 CHECK_TUPLES = {
-    "shell-guards": ("paas_promote_gate", "skill_size", "background_notify_gate"),
+    "shell-guards": ("paas_promote_gate", "skill_size"),
     "workspace-guards": ("home_litter_gate", "workspace_convention"),
     "kanban-guards": (
         "checkpoint_gate", "kanban_policy", "github_contact",

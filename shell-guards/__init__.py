@@ -128,7 +128,6 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
         (lambda: plugin_source_gate.check(tool_name, args), "plugin_source_gate"),
         (lambda: skill_size.check(tool_name, args), "skill_size"),
         (lambda: skill_size.record(tool_name, args, **kwargs), "skill_size"),
-        (lambda: background_notify_gate.check(tool_name, args), "background_notify_gate"),
     ):
         try:
             blocked = check()
@@ -142,7 +141,8 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
             found = terminal_policy.terminal_violations(str(args.get("command") or ""), bool(args.get("background")))
             if found:
                 return {"action": "block", "message": "agent-guards blocked terminal [__init__]: " + "; ".join(found)}
-            return None
+            notify = background_notify_gate.fix(tool_name, args)
+            return {"action": "modify", "args": notify} if notify else None
         blocked = terminal_policy.attach_cap_block(args)
         if blocked:
             return {"action": "block", "message": stamp(blocked, "__init__")}

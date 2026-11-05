@@ -15,7 +15,7 @@ Self-contained agent-guards plugin for terminal command hygiene.
 
 ## Requires
 
-- A `terminal` call with `background=true` that is not a long-lived server (vite, http.server, uvicorn, gunicorn, local proxies, databases, containers — detected conservatively from the final statement) declares an outcome channel: `notify=true`, a non-empty notify pattern list, or a positive `heartbeat`. Pty sessions are exempt.
+- A `terminal` call with `background=true` that is not a long-lived server (vite, http.server, uvicorn, gunicorn, local proxies, databases, containers — detected conservatively from the final statement) declares an outcome channel: `notify=true`, a non-empty notify pattern list, or a positive `heartbeat`. When it declares none, the hook turns `notify=true` on instead of blocking. Pty sessions are exempt.
 
 ## Normalizes
 

@@ -13,7 +13,6 @@ guards = sys.modules["shell_guards"]
 
 REGISTERED_GUARDS = [
     "skill_size",
-    "background_notify_gate",
 ]
 
 
