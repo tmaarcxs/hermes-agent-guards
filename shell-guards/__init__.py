@@ -29,6 +29,9 @@ Intent (behaviour identical to the monolithic plugin):
   default ``acme-bot``); recursive deletion of a live Hermes home
   (``rm -r``, ``find … -delete``, a ``--delete`` sync, a python delete call);
   a ``paas-promote`` dispatch to ``des`` without the ``auto-approval`` label;
+  an unsigned ``git commit`` (or ``--amend``) in a repo that requires signed
+  commits (a github.com origin whose ``origin/<default>`` last-20 history is
+  >= 90% signed decides it from local data only; Azure remotes exempt);
   ``kanban_attach`` with more than 256 characters of inline base64 (the bytes
   get transcribed and corrupted — attach by path);
 - turns a short ``process_manage`` ``wait`` timeout into the configured limit, so a wait runs to
@@ -74,6 +77,7 @@ try:
         paas_promote_gate,
         plugin_source_gate,
         process_poll_gate,
+        signed_commit_gate,
         skill_size,
         terminal_env_fix,
         terminal_policy,
@@ -171,6 +175,7 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
         (lambda: git_stash_gate.check(tool_name, args), "git_stash_gate"),
         (lambda: base_branch_gate.check(tool_name, args), "base_branch_gate"),
         (lambda: hermes_home_search_gate.check(tool_name, args), "hermes_home_search_gate"),
+        (lambda: signed_commit_gate.check(tool_name, args), "signed_commit_gate"),
     ):
         try:
             blocked = check()

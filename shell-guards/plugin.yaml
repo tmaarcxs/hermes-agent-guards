@@ -1,5 +1,5 @@
 name: shell-guards
-version: "0.9.0"
+version: "0.10.0"
 description: >
   Block recursive find/grep -r/rg over the whole Hermes home, installs or benchmarks (about 2.5 million
   files; minutes per call, often the 420 s limit) - search the directory that holds the target instead.
@@ -29,7 +29,11 @@ description: >
   symref fails open), a stacked PR on a feature or release branch passes, and
   the block message names the real default branch and the corrected command; turn `notify=true` on for every bounded `background=true` terminal job that
   declares no outcome channel (`notify=true`, a notify pattern list or a positive
-  `heartbeat` - servers and pty sessions exempt), so each wait is event-driven; block `kanban_attach` with
+  `heartbeat` - servers and pty sessions exempt), block an unsigned `git commit`
+  (or `--amend`) in a repo that requires signed commits - decided locally from a
+  github.com origin whose origin/<default> last-20 history is >= 90% signed
+  (Azure remotes exempt), the message naming the exact command with `-S` and the
+  `git config` lines that make signing permanent - block `kanban_attach` with
   more than 256 characters of inline base64 (the model transcribes those bytes
   and corrupts them - attach by path); normalize optional Kanban arguments sent
   as empty strings into absent ones, a `task_id` of the literal
