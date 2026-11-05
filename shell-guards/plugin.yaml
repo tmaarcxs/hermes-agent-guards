@@ -1,5 +1,5 @@
 name: shell-guards
-version: "0.8.0"
+version: "0.9.0"
 description: >
   Block recursive find/grep -r/rg over the whole Hermes home, installs or benchmarks (about 2.5 million
   files; minutes per call, often the 420 s limit) - search the directory that holds the target instead.
@@ -21,7 +21,13 @@ description: >
   ancestor, or the same stage through a runner chain). Also: block a
   `paas-promote` workflow dispatch that targets `des` without the
   `auto-approval` label (the deployment pull request would otherwise stay open
-  unmerged); turn `notify=true` on for every bounded `background=true` terminal job that
+  unmerged); block a `gh pr create`/`az repos pr create` whose base or target
+  branch is a long-lived integration branch other than the repo's real default
+  branch, and a new git branch started at one (checkout -b / switch -c /
+  worktree add -b / branch); the default branch is read from
+  `refs/remotes/origin/HEAD` in the command's repo (no network, an absent
+  symref fails open), a stacked PR on a feature or release branch passes, and
+  the block message names the real default branch and the corrected command; turn `notify=true` on for every bounded `background=true` terminal job that
   declares no outcome channel (`notify=true`, a notify pattern list or a positive
   `heartbeat` - servers and pty sessions exempt), so each wait is event-driven; block `kanban_attach` with
   more than 256 characters of inline base64 (the model transcribes those bytes

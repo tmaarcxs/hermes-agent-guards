@@ -65,6 +65,7 @@ _RUNTIME_SHAPED = frozenset({
     "kanban-guards/unused_code_gate.py",
     "shell-guards/paas_promote_gate.py",
     "shell-guards/plugin_source_gate.py",
+    "shell-guards/base_branch_gate.py",
 })
 
 
@@ -159,6 +160,7 @@ def test_runtime_shaped_sites_are_pinned_per_gate():
         "kanban-guards/unused_code_gate.py": ROOT / "kanban-guards/tests/test_unused_code_gate.py",
         "shell-guards/paas_promote_gate.py": ROOT / "shell-guards/tests/test_paas_promote_gate.py",
         "shell-guards/plugin_source_gate.py": ROOT / "shell-guards/tests/test_agent_guards.py",
+        "shell-guards/base_branch_gate.py": ROOT / "shell-guards/tests/test_base_branch_gate.py",
     }
     missing = [path for path, test in pinned.items()
                if path not in _RUNTIME_SHAPED or not test.exists()]
