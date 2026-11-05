@@ -1,21 +1,13 @@
 """workspace-guards: where writes and card workspaces may live.
 
-Self-contained plugin holding three modules moved from the monolithic
+Self-contained plugin holding two modules moved from the monolithic
 ``agent-guards`` plugin (base commit ``90456b2``):
 
-- ``workspace_write_gate`` (worker process) blocks writes — ``write_file``,
-  ``patch``, ``terminal`` commands, git mutations and inline python file writes —
-  that target anything outside the card's own task workspace: the protected
-  Hermes tree (``~/.hermes`` config, plugins, kanban state), the host's main
-  checkouts and other workers' workspaces. Matches commands at command-word
-  position outside quoted strings, so mentions in strings and grep patterns
-  pass; it catches slips, not deliberate evasion. Fails open.
 - ``home_litter_gate`` blocks creating new top-level entries directly under the
   home directory (``~/kind_of长长的``, ``cd ~ && touch x``, ``> ~/notes``),
   resolving the command's real cwd from the terminal tool's ``workdir``
   argument and the session's recorded cwd, not only an in-string ``cd``.
-  Reuses the path-parsing helpers of ``workspace_write_gate`` (same folder,
-  kept together deliberately).
+  Reuses the path-parsing helpers in ``_paths``.
 - ``workspace_convention`` (only with ``kanban.default_assignee`` configured)
   rejects a ``kanban_create`` whose ``dir``/``worktree`` workspace_path leaves
   the placement convention (outside ``<main-checkout>/.worktrees/<task>/`` or
@@ -29,7 +21,7 @@ imports nothing from sibling plugins.
 """
 
 try:
-    from . import home_litter_gate, workspace_convention, workspace_write_gate
+    from . import home_litter_gate, workspace_convention
 except ImportError:
     if __name__ != "__init__":
         raise
@@ -49,14 +41,14 @@ def register(ctx) -> None:
 def _modules():
     global _MODULES
     if _MODULES is None:
-        from . import home_litter_gate, workspace_convention, workspace_write_gate
+        from . import home_litter_gate, workspace_convention
 
-        _MODULES = (workspace_write_gate, home_litter_gate, workspace_convention)
+        _MODULES = (home_litter_gate, workspace_convention)
     return _MODULES
 
 
 def _pre_tool_call(tool_name: str = "", args=None, **kwargs):
-    workspace_write_gate, home_litter_gate, workspace_convention = _modules()
+    home_litter_gate, workspace_convention = _modules()
 
     def stamp(message: str, name: str) -> str:
         marker = message.find(": ")
@@ -65,7 +57,6 @@ def _pre_tool_call(tool_name: str = "", args=None, **kwargs):
         return message[: marker] + " [" + name + "]" + message[marker:]
 
     for check, name in (
-        (lambda: workspace_write_gate.check(tool_name, args), "workspace_write_gate"),
         (lambda: home_litter_gate.check(tool_name, args, **kwargs), "home_litter_gate"),
         (lambda: workspace_convention.check(tool_name, args), "workspace_convention"),
     ):

@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 FOLDERS = {
     "shell-guards": ("shell_guards", ("terminal_policy",)),
-    "workspace-guards": ("workspace_guards", ("workspace_write_gate", "home_litter_gate")),
+    "workspace-guards": ("workspace_guards", ("home_litter_gate",)),
     "kanban-guards": ("kanban_guards", ("stop_gate", "wakes", "workspace_scope_gate")),
 }
 
