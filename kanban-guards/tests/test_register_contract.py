@@ -59,6 +59,7 @@ def test_pre_tool_call_check_order_matches_root_at_90456b2():
         "round_cap_gate",
         "handoff_gate",
         "completion_gate",
+        "scratch_artifact_gate",
         "backup_copy_gate",
         "schedule_gate",
     ]

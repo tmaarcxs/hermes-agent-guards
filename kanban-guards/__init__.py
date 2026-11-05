@@ -97,7 +97,7 @@ try:
     from typing import Optional
 
 
-    from . import active_pr_unblock, backup_copy_gate, board_watch, checkpoint_gate, completion_gate, delivered_pr_park, github_contact, handoff_gate, kanban_policy, kanban_show_slim_gate, pr_link_gate, round_cap_gate, schedule_gate, stop_gate, wakes, workspace_scope_gate
+    from . import active_pr_unblock, backup_copy_gate, board_watch, checkpoint_gate, completion_gate, delivered_pr_park, github_contact, handoff_gate, kanban_policy, kanban_show_slim_gate, pr_link_gate, round_cap_gate, scratch_artifact_gate, schedule_gate, stop_gate, wakes, workspace_scope_gate
 except ImportError:
     if __name__ != "__init__":
         raise
@@ -127,6 +127,7 @@ _PRE_TOOL_CALL_CHECKS = (
     ("round_cap_gate", lambda tool_name, args, kwargs: round_cap_gate.check(tool_name, args, **kwargs)),
     ("handoff_gate", lambda tool_name, args, kwargs: handoff_gate.check(tool_name, args, **kwargs)),
     ("completion_gate", lambda tool_name, args, kwargs: completion_gate.check(tool_name, args)),
+    ("scratch_artifact_gate", lambda tool_name, args, kwargs: scratch_artifact_gate.check(tool_name, args)),
     ("backup_copy_gate", lambda tool_name, args, kwargs: backup_copy_gate.check(tool_name, args)),
     ("schedule_gate", lambda tool_name, args, kwargs: schedule_gate.check(tool_name, args)),
 )

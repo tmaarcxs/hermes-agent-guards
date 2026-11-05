@@ -68,7 +68,10 @@ Answers: *is this lifecycle call, board read or wake legitimate?*
   item to evidence; keep the published-PR completion duty visible; block
   contacts with people on GitHub from worker terminals; bounce
   a narrated stop after a blocked lifecycle call; block `kanban_schedule`;
-  refuse a handoff that preserves a backup copy of the delivered work.
+  refuse a handoff that preserves a backup copy of the delivered work; block a
+  scratch-workspace handoff that names deliverables only inside the workspace
+  (uncovered paths in the handoff text, or unpushed git commits with no bundle
+  or patch artifact) — the workspace is deleted on completion.
 - Lead gates: scope a lead chat's `kanban_list` result to the cards its own chat
   thread is subscribed to; slim the lead's `kanban_show` deterministically.
 - Wakes: run every Kanban wake on one shared event-driven chassis over

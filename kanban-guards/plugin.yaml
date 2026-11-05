@@ -1,5 +1,5 @@
 name: kanban-guards
-version: "0.1.0"
+version: "0.2.0"
 description: >-
   Kanban discipline for worker and lead processes. Worker gates keep a dispatcher-owned
   run honest: force a budget checkpoint comment before the run is cut at the iteration
