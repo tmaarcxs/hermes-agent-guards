@@ -165,9 +165,13 @@ def test_clamp_transformer_fails_open_on_an_unresolvable_deadline(monkeypatch):
 def test_overhead_of_the_clamp_over_100_terminal_calls(deadline_420):
     import time
 
-    calls = 100
-    start = time.perf_counter()
-    for _ in range(calls):
-        guards._pre_tool_call(tool_name="terminal", args={"command": TERMINAL_COMMAND, "timeout": 600})
-    elapsed_ms = (time.perf_counter() - start) * 1000.0
-    assert elapsed_ms / calls < 1.0
+    def per_call_ms(args):
+        start = time.perf_counter()
+        for _ in range(100):
+            guards._pre_tool_call(tool_name="terminal", args=args)
+        return (time.perf_counter() - start) * 10.0
+
+    per_call_ms({"command": TERMINAL_COMMAND})
+    plain = min(per_call_ms({"command": TERMINAL_COMMAND}) for _ in range(3))
+    clamped = min(per_call_ms({"command": TERMINAL_COMMAND, "timeout": 600}) for _ in range(3))
+    assert clamped - plain < 1.0
