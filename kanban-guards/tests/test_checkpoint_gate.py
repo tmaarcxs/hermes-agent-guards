@@ -21,6 +21,7 @@ def kw(session="s1", calls=None):
 def worker_setup(monkeypatch):
     monkeypatch.setattr(guards.kanban_policy, "configured_worker", lambda: "worker")
     monkeypatch.setenv("HERMES_KANBAN_TASK", "t_1a2b3c4d")
+    monkeypatch.delenv("HERMES_PROFILE", raising=False)
     gate.reset()
     yield
     gate.reset()
