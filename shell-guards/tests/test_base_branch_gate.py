@@ -242,7 +242,7 @@ def test_other_commands_pass(repos):
 def test_message_names_the_corrected_command_that_passes(repos, command, repo_key):
     message = message_of(command, repos[repo_key])
     corrected = message.rsplit("Run instead: ", 1)[1].splitlines()[0]
-    assert check(corrected) is None, corrected
+    assert check(corrected, repos[repo_key]) is None, corrected
 
 
 def test_hook_blocks_with_attribution(repos):

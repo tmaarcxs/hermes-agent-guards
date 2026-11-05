@@ -77,7 +77,7 @@ _AZ_MESSAGE = (
 _BRANCH_MESSAGE = (
     "agent-guards blocked terminal: starting branch at integration branch '{base}' while "
     "the repo's real default branch is '{default}' points the future pull request at the wrong "
-    "trunk. Run instead: git checkout -b <new-branch> {default}"
+    "trunk. Run instead: {corrected}"
 )
 
 
