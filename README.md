@@ -16,7 +16,7 @@ you want; they do not depend on each other.
 
 Answers: *is this shell command safe to run?*
 
-- Blocks `process_manage` `poll`, a foreground `sleep` of 5 s or more, and a polling loop holding a
+- Blocks `git stash` writes for workers (the stash stack is shared by every worktree), `process_manage` `poll`, a foreground `sleep` of 5 s or more, and a polling loop holding a
   `sleep` of 3 s or more (run the wait in the background with a notification
   channel; `wait` returns at the process exit).
 - Blocks a `pgrep -f`/`pkill -f` inside a loop, in the foreground *and* in the
