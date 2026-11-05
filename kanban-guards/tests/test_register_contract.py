@@ -50,7 +50,10 @@ def test_pre_tool_call_check_order_matches_root_at_90456b2():
     """Kanban-order pin, derived from the root tuple at 90456b2: keep the relative
     order of the checks this plugin owns, dropping the shell-owned entries.
 
-    ``round_cap_gate`` follows ``pr_link_gate`` and precedes ``handoff_gate``."""
+    ``round_cap_gate`` follows ``pr_link_gate`` and precedes ``handoff_gate``;
+    ``unused_code_gate`` appends after ``schedule_gate`` (it is a new check with no
+    root-order ancestor).
+    """
     assert list(guards._PRE_TOOL_CALL_CHECK_ORDER) == [
         "checkpoint_gate",
         "kanban_policy",
@@ -62,6 +65,7 @@ def test_pre_tool_call_check_order_matches_root_at_90456b2():
         "scratch_artifact_gate",
         "backup_copy_gate",
         "schedule_gate",
+        "unused_code_gate",
     ]
 
 
