@@ -43,6 +43,35 @@ Run the tests:
 PYTHONPATH="$HOME/.hermes/hermes-agent" ~/.hermes/hermes-agent/venv/bin/python -m pytest -q tests
 ```
 
+## cli_create_gate — no lead-side CLI card creation
+
+`kanban_create` (the tool) subscribes the calling chat to the new card;
+`hermes kanban create` (the CLI) does not, so cards the lead opens from the
+terminal finish without waking anyone — four guard cards sat approved for hours
+that way on 2026-11-05. This gate (``pre_tool_call`` on ``terminal``) blocks any
+``hermes [-p <profile>] [--board <slug>] kanban [--board <slug>] create`` in
+processes that are neither a run on a card (``HERMES_KANBAN_TASK`` set) nor a
+process of the worker profile itself (``HERMES_PROFILE`` == the configured
+worker); the CLI stays the documented worker fallback there. It sees through
+``python -m hermes_cli[.main]``, ``bash -c``, subshells, ``&&``/``;``/pipe
+statements and ``KEY=VALUE``/``env`` prefixes, and stays silent for every other
+``hermes kanban`` subcommand and for ``create --help`` (a quoted title or body
+value can never open a new segment). The block message rebuilds the exact
+``kanban_create`` tool call from the blocked command's own flags — title,
+assignee, ``--workspace scratch|worktree|worktree:<p>|dir:<p>`` mapped onto
+``workspace_kind``/``workspace_path``, project, idempotency key,
+parents, skills, goal mode, last flag repetition winning (``--branch`` is read
+and mapped honestly: the tool has no branch argument). With
+``--body-file``, names the file text as the tool call's ``body`` argument. It
+fails open on any parse error and needs ``kanban.default_assignee`` to know who
+the worker profile is.
+
+Run the tests:
+
+```bash
+PYTHONPATH="$HOME/.hermes/hermes-agent" ~/.hermes/hermes-agent/venv/bin/python -m pytest -q tests
+```
+
 ## scratch_artifact_gate
 
 Blocks `kanban_complete` and `kanban_request_review` (pre_tool_call, worker setups only)
