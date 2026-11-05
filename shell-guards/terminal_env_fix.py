@@ -9,10 +9,11 @@
    status up front, so no re-run is needed. Only test runners: ``cmd | head`` would
    otherwise turn a harmless SIGPIPE into a failure.
 
-Fails open; idempotent.
+The child shell can inherit the leak even when this process env is clean (Hermes builds
+the child env itself), so the rewrite keys on the command (python-like tools), not on
+``os.environ``. Fails open; idempotent.
 """
 
-import os
 import re
 from typing import Optional
 
@@ -20,13 +21,14 @@ _MARK = "case \":$PYTHONPATH:\" in *\"/.hermes/installs/\"*)"
 _UNSET = _MARK + " unset PYTHONPATH;; esac; "
 _RUNNER = re.compile(r"\b(?:pytest|unittest|ruff|mypy)\b")
 _PIPE_TO_VIEWER = re.compile(r"(?<!\|)\|(?!\|)\s*(?:tail|head)\b[^|]*$")
+_PYTHONISH = re.compile(r"(?:^|[\s;&|(/])(?:python[0-9.]*|pytest|pip[0-9.]*|uv|tox|nox|poetry|coverage)(?=[\s;&|)]|$)")
 
 
 def fix(tool_name: str, args: dict) -> Optional[dict]:
     command = args.get("command")
     if tool_name != "terminal" or not isinstance(command, str) or not command.strip() or command.startswith(_MARK):
         return None
-    prefix = _UNSET if "/.hermes/installs/" in os.environ.get("PYTHONPATH", "") else ""
+    prefix = _UNSET if _PYTHONISH.search(command) else ""
     if _RUNNER.search(command) and _PIPE_TO_VIEWER.search(command) and "pipefail" not in command:
         prefix += "set -o pipefail; "
     return {"command": prefix + command} if prefix else None
