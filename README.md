@@ -86,6 +86,13 @@ Answers: *does anything the agent emits contain a character the operator forbids
 - Replaces every occurrence of the section sign, with its surrounding spaces, by a single space.
 - Never blocks a call or touches other text; returns `None` when there is nothing to clean.
 
+### `provider-guards` upstream provider failures
+
+Answers: *does a provider failure that the core calls permanent get retried?*
+
+- `transform_api_error_classification` classifies HTTP 424 `byok_upstream_provider_failed` as a retryable `server_error`, so the core retries in the same session instead of ending the turn.
+- Any other status, code or message is left to the core. Fails open.
+
 Each folder's `README.md` documents its own rules in full.
 
 ## Install
@@ -117,6 +124,7 @@ jot-guards/         one self-contained plugin
 recall-guards/      one self-contained plugin
 goal-waker/         one self-contained plugin (resumes parked goals on messaging chats)
 text-guards/        one self-contained plugin
+provider-guards/    one self-contained plugin (retry an upstream HTTP 424)
 tests/              cross-plugin checks (helper-copy divergence, transform winner)
 pytest.ini          runs all folders plus tests/ in one command
 CUTOVER.md          ordered activation steps for replacing the old plugin
