@@ -8,7 +8,7 @@ Acceptance 3 of the kanban-guards split card. The order source is root
   this plugin keeps only the Kanban checks, in the same relative order:
   checkpoint_gate, kanban_policy, github_contact,
   handoff_gate, completion_gate, backup_copy_gate, schedule_gate (the shell-side
-  entries — workspace_write_gate, home_litter_gate, workspace_convention,
+  entries — home_litter_gate, workspace_convention,
   paas_promote_gate, skill_size, background_notify_gate — belong to other plugins);
 - the ``transform_tool_result`` chain (lines 233-265) keeps completion_gate,
   workspace_scope_gate, kanban_show_slim_gate, then the lead nudge last; the root's

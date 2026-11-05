@@ -1,9 +1,8 @@
 """Block Kanban workers from creating new top-level entries directly under ``~/``.
 
 Marcos found litter directly in his home dir (``~/kanban.db``, ``~/kanban``,
-``~/scratch``, ``~/wt``, ``~/ad-hoc`` …) written by agent/worker processes. The
-workspace fence in :mod:`workspace_write_gate` guards the live Hermes home and
-the task workspace, but a command that runs with its cwd at the real home — a
+``~/scratch``, ``~/wt``, ``~/ad-hoc`` …) written by agent/worker processes. A
+command that runs with its cwd at the real home — a
 bare ``sqlite3 kanban.db``, a ``mkdir scratch``, a ``> ~/note`` redirect — lands
 a brand-new entry at the top of ``~`` and nothing stops it.
 
@@ -43,7 +42,7 @@ import re
 from pathlib import Path
 from typing import Any, Optional
 
-from . import workspace_write_gate as _wwg
+from . import _paths
 
 ALLOWED_NEW_TOP_LEVEL = frozenset({"git_repos", "Downloads", "Documents", "Desktop"})
 """Non-dotted top-level entries a worker may create under the real home.
@@ -155,7 +154,7 @@ otherwise read as a path and block the call, naming ``~/202001010000``.
 
 
 def _home() -> Path:
-    return _wwg._home()
+    return _paths._home()
 
 
 def _new_top_level_entry(path: str, cwd: Optional[str] = None) -> Optional[str]:
@@ -173,11 +172,11 @@ def _new_top_level_entry(path: str, cwd: Optional[str] = None) -> Optional[str]:
     though the process cwd is elsewhere. ``None`` keeps the process-cwd
     resolution for callers that already carry an absolute path.
     """
-    candidate = _wwg._normalize(path)
+    candidate = _paths._normalize(path)
     if not candidate:
         return None
     if cwd and not candidate.startswith(("/", "~", "$")):
-        candidate = _wwg._join(cwd, candidate) or candidate
+        candidate = _paths._join(cwd, candidate) or candidate
     try:
         resolved = Path(candidate).expanduser().resolve(strict=False)
     except (OSError, ValueError):
@@ -208,7 +207,7 @@ def _copy_into_home_children(cwd: str, sources: list[str], dest: str) -> list[st
     shapes (globs, variables, ``.``/``..``) fail open.
     """
     home = _home()
-    joined = _wwg._join(cwd, dest)
+    joined = _paths._join(cwd, dest)
     if not joined:
         return []
     try:
@@ -284,8 +283,8 @@ def _creation_targets(cwd: str, segment: str) -> list[str]:
     targets: list[str] = []
     for match in _REDIRECT.finditer(unquoted):
         if not _FD_REDIRECT.match(match.group(1)):
-            targets.append(_wwg._join(cwd, match.group(1)))
-    tokens = _wwg._tokens(segment)
+            targets.append(_paths._join(cwd, match.group(1)))
+    tokens = _paths._tokens(segment)
     head_index = _head_index(tokens)
     head = tokens[head_index].lower() if head_index < len(tokens) else ""
     if head in _CREATE_HEADS:
@@ -297,26 +296,26 @@ def _creation_targets(cwd: str, segment: str) -> list[str]:
         if operands:
             if head in ("mkdir", "touch"):
                 for dest in operands:
-                    targets.append(_wwg._join(cwd, dest))
+                    targets.append(_paths._join(cwd, dest))
             else:
                 dest = operands[-1]
-                targets.append(_wwg._join(cwd, dest))
+                targets.append(_paths._join(cwd, dest))
                 if head in _COPY_HEADS:
                     targets.extend(_copy_into_home_children(cwd, operands[:-1], dest))
     elif head == "tee":
         operands = [dest for dest in tokens[head_index + 1:] if not dest.startswith("-")]
         if operands:
-            targets.append(_wwg._join(cwd, operands[0]))
+            targets.append(_paths._join(cwd, operands[0]))
     elif head == "sed":
         for dest in _sed_destinations(tokens, head_index):
-            targets.append(_wwg._join(cwd, dest))
+            targets.append(_paths._join(cwd, dest))
     elif head == "sqlite3":
         operands = _operands_after(tokens, head_index, _SQLITE3_ARG_OPTIONS)
         if operands:
-            targets.append(_wwg._join(cwd, _strip_sqlite_uri(operands[0])))
+            targets.append(_paths._join(cwd, _strip_sqlite_uri(operands[0])))
     elif head in ("curl", "wget"):
         for dest in _download_destinations(head, tokens, head_index):
-            targets.append(_wwg._join(cwd, dest))
+            targets.append(_paths._join(cwd, dest))
     return targets
 
 
@@ -581,12 +580,12 @@ def _config_cwd() -> Optional[str]:
 
 
 def terminal_violations(command: str, base_cwd: Optional[str] = None) -> list[str]:
-    blanked = _wwg._strip_heredoc_bodies(command)
-    for cwd, segment in _wwg._segments(blanked, base_cwd):
+    blanked = _paths._strip_heredoc_bodies(command)
+    for cwd, segment in _paths._segments(blanked, base_cwd):
         entry = _offending(_creation_targets(cwd, segment), cwd)
         if entry:
             return [_MESSAGE.format(tool="terminal", entry="~/" + entry)]
-    for body in _wwg._script_bodies(command):
+    for body in _paths._script_bodies(command):
         entry = _offending(_py_creation_literals(body), base_cwd)
         if entry:
             return [_MESSAGE.format(tool="terminal", entry="~/" + entry)]
@@ -594,7 +593,7 @@ def terminal_violations(command: str, base_cwd: Optional[str] = None) -> list[st
 
 
 def check(tool_name: str, args: Any, **kwargs: Any) -> Optional[str]:
-    if not _wwg.is_worker() or not isinstance(args, dict):
+    if not _paths.is_worker() or not isinstance(args, dict):
         return None
     if tool_name in ("write_file", "patch"):
         path = str(args.get("path") or "")

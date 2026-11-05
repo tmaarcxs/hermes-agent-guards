@@ -50,7 +50,7 @@ kanban-guards:    checkpoint_gate, kanban_policy, github_contact,
                   schedule_gate
 shell-guards:     paas_promote_gate, skill_size, skill_size(record),
                   background_notify_gate, then terminal/attach/normalize tail
-workspace-guards: workspace_write_gate, home_litter_gate, workspace_convention
+workspace-guards: home_litter_gate, workspace_convention
 ```
 
 Within each plugin the old relative order is preserved exactly (the Kanban
@@ -67,13 +67,7 @@ workspace entries keep theirs).
    (`resolve_plugin_load_order`): `kanban-guards` < `shell-guards` <
    `workspace-guards`. In the monolith the single root tuple decided.
 
-   This is **not** latent: the same call can be blocked by two plugins. A
-   recursive deletion aimed at the live Hermes home (`~/.hermes`) or at
-   `$HERMES_HOME` is blocked by `shell-guards` (`hermes_home_gate` via
-   `terminal_policy`) and by `workspace-guards` (`workspace_write_gate`). Under
-   the load order above the `shell-guards` message wins and the
-   `workspace-guards` one is never reached. Pinned by
-   `tests/test_block_winner.py::test_shell_guards_block_message_wins_over_workspace_guards`.
+   The overlap between `shell-guards` and `workspace-guards` on a recursive deletion of the live Hermes home ended when `workspace_write_gate` was removed; only `shell-guards` blocks it now.
 
 2. **`transform_tool_result` no longer chains across plugins, so the two appending
    transforms are joined on two hooks.** OLD ran one callback that chained
@@ -148,7 +142,7 @@ workspace entries keep theirs).
    this reason, not because they were dead.
 
 8. **Superseded analysis artifacts now live under `docs/`.** `WAKE_CENSUS.md`,
-   `replay_workspace_write_gate.md` and `replay_workspace_write_gate.json` were
+   `replay_workspace_write_gate.md` and `replay_workspace_write_gate.json` (since deleted with the gate) were
    dropped from the repo root by the split. Their content still has value as
    historical evidence (the wake fire-condition census and the gate's replay
    over the 2026-10-18 worker corpus), so they were **kept** — moved verbatim to

@@ -2,7 +2,7 @@
 
 The monorepo split made each plugin folder self-contained (Marcos, 2026-10-22):
 no cross-plugin imports, so the small shared-library bits that
-``workspace_write_gate`` and ``workspace_convention`` use travel with the plugin
+``home_litter_gate`` and ``workspace_convention`` use travel with the plugin
 instead of importing ``kanban-guards``. ``tests/test_helper_copies_agree.py`` at
 the monorepo root fails when these copies drift from the original.
 """
