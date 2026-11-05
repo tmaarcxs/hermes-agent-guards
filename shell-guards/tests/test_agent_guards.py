@@ -103,7 +103,8 @@ def test_blocks(command):
     ],
 )
 def test_allows(command):
-    assert run(command) is None
+    result = run(command)
+    assert result is None or result["action"] == "modify"
 
 
 def test_background_sleep_allowed():

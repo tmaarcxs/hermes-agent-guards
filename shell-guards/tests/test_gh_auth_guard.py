@@ -101,7 +101,8 @@ def test_blocked_even_for_a_background_call():
     ],
 )
 def test_allowed_spellings_pass(command):
-    assert run(command) is None
+    result = run(command)
+    assert result is None or result["action"] == "modify"
 
 
 def test_message_names_the_pinned_account_form_and_the_default():

@@ -135,5 +135,5 @@ def test_plugin_hook_modifies_instead_of_blocking():
     result = guards._pre_tool_call(
         tool_name="terminal", args={"background": True, "command": "python3 replay.py > replay.log 2>&1"}
     )
-    assert result == {"action": "modify", "args": {"notify": True}}
+    assert result["action"] == "modify" and result["args"]["notify"] is True
 

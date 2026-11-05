@@ -1,5 +1,5 @@
 name: shell-guards
-version: "0.5.0"
+version: "0.5.1"
 description: >
   Terminal command hygiene - block `process_manage` poll, foreground sleeps of 5s or more and polling
   loops holding a 3s+ sleep (run the wait with background=true and a notify
