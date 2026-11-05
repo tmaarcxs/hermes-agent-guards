@@ -1,5 +1,5 @@
 name: shell-guards
-version: "0.2.0"
+version: "0.3.0"
 description: >
   Terminal command hygiene - block foreground sleeps of 30s or more and polling
   loops holding a 15s+ sleep (run the wait with background=true and a notify
@@ -18,9 +18,9 @@ description: >
   ancestor, or the same stage through a runner chain). Also: block a
   `paas-promote` workflow dispatch that targets `des` without the
   `auto-approval` label (the deployment pull request would otherwise stay open
-  unmerged); require every bounded `background=true` terminal job to declare an
-  outcome channel (`notify=true`, a notify pattern list or a positive
-  `heartbeat` - servers and pty sessions exempt); block `kanban_attach` with
+  unmerged); turn `notify=true` on for every bounded `background=true` terminal job that
+  declares no outcome channel (`notify=true`, a notify pattern list or a positive
+  `heartbeat` - servers and pty sessions exempt), so each wait is event-driven; block `kanban_attach` with
   more than 256 characters of inline base64 (the model transcribes those bytes
   and corrupts them - attach by path); normalize optional Kanban arguments sent
   as empty strings into absent ones, a `task_id` of the literal

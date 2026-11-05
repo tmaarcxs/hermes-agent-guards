@@ -1,8 +1,10 @@
-"""Require an outcome channel on bounded background terminal jobs.
+"""Make every bounded background terminal job event-driven.
 
 A ``terminal`` call with ``background=true`` that is **not** a long-lived server must
 say how its completion reaches the agent: ``notify=true``, a non-empty ``notify``
-pattern list, or a positive ``heartbeat`` (seconds). Silent background jobs are how a
+pattern list, or a positive ``heartbeat`` (seconds). ``fix`` turns ``notify`` on for a
+call that names none, so the completion event wakes the agent and no turn is spent on a
+block; ``check`` still names the offending shape. Silent background jobs are how a
 run ends up waiting on an outcome that never arrives: the completion event is the
 agent's only signal, a ``process_manage`` poll reply does not carry the job's output,
 and a dispatcher reclaim on the silent stall re-queues the whole card. ``notify=true``
@@ -114,3 +116,8 @@ def check(tool_name: str, args: Any) -> Optional[str]:
     if not _policy.configured_worker():
         return None
     return MESSAGE + (" " + _RETRY_INSTRUCTION if _RETRY_INSTRUCTION else "")
+
+
+def fix(tool_name: str, args: Any) -> Optional[dict]:
+    """The args change that gives a silent bounded background job its completion event."""
+    return {"notify": True} if check(tool_name, args) else None

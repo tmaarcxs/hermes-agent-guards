@@ -120,3 +120,20 @@ def test_block_message_is_compact_and_names_the_fix():
     assert len(result.encode("utf-8")) <= 320
     assert "background=true" in result
     assert "notify=true" in result
+
+
+def test_fix_turns_notify_on_for_a_silent_bounded_job():
+    assert gate.fix("terminal", {"background": True, "command": "python3 replay.py"}) == {"notify": True}
+
+
+def test_fix_leaves_a_job_that_already_has_a_channel():
+    assert gate.fix("terminal", {"background": True, "command": "python3 replay.py", "notify": True}) is None
+    assert gate.fix("terminal", {"background": True, "command": "python3 long.py", "heartbeat": 120}) is None
+
+
+def test_plugin_hook_modifies_instead_of_blocking():
+    result = guards._pre_tool_call(
+        tool_name="terminal", args={"background": True, "command": "python3 replay.py > replay.log 2>&1"}
+    )
+    assert result == {"action": "modify", "args": {"notify": True}}
+

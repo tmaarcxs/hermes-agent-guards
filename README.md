@@ -34,8 +34,9 @@ Answers: *is this shell command safe to run?*
 - Blocks recursive deletion of a live Hermes home (`rm` with a recursive flag,
   `find -delete`, `rsync --delete` on a protected destination, python
   `rmtree`-family calls), including through a runner chain after a pipe.
-- Requires a bounded `background=true` terminal job to declare an outcome
-  channel (`notify=true`, a notify pattern list, or a positive `heartbeat`).
+- Turns `notify=true` on for a bounded `background=true` terminal job that declares no outcome
+  channel (`notify=true`, a notify pattern list, or a positive `heartbeat`), so its completion
+  event wakes the agent.
 - Blocks a `paas-promote` dispatch to `des` without the `auto-approval` label.
 - Blocks `kanban_attach` with more than 256 characters of inline base64
   (attach by path instead) and normalizes known-bad optional arguments.
