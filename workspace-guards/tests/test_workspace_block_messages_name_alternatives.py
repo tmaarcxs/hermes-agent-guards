@@ -3,7 +3,9 @@
 Same contract as shell-guards (see its test file): a block names what happened
 and the exact permitted alternative for the same intent. The home-litter gate
 already lists where writes may live; the workspace-convention gate names the
-three allowed placements — both are pinned here verbatim.
+three allowed placements and the plugin local-edit gate names the matching
+working clone, its ``git worktree add`` command and the sync calls — all
+static-pinned here verbatim.
 """
 
 import os
@@ -61,3 +63,47 @@ def test_workspace_convention_message_names_the_three_allowed_roots():
     assert message and "<main-checkout>/.worktrees/<task>/" in message
     assert "~/git_repos/ad-hoc/<name>/" in message
     assert "workspace_kind=scratch, no workspace_path" in message
+
+
+def test_plugin_local_edit_message_names_clone_worktree_and_sync(tmp_path, monkeypatch):
+    """The runtime-computed alternative: matching clone + worktree add + syncs."""
+    home = tmp_path / "home"
+    checkout = home / ".hermes" / "plugins" / "plugA"
+    clone = home / "git_repos" / "plugA"
+    (home / ".hermes" / "profiles" / "worker" / "plugins" / "plugA").mkdir(parents=True)
+    clone.mkdir(parents=True)
+    for path in (checkout, clone):
+        import subprocess
+
+        subprocess.run(["git", "init", "-q", str(path)], check=True)
+        subprocess.run(["git", "-C", str(path), "config", "remote.origin.url",
+                        "https://example.com/tmaarcxs/plugA.git"], check=True)
+    message = guards.plugin_local_edit_gate.check(
+        "write_file", {"path": str(checkout / "gate.py")}
+    )
+    assert message
+    assert str(clone) in message
+    assert "worktree add" in message
+    assert "origin/main" in message
+    assert "plugins update plugA" in message
+    assert "hermes -p " in message
+
+
+def test_plugin_local_edit_message_without_a_clone_names_the_clone_command(tmp_path):
+    """The fixture home has a plugins checkout but no matching git_repos clone."""
+    home = tmp_path / "home"
+    checkout = home / ".hermes" / "profiles" / "worker" / "plugins" / "plugB"
+    checkout.mkdir(parents=True)
+    import subprocess
+
+    subprocess.run(["git", "init", "-q", str(checkout)], check=True)
+    origin = "https://example.com/tmaarcxs/plugB.git"
+    subprocess.run(["git", "-C", str(checkout), "config", "remote.origin.url", origin],
+                   check=True)
+    message = guards.plugin_local_edit_gate.check(
+        "write_file", {"path": str(checkout / "gate.py")}
+    )
+    assert message
+    assert "git clone" in message
+    assert origin in message
+    assert "git_repos" in message
