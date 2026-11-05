@@ -255,16 +255,18 @@ def test_small_inline_attach_allowed():
 def test_process_wait_timeout_is_clamped_below_the_call_deadline(monkeypatch):
     monkeypatch.setattr(guards.terminal_policy, "_tool_deadline", lambda: 420.0)
     call = lambda **a: guards._pre_tool_call(tool_name="process_manage", args={"action": "wait", "session_id": "p1", **a})
-    assert call(timeout=900) == {"action": "modify", "args": {"timeout": 415}}
-    assert call(timeout=420) == {"action": "modify", "args": {"timeout": 415}}
-    assert call(timeout=400) is None
+    assert call(timeout=900) == {"action": "modify", "args": {"timeout": 405}}
+    assert call(timeout=420) == {"action": "modify", "args": {"timeout": 405}}
+    assert call(timeout=415) == {"action": "modify", "args": {"timeout": 405}}
+    assert call(timeout=300) is None
     assert guards._pre_tool_call(tool_name="process_manage", args={"action": "poll", "session_id": "p1", "timeout": 900}) is None
 
 
 def test_process_wait_cap_follows_the_configured_deadline(monkeypatch):
+    monkeypatch.setenv("TERMINAL_TIMEOUT", "600")
     monkeypatch.setattr(guards.terminal_policy, "_tool_deadline", lambda: 900.0)
     result = guards._pre_tool_call(tool_name="process_manage", args={"action": "wait", "session_id": "p1", "timeout": 900})
-    assert result == {"action": "modify", "args": {"timeout": 895}}
+    assert result == {"action": "modify", "args": {"timeout": 885}}
 
 
 def test_process_wait_cap_absent_when_deadline_is_unbounded(monkeypatch):

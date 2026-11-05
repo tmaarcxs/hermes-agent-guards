@@ -1,5 +1,5 @@
 name: shell-guards
-version: "0.10.0"
+version: "0.11.0"
 description: >
   Block recursive find/grep -r/rg over the whole Hermes home, installs or benchmarks (about 2.5 million
   files; minutes per call, often the 420 s limit) - search the directory that holds the target instead.
@@ -15,7 +15,7 @@ description: >
   shared active account for every Hermes process - to act as another account
   set it in the command: `GH_TOKEN=$(gh auth token -u <user>) <command>`, the
   default active account is `acme-bot`), block bare `git push
-  --force`/`-f` (use `--force-with-lease`), and block recursive deletion of a
+  `--force`/`-f` (use `--force-with-lease`), and block recursive deletion of a
   live Hermes home (`rm -r`, `find -delete`, `rsync --delete`, python delete
   calls aimed at `$HERMES_HOME`, `~/.hermes` or its profiles subtree, an
   ancestor, or the same stage through a runner chain). Also: block a
@@ -40,7 +40,17 @@ description: >
   `$HERMES_KANBAN_TASK` into absent (the tool falls back to the worker's own
   task), and doubled `skill_view` names `x:x` into `x`, and clamp a
   `process_manage wait` timeout to 5 s below the call deadline (a wait at or
-  above it races the host deadline and dies with no partial output); and keep skill markdown
+  above it races the host deadline and dies with no partial output), and clamp
+  a foreground `terminal` timeout or a `process_manage wait` timeout above the
+  call deadline (`timeouts.tools.sequential_call`, else 420 s) to 15 s below
+  it (405 by default), so the tool's own timeout returns partial output
+  instead of the host killing the whole slot (a foreground call at or above
+  the deadline is killed before the tool's own over-600-s promotion can run;
+  background=true calls are not touched, and a `terminal` result whose own
+  rewritten 405 s timeout killed it gets a note naming the
+  `terminal(command=..., background=true, notify=true)` replacement - the
+  host's own deadline kill produces a result no transform hook sees, so those
+  deaths stay silent); and keep skill markdown
   files under their size limit - blocks a `skill_manage`/`write_file`/`patch`
   call that would push one over (SKILL.md 6000, other skill .md files 12000
   characters), flags after the fact a `terminal`/`execute_code`/unified-diff

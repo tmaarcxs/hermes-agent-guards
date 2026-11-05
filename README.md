@@ -53,6 +53,14 @@ Answers: *is this shell command safe to run?*
 - Blocks a `paas-promote` dispatch to `des` without the `auto-approval` label.
 - Blocks `kanban_attach` with more than 256 characters of inline base64
   (attach by path instead) and normalizes known-bad optional arguments.
+- Rewrites a `terminal`/`process_manage wait` `timeout` above the call
+  deadline (`timeouts.tools.sequential_call`, else 420 s) down to 15 s under
+  it (405 by default) so the tool's own timeout returns partial output
+  instead of the host killing the whole slot; a `terminal` result whose own
+  rewritten timeout killed it gets a note naming the
+  `background=true, notify=true` replacement call (the host's own deadline
+  kill produces a result no transform hook sees, so those deaths stay
+  silent).
 - Keeps skill markdown files under their size limit (blocks a call that would
   push one over; flags after the fact one that landed over).
 
