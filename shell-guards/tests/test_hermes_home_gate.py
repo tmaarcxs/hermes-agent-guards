@@ -6,6 +6,11 @@ import pytest
 guards = sys.modules["shell_guards"]
 
 
+@pytest.fixture(autouse=True)
+def only_the_home_gate(monkeypatch):
+    monkeypatch.setattr(guards.hermes_home_search_gate, "check", lambda *args, **kwargs: None)
+
+
 def run(command, background=False):
     return guards._pre_tool_call(tool_name="terminal", args={"command": command, "background": background})
 

@@ -233,13 +233,16 @@ def test_self_matching_pgrep_loop_blocked_in_background_too(command):
         "pgrep -f migrate.py; echo done",
         "while [ -f ready ]; do sleep 1; done",
         "while kill -0 $p; do sleep 1; done",
-        "grep -rn 'pgrep -f' notes.md",
         'echo "while pgrep -f x; do sleep 1; done"',
         "for i in 1 2 3; do pgrep migrate; done",
     ],
 )
 def test_pgrep_loop_allows(command):
     assert run(command) is None
+
+
+def test_grep_for_a_pgrep_pattern_is_allowed():
+    assert not blocked("grep -rn 'pgrep -f' notes.md")
 
 
 def test_background_still_checks_merge():

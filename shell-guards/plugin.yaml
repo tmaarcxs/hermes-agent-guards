@@ -1,6 +1,9 @@
 name: shell-guards
-version: "0.11.0"
+version: "0.12.0"
 description: >
+  Also block recursive find/grep -r/rg over the user home or / (with the Hermes home, installs and
+  benchmarks), and keep a recursive grep out of node_modules, .git and .venv unless the command names
+  --exclude-dir or node_modules.
   Block recursive find/grep -r/rg over the whole Hermes home, installs or benchmarks (about 2.5 million
   files; minutes per call, often the 420 s limit) - search the directory that holds the target instead.
   Terminal command hygiene - block `process_manage` poll, foreground sleeps of 5s or more and polling

@@ -24,6 +24,11 @@ def check(command):
         "cd /repo && grep -rn 'x' ~/.hermes/memories/ ~/.hermes; ls",
         "rg sonar ~/.hermes",
         "find ~/.hermes -maxdepth 3 -name x",
+        "find / -name '*.log' 2>/dev/null | head",
+        "find ~ -name '*sonar*'",
+        "find $HOME/ -type f -newer x",
+        "grep -rn eslint ~ | head -3",
+        "grep -rl foo /",
     ],
 )
 def test_bulk_searches_are_blocked(command):
@@ -41,6 +46,11 @@ def test_bulk_searches_are_blocked(command):
         "find ~/.hermes -maxdepth 2 -type d",
         "grep foo ~/.hermes/config.yaml",
         "ls ~/.hermes",
+        "find ~/git_repos -name package.json",
+        "find / -maxdepth 2 -name x",
+        "find ~ -maxdepth 1 -name '*.md'",
+        "ls /",
+        "grep foo ~/notes.txt",
         'echo "find ~/.hermes -name x"',
         "cat <<'EOF'\nfind ~/.hermes -name x\nEOF",
         "git log --oneline -3",

@@ -1,11 +1,13 @@
-"""Block recursive searches over the whole Hermes home or its bulk directories.
+"""Block recursive searches over the whole Hermes home, the user home or the filesystem root.
 
 ``~/.hermes`` holds about 2.5 million files (``installs`` and ``benchmarks`` alone hold more than
 1.4 million). A recursive ``find``/``grep -r``/``rg`` over the root, ``installs`` or
 ``benchmarks`` runs for minutes and often hits the 420 s tool limit (spa#578 lost 7 minutes to one
 ``find ~/.hermes -name "*sonar*"``; 14 days of worker sessions lost about 10.8 h). Searches inside
 ``skills``, ``memories``, ``plugins``, ``profiles/<name>``, ``kanban`` and so on stay allowed, as does
-``find`` with ``-maxdepth`` of 2 or less.
+``find`` with ``-maxdepth`` of 2 or less. The user home and ``/`` are blocked for the same
+reason: over 30 days of worker runs, recursive searches of 30 s or more were 25 % of the long
+foreground terminal time.
 
 Every profile. Matches at command-word position outside quoted strings and heredocs. Fails open.
 """
@@ -18,12 +20,13 @@ from . import hermes_home_gate, terminal_policy
 
 _SEARCH = re.compile(terminal_policy._START + r"(?P<tool>find|grep|egrep|fgrep|rg|ag|fd)\b")
 _SEGMENT_END = re.compile(r"[;|&\n)]")
+_SEARCH_WORD = re.compile(r"\b(?:find|grep|egrep|fgrep|rg|ag|fd)\b")
 _MAXDEPTH = re.compile(r"-maxdepth\s+[012]\b")
 _HOME_PREFIX = re.compile(r"^(?:~|\$HOME|\$\{HOME\})(?=/|$)")
 
 MESSAGE = (
-    "agent-guards blocked terminal: a recursive search over the whole Hermes home, installs or "
-    "benchmarks takes minutes (about 2.5 million files) and usually hits the tool time limit. "
+    "agent-guards blocked terminal: a recursive search over the whole Hermes home, installs, "
+    "benchmarks, your home directory or / takes minutes (millions of files) and usually hits the tool time limit. "
     "Search the directory that holds what you need (skills, memories, plugins, profiles/<name>, "
     "kanban, hermes-agent), use search_files, or recall with hindsight_recall."
 )
@@ -32,7 +35,7 @@ MESSAGE = (
 def _heavy() -> set:
     home = os.path.expanduser("~")
     root = os.path.join(home, ".hermes")
-    return {root, os.path.join(root, "installs"), os.path.join(root, "benchmarks")}
+    return {home, "/", root, os.path.join(root, "installs"), os.path.join(root, "benchmarks")}
 
 
 def _recursive(tool: str, flags: list) -> bool:
@@ -45,7 +48,7 @@ def check(tool_name: str, args: Any) -> Optional[str]:
     if tool_name != "terminal" or not isinstance(args, dict):
         return None
     command = args.get("command")
-    if not isinstance(command, str) or ".hermes" not in command and "$HOME" not in command and "~" not in command:
+    if not isinstance(command, str) or not _SEARCH_WORD.search(command):
         return None
     command = hermes_home_gate._strip_heredocs(command)
     masked = terminal_policy._QUOTED.sub(lambda m: m.group()[0] + "x" * (len(m.group()) - 2) + m.group()[-1], command)
@@ -63,7 +66,7 @@ def check(tool_name: str, args: Any) -> Optional[str]:
         for token in tokens:
             if token.startswith("-"):
                 continue
-            path = _HOME_PREFIX.sub(home, token).rstrip("/")
+            path = _HOME_PREFIX.sub(home, token).rstrip("/") or "/"
             if path in heavy:
                 return MESSAGE
     return None
