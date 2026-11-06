@@ -204,7 +204,14 @@ def _unpushed_heads(workspace: Path) -> list[tuple[str, str]]:
         if candidate in seen or not candidate.is_dir():
             continue
         seen.add(candidate)
-        unpushed = set((_git(candidate, "rev-list", "--branches", "--not", "--remotes") or "").split())
+        out = _git(candidate, "rev-list", "--branches", "--not", "--remotes")
+        if out is None:
+            # git failed: cannot prove anything is pushed — fail closed by
+            # treating every branch head as unpushed (the old per-ref
+            # merge-base loop did the same: a failed check never cleared a
+            # branch).
+            out = _git(candidate, "for-each-ref", "--format=%(objectname)", "refs/heads") or ""
+        unpushed = set(out.split())
         if not unpushed:
             continue
         branches = _git(candidate, "for-each-ref", "--format=%(refname:short) %(objectname)",
