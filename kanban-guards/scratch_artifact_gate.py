@@ -186,14 +186,7 @@ def _git(repo: Path, *args: str, timeout: int = 30) -> Optional[str]:
 
 def _unpushed_heads(workspace: Path) -> list[tuple[str, str]]:
     """``(branch, head_sha)`` for repos under ``workspace`` whose commits are not
-    reachable from any remote-tracking ref.
-
-    Two git processes per repo: ``rev-list --branches --not --remotes`` names every
-    commit no remote ref reaches, and heads whose sha is in that set are exactly the
-    branches the old per-branch ``merge-base --is-ancestor`` loop flagged — with 186
-    local branches × 31 remote refs that loop spawned ~1550 subprocesses per repo
-    (~42s), blowing the 30s ``pre_tool_call`` hook cap and making the host skip the
-    hook for every tool call for a minute (#timeout suppression)."""
+    reachable from any remote-tracking ref."""
     heads = []
     try:
         candidates = sorted(set(p.parent for p in workspace.rglob(".git")))
@@ -204,15 +197,17 @@ def _unpushed_heads(workspace: Path) -> list[tuple[str, str]]:
         if candidate in seen or not candidate.is_dir():
             continue
         seen.add(candidate)
-        unpushed = set((_git(candidate, "rev-list", "--branches", "--not", "--remotes") or "").split())
-        if not unpushed:
-            continue
+        refs = _remote_refs(candidate)
         branches = _git(candidate, "for-each-ref", "--format=%(refname:short) %(objectname)",
                         "refs/heads", "--count=50")
         for line in (branches or "").splitlines():
             branch, _, sha = line.partition(" ")
-            if sha and sha in unpushed:
-                heads.append((branch, sha))
+            if not sha:
+                continue
+            if any(_git(candidate, "merge-base", "--is-ancestor", sha, remote_ref) is not None
+                   for remote_ref in refs):
+                continue
+            heads.append((branch, sha))
     return heads
 
 
