@@ -144,3 +144,14 @@ def test_code_card_with_request_review_passes():
 def test_read_only_review_card_exempt():
     body = "Independent read-only review. You did NOT implement it.\n\n## Acceptance\n1. Verdict report"
     assert blocked("kanban_create", {**VALID, "body": body}) is None
+
+
+@pytest.mark.parametrize("contract", ["https://github.com/o/r/pull/1", "o/r"])
+def test_pr_completion_contract_is_rewritten_to_local_only(contract):
+    out = rewritten("kanban_create", {**VALID, "completion_contract": contract})
+    assert out == {"action": "modify", "args": {"completion_contract": "local-only"}}
+
+
+def test_local_only_or_absent_contract_is_left_alone():
+    assert rewritten("kanban_create", {**VALID, "completion_contract": "local-only"}) is None
+    assert rewritten("kanban_create", VALID) is None
