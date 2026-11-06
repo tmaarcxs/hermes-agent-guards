@@ -273,6 +273,19 @@ def test_doubled_skill_name_normalized():
     assert result == {"action": "modify", "args": {"name": "ego-browser"}}
 
 
+def test_doubled_name_of_registered_plugin_skill_untouched(monkeypatch):
+    import hermes_cli.plugins as plugins
+
+    class _PM:
+        def find_plugin_skill(self, name):
+            return object() if name == "ponytail:ponytail" else None
+
+    monkeypatch.setattr(plugins, "get_plugin_manager", lambda: _PM())
+    assert guards._pre_tool_call(tool_name="skill_view", args={"name": "ponytail:ponytail"}) is None
+    result = guards._pre_tool_call(tool_name="skill_view", args={"name": "ego-browser:ego-browser"})
+    assert result == {"action": "modify", "args": {"name": "ego-browser"}}
+
+
 def test_plugin_qualified_skill_untouched():
     assert guards._pre_tool_call(tool_name="skill_view", args={"name": "superpowers:writing-plans"}) is None
     assert guards._pre_tool_call(tool_name="skill_view", args={"name": "github"}) is None

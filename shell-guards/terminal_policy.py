@@ -453,6 +453,14 @@ def tool_note(output: Any, command: str, returncode: Any, **kwargs) -> Optional[
         return None
 
 
+def _is_plugin_skill(name: str) -> bool:
+    try:
+        from hermes_cli.plugins import get_plugin_manager
+        return get_plugin_manager().find_plugin_skill(name) is not None
+    except Exception:
+        return False
+
+
 def normalized_args(tool_name: str, args: dict[str, Any]) -> Optional[dict[str, Any]]:
     changes: dict[str, Any] = {key: None for key in _EMPTY_TO_ABSENT.get(tool_name, ()) if args.get(key) == ""}
     if tool_name.startswith("kanban_") and _ENV_TASK_LITERAL.match(str(args.get("task_id") or "")):
@@ -466,6 +474,7 @@ def normalized_args(tool_name: str, args: dict[str, Any]) -> Optional[dict[str, 
         name = args.get("name")
         if isinstance(name, str) and ":" in name:
             prefix, _, rest = name.partition(":")
-            if prefix == rest:
+            # a plugin whose skill shares its name (ponytail:ponytail) is a real qualified name
+            if prefix == rest and not _is_plugin_skill(name):
                 changes["name"] = rest
     return changes or None
