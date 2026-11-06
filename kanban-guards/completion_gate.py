@@ -189,6 +189,13 @@ _REJECTION_SUFFIX = (
 )
 
 
+_INFRA_SUFFIX = (
+    "\nagent-guards: \"PR acceptance infra\" is not fixed by retrying. Read the receipt on the card: if every real "
+    "check on the exact head is green and the same rejection repeats, the defect is in the acceptance collector. "
+    "Do not rerun jobs or edit CI; kanban_block(kind=capability) once, quoting the receipt."
+)
+
+
 def publication_contract(contract: str) -> tuple[str, str]:
     """``("url"|"repo", contract)`` for a GitHub publication contract, ``("none", "")`` otherwise."""
     text = str(contract or "").strip()
@@ -239,6 +246,8 @@ def transform(tool_name: str, args: Any, result: Any, status: str, error_message
         if not task_id:
             return None
         return _fix(task_id, load_contract)
+    if tool_name == "kanban_complete" and status == "error" and "PR acceptance infra" in str(error_message or ""):
+        return result + _INFRA_SUFFIX
     return None
 
 
