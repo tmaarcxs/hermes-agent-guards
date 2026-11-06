@@ -21,7 +21,8 @@ def worker_setup(monkeypatch):
 
 
 def _run(command, background=False):
-    return guards._pre_tool_call(tool_name="terminal", args={"command": command, "background": background})
+    """pty=True keeps the wait a block: a plain foreground wait is rewritten instead."""
+    return guards._pre_tool_call(tool_name="terminal", args={"command": command, "background": background, "pty": True})
 
 
 def _message(result):

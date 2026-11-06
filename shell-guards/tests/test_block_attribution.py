@@ -24,7 +24,7 @@ def block(tool_name, args, **kw):
 
 
 def test_terminal_block_names_builtin_and_keeps_audit_prefix():
-    message = block("terminal", {"command": "sleep 60", "background": False})
+    message = block("terminal", {"command": "git push -f origin main", "background": False})
     assert message.startswith("agent-guards blocked terminal")
     assert "[__init__]" in message
 

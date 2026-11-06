@@ -54,6 +54,17 @@ def violations(tool_name: str, args: dict[str, Any], worker: str) -> list[str]:
     return []
 
 
+def fix(tool_name: str, args: Any, worker: str) -> dict:
+    """Mechanical corrections the block would otherwise demand: the configured worker as
+    assignee and no execution override. ``None`` removes a key."""
+    if tool_name != "kanban_create" or not isinstance(args, dict):
+        return {}
+    changes: dict = {key: None for key in EXECUTION_OVERRIDES if key in args}
+    if args.get("assignee") != worker:
+        changes["assignee"] = worker
+    return changes
+
+
 def merge_hint() -> str:
     """Command to merge a verified head, when a setup documents one.
 

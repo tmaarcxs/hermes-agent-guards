@@ -19,6 +19,7 @@ the child env itself), so the rewrite keys on the command (python-like tools), n
 """
 
 import re
+import shutil
 from typing import Optional
 
 from . import terminal_policy
@@ -31,6 +32,29 @@ _GREP = re.compile(terminal_policy._START + r"(?P<tool>grep|egrep|fgrep)(?=\s)(?
 _RECURSIVE = re.compile(r"(?:^|\s)(?:--recursive|-[A-Za-z]*[rR][A-Za-z]*)(?=\s|$)")
 _EXCLUDES = " --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=.venv"
 _PYTHONISH = re.compile(r"(?:^|[\s;&|(/])(?:python[0-9.]*|pytest|pip[0-9.]*|uv|tox|nox|poetry|coverage)(?=[\s;&|)]|$)")
+
+
+_TIMEOUT = re.compile(
+    terminal_policy._START + r"(?P<tool>timeout)(?P<flags>(?:\s+(?:--foreground|--preserve-status|-[ks]\s+\S+|--(?:kill-after|signal)=\S+))*)"
+    r"\s+(?P<dur>\d+(?:\.\d+)?[smhd]?)(?=\s)"
+)
+_PERL_TIMEOUT = (
+    "perl -e '$d=shift;$d*={s=>1,m=>60,h=>3600,d=>86400}->{$1} if $d=~s/([smhd])$//;"
+    "$p=fork;if(!$p){exec @ARGV;exit 127}$SIG{ALRM}=sub{kill 15,$p;exit 124};alarm $d;waitpid $p,0;exit($?>>8)'"
+)
+
+
+def _shim_timeout(command: str) -> str:
+    """macOS has no ``timeout`` (145 "command not found" in 30 days): same contract, exit 124 on expiry.
+
+    shortcut: ignores -k/-s (always TERM); upgrade if a call needs them.
+    """
+    if "<<" in command or "timeout" not in command or shutil.which("timeout"):
+        return command
+    masked = terminal_policy._QUOTED.sub(lambda m: m.group()[0] + "x" * (len(m.group()) - 2) + m.group()[-1], command)
+    for m in reversed(list(_TIMEOUT.finditer(masked))):
+        command = command[: m.start("tool")] + _PERL_TIMEOUT + " " + m.group("dur") + command[m.end("dur"):]
+    return command
 
 
 def _exclude_bulk_dirs(command: str) -> str:
@@ -56,5 +80,5 @@ def fix(tool_name: str, args: dict) -> Optional[dict]:
     prefix = _UNSET if _PYTHONISH.search(command) else ""
     if _RUNNER.search(command) and _PIPE_TO_VIEWER.search(command) and "pipefail" not in command:
         prefix += "set -o pipefail; "
-    rewritten = prefix + _exclude_bulk_dirs(command)
+    rewritten = prefix + _exclude_bulk_dirs(_shim_timeout(command))
     return {"command": rewritten} if rewritten != command else None

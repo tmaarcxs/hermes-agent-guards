@@ -15,6 +15,10 @@ VALID = {"title": "Review X", "assignee": "worker", "body": "Goal: spec\n\n## Ac
          "parents": ["t_1"]}
 
 
+def rewritten(tool, args):
+    return guard._pre_tool_call(tool_name=tool, args=args, task_id="", session_id="")
+
+
 def blocked(tool, args):
     result = guard._pre_tool_call(tool_name=tool, args=args, task_id="", session_id="")
     return None if result and result.get("action") == "modify" else result
@@ -24,13 +28,12 @@ def test_valid_card_passes():
     assert blocked("kanban_create", VALID) is None
 
 
-def test_default_assignee_blocked():
-    result = blocked("kanban_create", {**VALID, "assignee": "default"})
-    assert result["action"] == "block" and "'default'" in result["message"]
+def test_default_assignee_rewritten_to_worker():
+    assert rewritten("kanban_create", {**VALID, "assignee": "default"}) == {"action": "modify", "args": {"assignee": "worker"}}
 
 
-def test_missing_assignee_blocked():
-    assert blocked("kanban_create", {"title": "x"})["action"] == "block"
+def test_missing_assignee_rewritten_to_worker():
+    assert rewritten("kanban_create", {"title": "x", "body": VALID["body"]}) == {"action": "modify", "args": {"assignee": "worker"}}
 
 
 def test_triage_blocked():
@@ -41,14 +44,14 @@ def test_triage_false_passes():
     assert blocked("kanban_create", {**VALID, "triage": False}) is None
 
 
-def test_each_execution_override_blocked():
+def test_each_execution_override_removed():
     for key in ("model", "provider", "goal_mode", "goal_max_turns", "max_runtime_seconds"):
-        assert key in blocked("kanban_create", {**VALID, key: None})["message"], key
+        assert rewritten("kanban_create", {**VALID, key: "x"}) == {"action": "modify", "args": {key: None}}, key
 
 
-def test_all_violations_reported_together():
-    message = blocked("kanban_create", {**VALID, "assignee": "default", "model": "x", "triage": True})["message"]
-    assert "'default'" in message and "triage" in message and "'model'" in message
+def test_unfixable_violation_still_blocks_after_rewrite():
+    result = rewritten("kanban_create", {**VALID, "assignee": "default", "model": "x", "triage": True})
+    assert result["action"] == "block" and "triage" in result["message"]
 
 
 def test_review_reviewer_not_gated_by_this_plugin():
@@ -78,7 +81,7 @@ def test_internal_error_fails_open():
 def test_named_worker_comes_from_config(monkeypatch):
     monkeypatch.setattr(policy, "configured_worker", lambda: "builder")
     assert blocked("kanban_create", {**VALID, "assignee": "builder"}) is None
-    assert "'builder'" in blocked("kanban_create", VALID)["message"]
+    assert rewritten("kanban_create", VALID) == {"action": "modify", "args": {"assignee": "builder"}}
 
 
 def test_inactive_without_default_assignee(monkeypatch):

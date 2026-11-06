@@ -64,7 +64,7 @@ def test_block_from_each_guard_carries_its_name(folder_name, name, monkeypatch):
 
 def test_terminal_block_keeps_the_audit_prefix():
     module = load_plugin("shell-guards")
-    result = module._pre_tool_call(tool_name="terminal", args={"command": "sleep 60", "background": False})
+    result = module._pre_tool_call(tool_name="terminal", args={"command": "git push -f origin main", "background": False})
     assert result["action"] == "block"
     assert result["message"].startswith("agent-guards blocked terminal")
     assert "[__init__]" in result["message"]

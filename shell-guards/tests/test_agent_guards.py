@@ -16,8 +16,13 @@ def run(command, background=False):
 
 
 def blocked(command, background=False):
+    """True when the command does not run as written in the foreground: refused, or a pure
+    foreground wait rewritten to the background+notify call the block message asks for."""
     result = run(command, background)
-    return result is not None and result["action"] == "block"
+    if result is None:
+        return False
+    return result["action"] == "block" or (
+        result["action"] == "modify" and result["args"].get("background") is True and result["args"].get("notify") is True)
 
 
 @pytest.mark.parametrize(
@@ -158,6 +163,8 @@ def test_new_wait_shapes_decide_correctly(command):
         "while ! gh pr view 1; do read -t 5 x; done",
     }
     if should_block or should_block_loop:
+        assert blocked(command), command  # a plain call is rewritten to background+notify
+        result = guards._pre_tool_call(tool_name="terminal", args={"command": command, "background": False, "pty": True})
         assert result is not None and result["action"] == "block", command
         expected = "notify=[<ready pattern>]" if should_block_loop else "notify=true)"
         assert expected in result["message"], (command, result["message"])
@@ -172,7 +179,7 @@ def test_wait_background_with_notify_allowed():
 
 def test_python_heredoc_long_wait_blocked():
     command = "python3 - <<'PYEOF'\nimport time\ntime.sleep(600)\nPYEOF"
-    result = run(command)
+    result = guards._pre_tool_call(tool_name="terminal", args={"command": command, "background": False, "pty": True})
     assert result is not None and result["action"] == "block"
     assert "background=true, notify=true" in result["message"]
 
@@ -184,8 +191,7 @@ def test_python_heredoc_short_wait_allowed():
 
 def test_shell_heredoc_read_t_loop_blocked():
     command = "bash - <<'EOF'\nwhile ! [ -f ready ]; do read -t 10 x; done\necho ready\nEOF"
-    result = run(command)
-    assert result is not None and result["action"] == "block"
+    assert blocked(command)
 
 
 @pytest.mark.parametrize(
@@ -372,3 +378,37 @@ def test_default_deadline_resolves_to_420():
     deadline = resolve_timeout("tools.sequential_call", default=None) or resolve_timeout(
         "tools.concurrent_batch", default=420.0, env_var="HERMES_CONCURRENT_TOOL_TIMEOUT_S")
     assert deadline and guards.terminal_policy._wait_cap() == int(deadline) - 5
+
+
+def test_pure_foreground_wait_is_rewritten_to_background_notify():
+    result = run("sleep 60; gh pr checks 1")
+    assert result == {"action": "modify", "args": {"background": True, "notify": True}}
+
+
+def test_wait_with_another_violation_still_blocks():
+    result = run("sleep 60; git push -f origin main")
+    assert result["action"] == "block" and "force" in result["message"].lower()
+
+
+def test_interactive_pty_wait_is_still_blocked():
+    result = guards._pre_tool_call(tool_name="terminal", args={"command": "sleep 60", "background": False, "pty": True})
+    assert result["action"] == "block"
+
+
+def test_missing_timeout_is_shimmed_and_keeps_exit_codes(monkeypatch):
+    import shutil
+    import subprocess
+
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    expired = run("timeout 1 sleep 3")["args"]["command"]
+    ok = run("timeout 5 true")["args"]["command"]
+    assert subprocess.run(["bash", "-c", expired]).returncode == 124
+    assert subprocess.run(["bash", "-c", ok]).returncode == 0
+    assert "timeout" not in run("echo 'timeout 5 x'") if run("echo 'timeout 5 x'") else True
+
+
+def test_real_timeout_binary_is_left_alone(monkeypatch):
+    import shutil
+
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/timeout")
+    assert run("timeout 5 true") is None

@@ -209,9 +209,13 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
         args = args if isinstance(args, dict) else {}
         if tool_name == "terminal":
             found = terminal_policy.terminal_violations(str(args.get("command") or ""), bool(args.get("background")))
+            wait_fix: dict = {}
+            if found and terminal_policy.only_waits(found) and not args.get("pty"):
+                found = terminal_policy.terminal_violations(str(args.get("command") or ""), True)  # non-wait rules still apply
+                wait_fix = {"background": True, "notify": True}
             if found:
                 return {"action": "block", "message": "agent-guards blocked terminal [__init__]: " + "; ".join(found)}
-            changes = {**(background_notify_gate.fix(tool_name, args) or {}), **(terminal_env_fix.fix(tool_name, args) or {})}
+            changes = {**wait_fix, **(background_notify_gate.fix(tool_name, args) or {}), **(terminal_env_fix.fix(tool_name, args) or {})}
             changes = {**(changes or {}), **(terminal_policy.rewrite_deadline_args(tool_name, args) or {})}
             return {"action": "modify", "args": changes} if changes else None
         blocked = terminal_policy.attach_cap_block(args)
