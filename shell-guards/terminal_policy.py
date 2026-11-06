@@ -221,6 +221,18 @@ def _gh_auth_blocked(blanked: str, source: str) -> bool:
     return False
 
 
+_WAIT_PREFIXES = (
+    "foreground sleep >= 5s", "polling loop with sleep >= 3s",
+    "foreground wait of >= 5s", "polling loop with a wait of >= 3s",
+)
+
+
+def only_waits(found: list) -> bool:
+    """True when every violation is a foreground wait: the call can be rewritten to the
+    background+notify shape the block message demands, instead of costing a turn."""
+    return bool(found) and all(f.startswith(_WAIT_PREFIXES) for f in found)
+
+
 def terminal_violations(command: str, background: bool) -> list[str]:
     found = []
     home = hermes_home_gate.hermes_home_violations(command)
@@ -454,6 +466,7 @@ def tool_note(output: Any, command: str, returncode: Any, **kwargs) -> Optional[
 
 
 def _is_plugin_skill(name: str) -> bool:
+    """A plugin whose skill shares its name (ponytail:ponytail) has a real qualified name."""
     try:
         from hermes_cli.plugins import get_plugin_manager
         return get_plugin_manager().find_plugin_skill(name) is not None
@@ -474,7 +487,6 @@ def normalized_args(tool_name: str, args: dict[str, Any]) -> Optional[dict[str, 
         name = args.get("name")
         if isinstance(name, str) and ":" in name:
             prefix, _, rest = name.partition(":")
-            # a plugin whose skill shares its name (ponytail:ponytail) is a real qualified name
             if prefix == rest and not _is_plugin_skill(name):
                 changes["name"] = rest
     return changes or None

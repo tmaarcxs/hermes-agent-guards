@@ -165,10 +165,19 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
         if not message.startswith("agent-guards blocked") or marker < 0:
             return message
         return message[: marker] + " [" + name + "]" + message[marker:]
+    changes: dict = {}
+    try:
+        worker = kanban_policy.configured_worker()
+        if worker and isinstance(args, dict):
+            changes = kanban_policy.fix(tool_name, args, worker)
+            if changes:
+                args = {**{k: v for k, v in args.items() if changes.get(k, v) is not None}, **{k: v for k, v in changes.items() if v is not None}}
+    except Exception:
+        changes = {}
     for blocked, name in _pre_tool_call_checks(tool_name, args, kwargs):
         if blocked:
             return {"action": "block", "message": stamp(blocked, name)}
-    return None
+    return {"action": "modify", "args": changes} if changes else None
 
 
 def _post_tool_call(**kwargs) -> None:
