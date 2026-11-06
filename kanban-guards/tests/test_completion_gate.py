@@ -204,6 +204,13 @@ def test_rejection_suffix_names_the_fix(monkeypatch):
     assert out and REPO_CONTRACT in out and "published_pr" in out
 
 
+def test_infra_rejection_points_to_capability_block(monkeypatch):
+    configure_publication(monkeypatch)
+    msg = "PR acceptance infra: Fix required failures"
+    out = gate.transform("kanban_complete", {}, '{"error": "%s"}' % msg, status="error", error_message=msg)
+    assert out and "kanban_block(kind=capability)" in out
+
+
 def test_no_suffix_on_other_errors_or_success(monkeypatch):
     configure_publication(monkeypatch)
     assert gate.transform("kanban_complete", {}, '{"error": "boomed"}', status="error",
