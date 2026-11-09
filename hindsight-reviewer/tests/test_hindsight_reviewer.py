@@ -200,3 +200,20 @@ def test_batches_of_twenty_run_in_parallel(run):
     llm.complete_structured = tracking
     applied, sent = run(bank, llm, records=many)
     assert applied == 0 and len(llm.calls) == 3 and len(seen) >= 2
+
+
+def test_reimported_module_rewraps_provider_so_its_registry_is_fed(monkeypatch):
+    import importlib, sys, types
+    class Provider:
+        _bank_id, _session_id = "b", "s"
+        def prefetch(self, query, *, session_id=""):
+            return "block"
+        def _tool_recall(self, args):
+            return "1. x"
+        _TOOL_HANDLERS = {"hindsight_recall": ("query", _tool_recall, "fail")}
+    fake = types.SimpleNamespace(import_provider_module=lambda name: types.SimpleNamespace(HindsightMemoryProvider=Provider))
+    monkeypatch.setitem(sys.modules, "plugins.memory", fake)
+    assert reviewer.patch_provider()
+    first = Provider.prefetch
+    assert reviewer.patch_provider() and Provider.prefetch is not first
+    assert Provider._hindsight_reviewer_originals[0].__name__ == "prefetch" and not getattr(Provider._hindsight_reviewer_originals[0], "_hindsight_reviewer", False)

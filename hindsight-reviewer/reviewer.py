@@ -42,13 +42,19 @@ NOTICE_MANY = 'Hindsight memories were invalidated after this turn.'
 
 
 def patch_provider():
-    """Wrap the Hindsight provider's prefetch once so it records the recalled ids per session."""
+    """Wrap the Hindsight provider's prefetch and recall tool so they record recalled ids per session.
+
+    A plugin re-enable re-imports this module with fresh registries, so always re-wrap the
+    provider's original methods; keeping an older wrapper would feed a registry nobody reads.
+    """
     from plugins.memory import import_provider_module
     module = import_provider_module('hindsight')
     cls = getattr(module, 'HindsightMemoryProvider', None) if module else None
-    if cls is None or getattr(cls.prefetch, '_hindsight_reviewer', False):
+    if cls is None:
         return False
-    original = cls.prefetch
+    if '_hindsight_reviewer_originals' not in cls.__dict__:
+        cls._hindsight_reviewer_originals = (cls.prefetch, cls._tool_recall)
+    original, original_tool = cls._hindsight_reviewer_originals
 
     def prefetch(self, query, *, session_id=''):
         captured = []
@@ -78,8 +84,6 @@ def patch_provider():
         except Exception:
             logger.warning('Hindsight review could not record recall ids; the turn is skipped', exc_info=True)
         return result
-
-    original_tool = cls._tool_recall
 
     def tool_recall(self, args):
         """Run the provider's own recall tool, recording the returned ids for this turn's review."""
