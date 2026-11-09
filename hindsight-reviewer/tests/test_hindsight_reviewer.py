@@ -298,3 +298,18 @@ def test_parallel_model_calls_see_the_callers_context(run):
     finally:
         scope.reset(token)
     assert seen and set(seen) == {"gateway-secrets"}
+
+
+def test_a_rejected_batch_skips_only_its_memories(run, monkeypatch):
+    monkeypatch.setattr(reviewer, "MAX_ATTEMPTS", 2)
+    monkeypatch.setattr(reviewer.time if hasattr(reviewer, "time") else __import__("time"), "sleep", lambda s: None)
+    bank = FakeBank()
+    llm = FakeLlm()
+    original = llm.complete_structured
+    def rejecting(*a, **k):
+        if k["purpose"] == "Hindsight noise review":
+            raise RuntimeError("Error code: 424")
+        return original(*a, **k)
+    llm.complete_structured = rejecting
+    applied, sent = run(bank, llm)
+    assert applied == 1 and len(sent) == 1
