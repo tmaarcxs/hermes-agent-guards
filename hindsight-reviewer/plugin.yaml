@@ -8,7 +8,7 @@ description: >-
   invalidated through the stock Hindsight API with a per-turn reason, read back, and one
   notice is posted to the originating chat. No queue and no retries: any failure skips the
   turn. Keeps memory.provider: hindsight; recall ids are captured by wrapping the provider's
-  prefetch. Model/provider override needs plugins.entries.hindsight-reviewer.llm.allow_model_override
+  prefetch. Model/provider override needs plugins.entries.hermes-agent-guards/hindsight-reviewer.llm.allow_model_override
   and allow_provider_override when cron.model is set.
 author: "kur4i"
 kind: standalone
