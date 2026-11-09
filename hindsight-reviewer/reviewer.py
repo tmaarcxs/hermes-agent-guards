@@ -341,7 +341,8 @@ def with_retries(call, *args, sleep=None):
         except Exception as error:
             if attempt == MAX_ATTEMPTS:
                 raise
-            logger.info('Hindsight review model call failed (%s); retry %d/%d', type(error).__name__, attempt, MAX_ATTEMPTS - 1)
+            logger.info('Hindsight review model call failed (%s: %s); retry %d/%d', type(error).__name__,
+                        str(error)[:120], attempt, MAX_ATTEMPTS - 1)
             sleep(min(2 * attempt, 20))
 
 
@@ -355,6 +356,7 @@ def review(llm, job):
     cases = [{'id': sid, 'memory': row['text']} for sid, row in sources.items()]
     batches = [cases[offset:offset + 20] for offset in range(0, len(cases), 20)]
     decisions, noisy = [], []
+    outcomes = Counter()
     if batches:
         from concurrent.futures import ThreadPoolExecutor
         import contextvars
@@ -364,11 +366,15 @@ def review(llm, job):
             submit = lambda call, *args: pool.submit(contextvars.copy_context().run, with_retries, call, *args)
             refuted = [submit(policy.propose, llm, batch, route, evidence) for batch in batches]
             flagged = [submit(policy.noise, llm, batch, route) for batch in batches]
-            for future in refuted:
-                decisions.extend(future.result())
-            for future in flagged:
-                noisy.extend(future.result())
-    outcomes = Counter()
+            # A batch the provider keeps rejecting skips only its own memories, not the whole turn.
+            for name, futures, sink in (('review', refuted, decisions), ('noise', flagged, noisy)):
+                for batch, future in zip(batches, futures):
+                    try:
+                        sink.extend(future.result())
+                    except Exception as error:
+                        outcomes['failed_batches'] += 1
+                        logger.warning('Hindsight %s batch of %d memories skipped (%s: %s)', name, len(batch),
+                                       type(error).__name__, str(error)[:200])
     for row in decisions:
         if row['decision'] != 'candidate' or not _quotable(job, row['evidence_quote']) or _SECRET.search(row['evidence_quote']):
             continue
@@ -389,8 +395,8 @@ def review(llm, job):
         outcome = _invalidate(base, key, row['id'], text, 'hindsight-noise:' + row['reason'] + ':' + str(event))
         outcomes[outcome] += 1
         outcomes['noise'] += outcome == 'applied'
-    logger.info('Hindsight review outcome: reviewed=%d applied=%d noise=%d conflict=%d',
-                len(cases), outcomes['applied'], outcomes['noise'], outcomes['conflict'])
+    logger.info('Hindsight review outcome: reviewed=%d applied=%d noise=%d conflict=%d failed_batches=%d',
+                len(cases), outcomes['applied'], outcomes['noise'], outcomes['conflict'], outcomes['failed_batches'])
     if outcomes['applied']:
         notify(job['origin'], NOTICE_ONE if outcomes['applied'] == 1 else NOTICE_MANY)
     return outcomes['applied']
