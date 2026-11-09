@@ -413,3 +413,33 @@ def test_superseded_invalidation_is_reported(run):
     applied, sent = run(bank, NoiseLlm({many[0]["id"]: ("superseded", many[1]["id"])}), records=records)
     assert applied == 1 and bank.rows[many[0]["id"]]["state"] == "invalidated" and bank.rows[many[1]["id"]]["state"] == "valid"
     assert sent[0][1].endswith("(superseded)")
+
+
+def test_a_provider_loaded_after_registration_is_wrapped(monkeypatch):
+    import sys, types
+    def make():
+        class Provider:
+            _bank_id, _session_id, _recall_sync, _prefetch_method = "b", "s", True, "recall"
+            def _build_recall_bank_ids(self):
+                return ["b"]
+            def _recall(self, *a, **k):
+                return [types.SimpleNamespace(id="m9", text="late fact")]
+            def prefetch(self, query, *, session_id=""):
+                self._recall(query)
+                return "block"
+            def _tool_recall(self, args):
+                return "1. x"
+            _TOOL_HANDLERS = {"hindsight_recall": ("query", _tool_recall, "fail")}
+        return Provider
+    first, late = make(), make()
+    fake = types.ModuleType("plugins.memory")
+    fake._load_package = lambda provider_dir, name: types.SimpleNamespace(HindsightMemoryProvider=late)
+    fake.import_provider_module = lambda name: types.SimpleNamespace(HindsightMemoryProvider=first)
+    monkeypatch.setitem(sys.modules, "plugins.memory", fake)
+    plugins_pkg = sys.modules.get("plugins")
+    if plugins_pkg is not None:
+        monkeypatch.setattr(plugins_pkg, "memory", fake, raising=False)
+    assert reviewer.patch_provider()
+    fake._load_package("dir", "hindsight")
+    late().prefetch("q", session_id="late-session")
+    assert reviewer._recalls.pop("late-session")["records"] == [{"id": "m9", "text": "late fact"}]

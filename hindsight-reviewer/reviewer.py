@@ -64,7 +64,9 @@ def patch_provider():
     A reload can load the provider again as a new class while live sessions keep instances of the
     old one, so every loaded copy is (re-)wrapped from its original methods.
     """
+    import plugins.memory as memory_plugins
     from plugins.memory import import_provider_module
+    _wrap_loader(memory_plugins)
     module = import_provider_module('hindsight')
     classes = {getattr(module, 'HindsightMemoryProvider', None) if module else None}
     classes |= {getattr(mod, 'HindsightMemoryProvider', None) for mod in list(sys.modules.values())
@@ -73,6 +75,25 @@ def patch_provider():
     for cls in classes:
         _patch(cls)
     return bool(classes)
+
+
+def _wrap_loader(memory_plugins):
+    """Wrap every Hindsight provider class Hermes loads later (a new agent can import a fresh copy)."""
+    current = getattr(memory_plugins, '_load_package', None)
+    if current is None:
+        return
+    original = vars(memory_plugins).setdefault('_hindsight_reviewer_original_load', current)
+
+    def load(provider_dir, name):
+        module = original(provider_dir, name)
+        cls = getattr(module, 'HindsightMemoryProvider', None) if module is not None else None
+        if isinstance(cls, type):
+            try:
+                _patch(cls)
+            except Exception:
+                logger.warning('Hindsight review could not wrap a newly loaded provider', exc_info=True)
+        return module
+    memory_plugins._load_package = load
 
 
 def _patch(cls):
