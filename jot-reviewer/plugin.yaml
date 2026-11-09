@@ -1,0 +1,20 @@
+name: jot-reviewer
+version: "0.1.0"
+description: >-
+  After each gateway turn, review the weekly Jot work board in a background thread, like
+  hindsight-reviewer and Hermes' own background review. The model selected for cron jobs (or the
+  main model) reads the turn with the background review's context and the current weekly note, and
+  proposes the smallest board changes (add a row to today, set a row's state and next step, remove a
+  closed one-off row or move an open row to today), each with an exact quote from the conversation.
+  A deterministic gate enforces the board rules (Inditex work only, five states, one line per cell,
+  no duplicates, adds only to today, done means Nada) and a skeptical second call must confirm each
+  change. Changes are written with the weekly-board scripts (fresh read, revision check, isolation
+  check) and read back. Each model call is retried up to 10 times; any other failure skips the turn.
+  One notice goes through the turn's background-review sender: "📝 Jot review: N changes (...)".
+  Needs the jot plugin; idle where its tools are missing. Model override needs
+  plugins.entries.hermes-agent-guards/jot-reviewer.llm.allow_model_override and allow_provider_override.
+author: "kur4i"
+kind: standalone
+hooks:
+  - pre_gateway_dispatch
+  - post_llm_call
