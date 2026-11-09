@@ -413,7 +413,7 @@ def review(llm, job):
             # it: copy this thread's context once per call (a Context cannot be entered twice at once).
             submit = lambda call, *args: pool.submit(contextvars.copy_context().run, with_bisect, call, *args)
             refuted = [submit(policy.propose, llm, batch, route, evidence) for batch in batches]
-            flagged = [submit(policy.noise, llm, batch, route) for batch in batches]
+            flagged = [submit(policy.noise, llm, batch, route, cases) for batch in batches]
             # A batch the provider keeps rejecting skips only its own memories, not the whole turn.
             for name, futures, sink in (('review', refuted, decisions), ('noise', flagged, noisy)):
                 for batch, future in zip(batches, futures):
@@ -436,6 +436,7 @@ def review(llm, job):
             applied.append(('contradicted', text))
         logger.info('Hindsight review %s memory %s (contradicted)', outcome, row['id'])
     refuted_ids = {row['id'] for row in decisions if row['decision'] == 'candidate'}
+    noisy = policy.survivors(noisy)
     for row in noisy:
         if row['id'] in refuted_ids:
             continue
