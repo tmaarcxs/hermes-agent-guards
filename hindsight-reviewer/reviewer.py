@@ -155,6 +155,19 @@ def _origin():
     return origin if origin['platform'] and origin['chat_id'] and origin['platform'] != 'local' else None
 
 
+def _turn_review_callback():
+    """This turn's background-review sender, so the notice follows the skills review's delivery rules.
+
+    It is held until the reply lands and dropped if a newer message superseded the turn.
+    """
+    try:
+        from gateway.session_context import bound_session_key
+        agents = getattr(_gateway.get('runner'), '_running_agents', None) or {}
+        return getattr(agents.get(bound_session_key()), 'background_review_callback', None)
+    except Exception:
+        return None
+
+
 def on_post_llm_call(session_id='', turn_id='', user_message=None, assistant_response=None,
                      conversation_history=None, **_):
     """Start one background review for a completed gateway turn whose injected block is known."""
@@ -182,7 +195,8 @@ def on_post_llm_call(session_id='', turn_id='', user_message=None, assistant_res
         from hermes_constants import get_hermes_home
         transcript, quotable = conversation_context(rows)
         job = {'home': str(get_hermes_home()), 'session_id': session_id, 'turn_id': turn_id,
-               'transcript': transcript, 'quotable': quotable, 'recall': recall, 'origin': origin}
+               'transcript': transcript, 'quotable': quotable, 'recall': recall, 'origin': origin,
+               'deliver': _turn_review_callback()}
         import contextvars
         copied = contextvars.copy_context()
         threading.Thread(target=lambda: copied.run(_run, job), name='hindsight-reviewer', daemon=True).start()
@@ -440,7 +454,11 @@ def review(llm, job):
     logger.info('Hindsight review outcome: reviewed=%d applied=%d noise=%d conflict=%d failed_batches=%d',
                 len(cases), outcomes['applied'], outcomes['noise'], outcomes['conflict'], outcomes['failed_batches'])
     if outcomes['applied']:
-        notify(job['origin'], notice(applied))
+        if job.get('deliver'):
+            job['deliver'](notice(applied))
+            logger.info('Hindsight review notice handed to the turn background-review sender')
+        else:
+            notify(job['origin'], notice(applied))
     return outcomes['applied']
 
 
