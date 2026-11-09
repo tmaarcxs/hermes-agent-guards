@@ -209,10 +209,10 @@ def test_an_internal_error_is_swallowed_and_logged_the_fail_open_pin(monkeypatch
     monkeypatch.setattr(
         waker.logger, "warning", lambda *a, **k: failures.append(1)
     )
-    waker._state["last"] = 0.0
+    waker._state["last"] = float("-inf")
     waker.on_tick()
     assert failures == [1]
-    waker._state["last"] = 0.0
+    waker._state["last"] = float("-inf")
     waker.on_tick()
     assert failures == [1, 1]
 
@@ -234,7 +234,7 @@ def test_the_tick_is_throttled_and_skips_dry_runs(monkeypatch):
     calls = []
     monkeypatch.setattr(waker, "_home", lambda: (_ for _ in ()).throw(RuntimeError("stop")))
     monkeypatch.setattr(waker.logger, "warning", lambda *a, **k: calls.append(a))
-    waker._state["last"] = 0.0
+    waker._state["last"] = float("-inf")
     waker.on_tick(dry_run=True)
     assert calls == []
     waker.on_tick()
