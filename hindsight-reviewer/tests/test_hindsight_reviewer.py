@@ -313,3 +313,18 @@ def test_a_rejected_batch_skips_only_its_memories(run, monkeypatch):
     llm.complete_structured = rejecting
     applied, sent = run(bank, llm)
     assert applied == 1 and len(sent) == 1
+
+
+def test_bisect_isolates_the_memory_the_provider_rejects(monkeypatch):
+    monkeypatch.setattr(reviewer, "MAX_ATTEMPTS", 1)
+    def call(llm, batch):
+        if any(case["id"] == "bad" for case in batch):
+            raise RuntimeError("424")
+        return [case["id"] for case in batch]
+    call.__name__ = "noise"
+    batch = [{"id": str(i)} for i in range(7)] + [{"id": "bad"}] + [{"id": "8"}]
+    assert reviewer.with_bisect(call, None, batch) == ["0", "1", "2", "3", "4", "5", "6", "8"]
+
+
+def test_gateway_handle_survives_a_module_reload():
+    assert sys.modules["hermes_hindsight_reviewer_state"].gateway is reviewer._gateway

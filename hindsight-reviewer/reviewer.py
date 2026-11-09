@@ -33,7 +33,6 @@ from . import policy
 
 logger = logging.getLogger(__name__)
 CTX = None
-_gateway = {}
 # Plugin reloads re-import this module, but live provider instances keep the wrappers of
 # earlier imports; one process-wide registry keeps every generation feeding the same hook.
 _state = sys.modules.setdefault('hermes_hindsight_reviewer_state', types.ModuleType('hermes_hindsight_reviewer_state'))
@@ -41,6 +40,7 @@ _recalls = _state.__dict__.setdefault('recalls', {})
 _tool_recalls = _state.__dict__.setdefault('tool_recalls', {})
 MEMORY_TOOLS = frozenset({'hindsight_recall', 'hindsight_reflect', 'hindsight_retain', 'memory', 'session_search'})
 _lock = _state.__dict__.setdefault('lock', threading.Lock())
+_gateway = _state.__dict__.setdefault('gateway', {})
 _SECRET = re.compile(r'(?i)(?:bearer\s+\S{12,}|(?:api[_-]?key|client[_-]?secret|password|token)\s*[:=]\s*["\']?\S{12,}|\bsk-[a-zA-Z0-9_-]{16,})')
 NOTICE_ONE = 'A Hindsight memory was invalidated after this turn.'
 NOTICE_MANY = 'Hindsight memories were invalidated after this turn.'
@@ -346,6 +346,29 @@ def with_retries(call, *args, sleep=None):
             sleep(min(2 * attempt, 20))
 
 
+def with_bisect(call, llm, batch, *rest):
+    """Retry a batch; if the provider still rejects it, halve it so one bad memory loses only itself."""
+    try:
+        return with_retries(call, llm, batch, *rest)
+    except Exception:
+        if len(batch) == 1:
+            raise
+    half = len(batch) // 2
+    return _split(call, llm, batch[:half], *rest) + _split(call, llm, batch[half:], *rest)
+
+
+def _split(call, llm, batch, *rest):
+    try:
+        return call(llm, batch, *rest)
+    except Exception as error:
+        if len(batch) == 1:
+            logger.warning('Hindsight %s skipped memory %s (%s: %s)', call.__name__, batch[0].get('id'),
+                           type(error).__name__, str(error)[:200])
+            return []
+    half = len(batch) // 2
+    return _split(call, llm, batch[:half], *rest) + _split(call, llm, batch[half:], *rest)
+
+
 def review(llm, job):
     """Review one turn; returns the number of invalidated memories."""
     url, key = _connection(job['home'])
@@ -363,7 +386,7 @@ def review(llm, job):
         with ThreadPoolExecutor(max_workers=min(2 * len(batches), MAX_PARALLEL)) as pool:
             # Pool threads start with an empty context, and the gateway's scoped credentials live in
             # it: copy this thread's context once per call (a Context cannot be entered twice at once).
-            submit = lambda call, *args: pool.submit(contextvars.copy_context().run, with_retries, call, *args)
+            submit = lambda call, *args: pool.submit(contextvars.copy_context().run, with_bisect, call, *args)
             refuted = [submit(policy.propose, llm, batch, route, evidence) for batch in batches]
             flagged = [submit(policy.noise, llm, batch, route) for batch in batches]
             # A batch the provider keeps rejecting skips only its own memories, not the whole turn.
@@ -382,7 +405,9 @@ def review(llm, job):
         if not with_retries(policy.confirm, llm, text, row['evidence_quote'], evidence, route):
             continue
         event = uuid.uuid5(uuid.NAMESPACE_URL, 'hindsight-review:' + job['session_id'] + ':' + job['turn_id'] + ':' + row['id'])
-        outcomes[_invalidate(base, key, row['id'], text, 'hindsight-review:' + str(event))] += 1
+        outcome = _invalidate(base, key, row['id'], text, 'hindsight-review:' + str(event))
+        outcomes[outcome] += 1
+        logger.info('Hindsight review %s memory %s (contradicted)', outcome, row['id'])
     refuted_ids = {row['id'] for row in decisions if row['decision'] == 'candidate'}
     for row in noisy[:MAX_NOISE]:
         if row['id'] in refuted_ids:
@@ -395,6 +420,7 @@ def review(llm, job):
         outcome = _invalidate(base, key, row['id'], text, 'hindsight-noise:' + row['reason'] + ':' + str(event))
         outcomes[outcome] += 1
         outcomes['noise'] += outcome == 'applied'
+        logger.info('Hindsight review %s memory %s (noise: %s)', outcome, row['id'], row['reason'])
     logger.info('Hindsight review outcome: reviewed=%d applied=%d noise=%d conflict=%d failed_batches=%d',
                 len(cases), outcomes['applied'], outcomes['noise'], outcomes['conflict'], outcomes['failed_batches'])
     if outcomes['applied']:
