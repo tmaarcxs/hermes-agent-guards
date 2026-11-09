@@ -104,8 +104,8 @@ Mark a memory as noise only when it is useless in that situation:
   rules already published in the other work.", "The user recorded the reasoning in his procedure.".
   A memory that names its system or project (for example "AuditQC", "Kanban", "Power BI",
   "sustac-slcp") is not a fragment, even if short.
-- "duplicate": another memory in this list states the same fact at least as completely; give that
-  memory's id in duplicate_of. Similar topic or partial overlap is not a duplicate.
+- "duplicate": another memory in MEMORIES or OTHER_MEMORIES states the same fact at least as
+  completely; give that memory's id in duplicate_of. Only judge the items in MEMORIES. Similar topic or partial overlap is not a duplicate.
 - "transient": a one-off event with no lasting value, such as one finished task or one test run.
 Never mark as noise: preferences, authorizations, commitments, identity facts, or any rule, decision,
 configuration, cause or lesson whose subject is named. If unsure, keep. Return JSON matching the schema.'''
@@ -128,16 +128,23 @@ NOISE_SCHEMA = {
 }
 
 
-def noise(llm, cases, route=None):
-    """Noise candidates from one batch: [{id, reason, duplicate_of}] after deterministic gates."""
+def noise(llm, cases, route=None, others=None):
+    """Noise candidates from one batch: [{id, reason, duplicate_of}] after deterministic gates.
+
+    ``others`` are the turn's remaining memories: never judged here, but valid duplicate targets,
+    so two copies that land in different batches are still found.
+    """
     if not cases:
         return []
     texts = {case['id']:case['memory'] for case in cases}
     if len(texts) != len(cases):
         raise ValueError('Duplicate case ids')
+    others = [case for case in others or [] if case['id'] not in texts]
+    targets = set(texts) | {case['id'] for case in others}
+    payload = {'MEMORIES':cases, 'OTHER_MEMORIES':others} if others else {'MEMORIES':cases}
     response = llm.complete_structured(
         instructions=NOISE_INSTRUCTIONS,
-        input=[{'type':'text','text':json.dumps({'MEMORIES':cases}, ensure_ascii=False, separators=(',',':'))}],
+        input=[{'type':'text','text':json.dumps(payload, ensure_ascii=False, separators=(',',':'))}],
         json_schema=NOISE_SCHEMA, timeout=90, max_tokens=max(500, len(cases)*60),
         purpose='Hindsight noise review', **(route or {}),
     )
@@ -150,17 +157,27 @@ def noise(llm, cases, route=None):
         reason, target = row.get('reason'), row.get('duplicate_of') or ''
         if sid not in texts or reason not in {'fragment','duplicate','transient'} or _PROTECTED.search(texts[sid]):
             continue
-        if reason == 'duplicate' and (target == sid or target not in texts):
+        if reason == 'duplicate' and (target == sid or target not in targets):
             continue
         output.append({'id':sid, 'reason':reason, 'duplicate_of':target if reason == 'duplicate' else ''})
-    # A duplicate is only noise while the memory it defers to survives.
-    removed = {row['id'] for row in output}
-    while True:
-        kept = [row for row in output if not row['duplicate_of'] or row['duplicate_of'] not in removed]
-        if len(kept) == len(output):
-            return output
-        output = kept
-        removed = {row['id'] for row in output}
+    return survivors(output)
+
+
+def survivors(output):
+    """Drop noise rows that would leave a duplicate without its kept copy (across all batches).
+
+    Greedy in order: a duplicate is accepted only while its target stays, and a memory that an
+    accepted duplicate defers to is never removed. Of a mutual pair, the first is removed.
+    """
+    removed, kept_targets, accepted = set(), set(), []
+    for row in output:
+        if row['id'] in kept_targets or (row['duplicate_of'] and row['duplicate_of'] in removed):
+            continue
+        accepted.append(row)
+        removed.add(row['id'])
+        if row['duplicate_of']:
+            kept_targets.add(row['duplicate_of'])
+    return accepted
 
 
 NOISE_CONFIRM_INSTRUCTIONS = '''You are a skeptical second checker. A first pass claims MEMORY is noise for REASON

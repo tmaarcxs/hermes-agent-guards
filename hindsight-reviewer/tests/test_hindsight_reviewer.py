@@ -197,6 +197,7 @@ def test_batches_of_twenty_run_in_parallel(run):
 
     def tracking(*a, **k):
         seen.add(threading.current_thread().name)
+        __import__("time").sleep(0.05)  # keep calls overlapping so the pool must use several threads
         return original(*a, **k)
     llm.complete_structured = tracking
     applied, sent = run(bank, llm, records=many)
@@ -363,3 +364,31 @@ def test_a_mid_turn_steering_message_does_not_skip_the_review(monkeypatch):
     reviewer.on_post_llm_call(session_id="steered", turn_id="t", user_message="first", assistant_response="done",
                               conversation_history=rows)
     assert len(started) == 1 and started[0]["recall"]["records"] == [{"id": "m1", "text": "fact"}]
+
+
+def test_duplicates_are_found_across_batches(run):
+    bank = FakeBank()
+    many = [{"id": f"{i:08d}-0000-0000-0000-000000000000", "text": f"memory {i}"} for i in range(25)]
+    for record in many:
+        bank.rows[record["id"]] = {"type": "world", "state": "valid", "text": record["text"]}
+    first, last = many[0]["id"], many[24]["id"]
+    seen_other_ids = []
+
+    class CrossLlm(NoiseLlm):
+        def complete_structured(self, instructions, input, json_schema, **kwargs):
+            payload = json.loads(input[0]["text"])
+            if kwargs["purpose"] == "Hindsight noise review":
+                seen_other_ids.extend(c["id"] for c in payload.get("OTHER_MEMORIES", []))
+            return super().complete_structured(instructions, input, json_schema, **kwargs)
+
+    applied, sent = run(bank, CrossLlm({last: ("duplicate", first)}), records=many)
+    assert first in seen_other_ids and applied == 1 and bank.rows[last]["state"] == "invalidated"
+    assert bank.rows[first]["state"] == "valid"
+
+
+def test_cross_batch_duplicate_pairs_keep_one_copy():
+    rows = [{"id": "a", "reason": "duplicate", "duplicate_of": "b"}, {"id": "b", "reason": "duplicate", "duplicate_of": "a"}]
+    assert policy.survivors(rows) == [rows[0]]
+    chain = [{"id": "a", "reason": "duplicate", "duplicate_of": "b"}, {"id": "b", "reason": "duplicate", "duplicate_of": "c"},
+             {"id": "c", "reason": "fragment", "duplicate_of": ""}]
+    assert policy.survivors(chain) == [chain[0], chain[2]]
