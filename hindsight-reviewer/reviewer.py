@@ -328,6 +328,7 @@ def _invalidate(base, key, source_id, text, reason):
 
 MAX_PARALLEL = 8
 MAX_ATTEMPTS = 10
+MAX_NOISE = 10  # caps the damage of a bad noise pass on one turn
 
 
 def with_retries(call, *args, sleep=None):
@@ -353,12 +354,16 @@ def review(llm, job):
     route = cron_route(job['home'])
     cases = [{'id': sid, 'memory': row['text']} for sid, row in sources.items()]
     batches = [cases[offset:offset + 20] for offset in range(0, len(cases), 20)]
-    decisions = []
+    decisions, noisy = [], []
     if batches:
         from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=min(len(batches), MAX_PARALLEL)) as pool:
-            for rows in pool.map(lambda batch: with_retries(policy.propose, llm, batch, route, evidence), batches):
+        with ThreadPoolExecutor(max_workers=min(2 * len(batches), MAX_PARALLEL)) as pool:
+            refuted = pool.map(lambda batch: with_retries(policy.propose, llm, batch, route, evidence), batches)
+            flagged = pool.map(lambda batch: with_retries(policy.noise, llm, batch, route), batches)
+            for rows in refuted:
                 decisions.extend(rows)
+            for rows in flagged:
+                noisy.extend(rows)
     outcomes = Counter()
     for row in decisions:
         if row['decision'] != 'candidate' or not _quotable(job, row['evidence_quote']) or _SECRET.search(row['evidence_quote']):
@@ -368,8 +373,20 @@ def review(llm, job):
             continue
         event = uuid.uuid5(uuid.NAMESPACE_URL, 'hindsight-review:' + job['session_id'] + ':' + job['turn_id'] + ':' + row['id'])
         outcomes[_invalidate(base, key, row['id'], text, 'hindsight-review:' + str(event))] += 1
-    logger.info('Hindsight review outcome: reviewed=%d applied=%d conflict=%d',
-                len(cases), outcomes['applied'], outcomes['conflict'])
+    refuted_ids = {row['id'] for row in decisions if row['decision'] == 'candidate'}
+    for row in noisy[:MAX_NOISE]:
+        if row['id'] in refuted_ids:
+            continue
+        text = sources[row['id']]['text']
+        kept = sources[row['duplicate_of']]['text'] if row['duplicate_of'] else ''
+        if not with_retries(policy.confirm_noise, llm, text, row['reason'], kept, route):
+            continue
+        event = uuid.uuid5(uuid.NAMESPACE_URL, 'hindsight-noise:' + job['session_id'] + ':' + job['turn_id'] + ':' + row['id'])
+        outcome = _invalidate(base, key, row['id'], text, 'hindsight-noise:' + row['reason'] + ':' + str(event))
+        outcomes[outcome] += 1
+        outcomes['noise'] += outcome == 'applied'
+    logger.info('Hindsight review outcome: reviewed=%d applied=%d noise=%d conflict=%d',
+                len(cases), outcomes['applied'], outcomes['noise'], outcomes['conflict'])
     if outcomes['applied']:
         notify(job['origin'], NOTICE_ONE if outcomes['applied'] == 1 else NOTICE_MANY)
     return outcomes['applied']

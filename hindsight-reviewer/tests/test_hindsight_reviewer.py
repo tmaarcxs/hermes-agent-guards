@@ -19,6 +19,7 @@ if "hindsight_reviewer" not in sys.modules:
     sys.modules["hindsight_reviewer"] = _module
     _spec.loader.exec_module(_module)
 reviewer = importlib.import_module("hindsight_reviewer.reviewer")
+policy = reviewer.policy
 
 FACT = "11111111-1111-1111-1111-111111111111"
 OBS = "22222222-2222-2222-2222-222222222222"
@@ -199,7 +200,7 @@ def test_batches_of_twenty_run_in_parallel(run):
         return original(*a, **k)
     llm.complete_structured = tracking
     applied, sent = run(bank, llm, records=many)
-    assert applied == 0 and len(llm.calls) == 3 and len(seen) >= 2
+    assert applied == 0 and sum(c["purpose"] == "Hindsight turn review" for c in llm.calls) == 3 and len(seen) >= 2
 
 
 def test_reimported_module_rewraps_provider_so_its_registry_is_fed(monkeypatch):
@@ -243,3 +244,39 @@ def test_every_loaded_provider_copy_feeds_one_shared_registry(monkeypatch):
     live().prefetch("q", session_id="live-session")
     assert reviewer._recalls.pop("live-session")["records"] == [{"id": "m1", "text": "fact"}]
     assert sys.modules["hermes_hindsight_reviewer_state"].recalls is reviewer._recalls
+
+
+class NoiseLlm:
+    def __init__(self, flags, verdict="noise"):
+        self.flags, self.verdict, self.calls = flags, verdict, []
+
+    def complete_structured(self, instructions, input, json_schema, **kwargs):
+        self.calls.append(kwargs)
+        payload = json.loads(input[0]["text"])
+        if kwargs["purpose"] == "Hindsight noise confirmation":
+            return types.SimpleNamespace(parsed={"verdict": self.verdict})
+        if kwargs["purpose"] == "Hindsight noise review":
+            return types.SimpleNamespace(parsed={"items": [
+                {"id": c["id"], "decision": "noise" if c["id"] in self.flags else "keep",
+                 "reason": self.flags.get(c["id"], ("none", ""))[0], "duplicate_of": self.flags.get(c["id"], ("", ""))[1]}
+                for c in payload["MEMORIES"]]})
+        return types.SimpleNamespace(parsed={"items": [{"id": c["id"], "decision": "keep", "category": "other", "evidence_quote": ""}
+                                                       for c in payload["MEMORIES"]]})
+
+
+def test_noise_gates_reject_protected_self_and_missing_duplicates():
+    cases = [{"id": "a", "memory": "The task is review-only."},
+             {"id": "b", "memory": "Marcos prefers short answers."},
+             {"id": "c", "memory": "Staging runs on 6543."},
+             {"id": "d", "memory": "Staging DB runs on port 6543."}]
+    llm = NoiseLlm({"a": ("fragment", ""), "b": ("fragment", ""), "c": ("duplicate", "d"), "d": ("duplicate", "zz")})
+    assert policy.noise(llm, cases) == [{"id": "a", "reason": "fragment", "duplicate_of": ""},
+                                        {"id": "c", "reason": "duplicate", "duplicate_of": "d"}]
+
+
+def test_noise_is_invalidated_only_after_confirmation(run):
+    bank = FakeBank(text="The task is review-only.")
+    applied, sent = run(bank, NoiseLlm({FACT: ("fragment", "")}, verdict="keep"))
+    assert applied == 0 and not bank.patches
+    applied, sent = run(bank, NoiseLlm({FACT: ("fragment", "")}))
+    assert applied == 1 and bank.patches[0][1]["reason"].startswith("hindsight-noise:fragment:")
