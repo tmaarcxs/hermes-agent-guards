@@ -357,13 +357,17 @@ def review(llm, job):
     decisions, noisy = [], []
     if batches:
         from concurrent.futures import ThreadPoolExecutor
+        import contextvars
         with ThreadPoolExecutor(max_workers=min(2 * len(batches), MAX_PARALLEL)) as pool:
-            refuted = pool.map(lambda batch: with_retries(policy.propose, llm, batch, route, evidence), batches)
-            flagged = pool.map(lambda batch: with_retries(policy.noise, llm, batch, route), batches)
-            for rows in refuted:
-                decisions.extend(rows)
-            for rows in flagged:
-                noisy.extend(rows)
+            # Pool threads start with an empty context, and the gateway's scoped credentials live in
+            # it: copy this thread's context once per call (a Context cannot be entered twice at once).
+            submit = lambda call, *args: pool.submit(contextvars.copy_context().run, with_retries, call, *args)
+            refuted = [submit(policy.propose, llm, batch, route, evidence) for batch in batches]
+            flagged = [submit(policy.noise, llm, batch, route) for batch in batches]
+            for future in refuted:
+                decisions.extend(future.result())
+            for future in flagged:
+                noisy.extend(future.result())
     outcomes = Counter()
     for row in decisions:
         if row['decision'] != 'candidate' or not _quotable(job, row['evidence_quote']) or _SECRET.search(row['evidence_quote']):
