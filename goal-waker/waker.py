@@ -19,10 +19,12 @@ logger = logging.getLogger(__name__)
 CTX: Any = None
 MIN_INTERVAL = 15.0
 RETRY_SECONDS = 30
+WAKE_COOLDOWN = 1800
 MAX_IDLE = 3 * 86400
 WAIT_FIELDS = ("waiting_on_pid", "waiting_on_session", "waiting_until")
 _LOCK = threading.Lock()
 _state = {"last": 0.0}
+_WOKEN: dict[str, float] = {}
 
 
 def _home() -> Path:
@@ -80,6 +82,7 @@ def sweep(
     conn: sqlite3.Connection, inject_fn: Callable[[str, str], bool], manager_factory: Callable[[str], Any],
     now: Optional[float] = None,
     routes: Optional[dict[str, float]] = None,
+    woken: Optional[dict[str, float]] = None,
 ) -> Iterator[str]:
     """Wake the lifted goals once, then stay quiet while their rows stay still.
 
@@ -89,8 +92,13 @@ def sweep(
     """
     if routes is None:
         routes = {}
+    if woken is None:
+        woken = {}
+    t = time.time() if now is None else now
     for session_id in list(parked_session_ids(conn)):
-        route = _route(conn, session_id, time.time() if now is None else now, routes)
+        if t - woken.get(session_id, float("-inf")) < WAKE_COOLDOWN:
+            continue
+        route = _route(conn, session_id, t, routes)
         if route is None:
             continue
         mgr = manager_factory(session_id)
@@ -106,6 +114,7 @@ def sweep(
                 ).fetchone()[0]
                 or 0
             )
+            woken[session_id] = t
             yield session_id
         else:
             mgr.wait_for_seconds(RETRY_SECONDS, reason="goal-waker: injection refused, retrying")
@@ -135,7 +144,7 @@ def on_tick(dry_run: bool = False, **_: Any) -> None:
         _state["last"] = now
         conn = sqlite3.connect(f"file:{_home() / 'state.db'}?mode=ro", uri=True, timeout=2)
         try:
-            woken = list(sweep(conn, _inject, _manager))
+            woken = list(sweep(conn, _inject, _manager, woken=_WOKEN))
         finally:
             conn.close()
         if woken:

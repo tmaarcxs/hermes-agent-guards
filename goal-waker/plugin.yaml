@@ -10,7 +10,7 @@ description: >-
   Local CLI/TUI sessions are skipped (they have their own idle waker). A session is
   woken at most once per goal-row advance: the sweep records the session's
   last_activity_at at injection time and skips the session until that value moves,
-  so a quiet chat gets one wake, not one per tick. A refused
+  so a quiet chat gets one wake, not one per tick. A session is also woken at most once per 30 minutes, so a goal that re-parks with a short wait is not woken every minute. A refused
   injection re-parks the goal for 30 s so it is retried and never left active with no
   turn coming. Needs plugins.entries.<id>.allow_gateway_injection: true.
 author: "kur4i"
