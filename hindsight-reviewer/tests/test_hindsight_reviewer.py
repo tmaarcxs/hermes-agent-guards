@@ -71,12 +71,12 @@ def run(monkeypatch, tmp_path):
     monkeypatch.setattr(reviewer, "notify", lambda origin, text: sent.append((origin, text)))
     monkeypatch.setitem(sys.modules, "hermes_yaml", types.SimpleNamespace(safe_load=lambda text: {"cron": {"model": "cron-model", "model_provider": "cron-provider"}}))
 
-    def go(bank, llm, user=USER, assistant="", records=None):
+    def go(bank, llm, user=USER, assistant="", records=None, deliver=None):
         monkeypatch.setattr(reviewer, "_http", bank)
         transcript = "[USER]\n" + user + ("\n\n[ASSISTANT]\n" + assistant if assistant else "")
         job = {"home": str(tmp_path), "session_id": "s", "turn_id": "t", "transcript": transcript, "quotable": [user],
                "recall": {"bank": "b", "records": records or [{"id": OBS, "text": "Staging DB is on 5432."}], "block": "x"},
-               "origin": {"platform": "telegram", "chat_id": "1"}}
+               "origin": {"platform": "telegram", "chat_id": "1"}, "deliver": deliver}
         return reviewer.review(llm, job), sent
     return go
 
@@ -335,3 +335,14 @@ def test_notice_is_short_and_masks_secrets():
                             ("fragment", "token: sk-abcdefghijklmnopqrstuv"), ("transient", "a"), ("transient", "b")])
     assert text == ("🧠 Memory review: invalidated 'Kanban is the execution layer.' (outdated) · "
                     "'" + ("x " * 20).strip()[:39] + "…' (duplicate) · '[withheld]' (no context) · +2 more")
+
+
+def test_notice_uses_the_turns_background_review_sender(run):
+    sent_by_review = []
+    bank = FakeBank()
+    original = reviewer.review
+    llm = FakeLlm()
+    import types as _t
+    job_patch = {"deliver": sent_by_review.append}
+    applied, sent = run(bank, llm, deliver=sent_by_review.append)
+    assert applied == 1 and not sent and sent_by_review == ["🧠 Memory review: invalidated 'The staging database runs on port 5432.' (outdated)"]
