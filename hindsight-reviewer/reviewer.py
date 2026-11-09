@@ -182,11 +182,11 @@ def on_post_llm_call(session_id='', turn_id='', user_message=None, assistant_res
             return
         rows = conversation_history or []
         if injected:
-            user = next((row for row in reversed(rows) if isinstance(row, dict) and row.get('role') == 'user'), None)
             from agent.memory_context import build_memory_context_block
-            api_content = user.get('api_content') if user else None
-            if not isinstance(api_content, str) or not api_content.startswith(
-                    user_message + '\n\n' + build_memory_context_block(injected['block'])):
+            expected = user_message + '\n\n' + build_memory_context_block(injected['block'])
+            # A mid-turn steering message adds a newer user row, so look at every user row of the turn.
+            if not any(isinstance(row, dict) and row.get('role') == 'user' and isinstance(row.get('api_content'), str)
+                       and row['api_content'].startswith(expected) for row in rows):
                 logger.info('Hindsight review: injected memories could not be matched; reviewing tool recalls only')
                 injected = None
         recall = _merge(injected, tooled)
