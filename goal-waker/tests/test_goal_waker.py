@@ -189,6 +189,18 @@ def test_a_refused_injection_leaves_no_debounce_entry_and_reparks_the_goal():
     assert mgr.reparked and mgr.reparked[0][0] == waker.RETRY_SECONDS
 
 
+def test_a_session_is_not_woken_twice_within_the_cooldown_even_if_its_row_advanced():
+    conn = fresh_conn({"sid": "s1"})
+    woken = {}
+    sent = []
+    inject = lambda text, key: sent.append(key) or True
+    mk = lambda sid: FakeManager()
+    assert list(waker.sweep(conn, inject, mk, now=NOW, woken=woken)) == ["s1"]
+    conn.execute("update sessions set last_activity_at = ? where id = 's1'", (NOW + 10,))
+    assert list(waker.sweep(conn, inject, mk, now=NOW + 60, woken=woken)) == []
+    assert list(waker.sweep(conn, inject, mk, now=NOW + waker.WAKE_COOLDOWN + 1, woken=woken)) == ["s1"]
+
+
 def test_an_internal_error_is_swallowed_and_logged_the_fail_open_pin(monkeypatch):
     """A sweep failure must never raise out of the tick, and never stops later ticks."""
     failures = []
