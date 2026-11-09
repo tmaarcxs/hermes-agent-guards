@@ -354,7 +354,6 @@ def _invalidate(base, key, source_id, text, reason):
 
 MAX_PARALLEL = 8
 MAX_ATTEMPTS = 10
-MAX_NOISE = 10  # caps the damage of a bad noise pass on one turn
 
 
 def with_retries(call, *args, sleep=None):
@@ -437,7 +436,7 @@ def review(llm, job):
             applied.append(('contradicted', text))
         logger.info('Hindsight review %s memory %s (contradicted)', outcome, row['id'])
     refuted_ids = {row['id'] for row in decisions if row['decision'] == 'candidate'}
-    for row in noisy[:MAX_NOISE]:
+    for row in noisy:
         if row['id'] in refuted_ids:
             continue
         text = sources[row['id']]['text']
