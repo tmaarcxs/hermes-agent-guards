@@ -43,7 +43,7 @@ _lock = _state.__dict__.setdefault('lock', threading.Lock())
 _gateway = _state.__dict__.setdefault('gateway', {})
 _SECRET = re.compile(r'(?i)(?:bearer\s+\S{12,}|(?:api[_-]?key|client[_-]?secret|password|token)\s*[:=]\s*["\']?\S{12,}|\bsk-[a-zA-Z0-9_-]{16,})')
 NOTICE_PREFIX = '🧠 Memory review: '
-NOTICE_LABELS = {'contradicted': 'outdated', 'duplicate': 'duplicate', 'fragment': 'no context', 'transient': 'one-off'}
+NOTICE_LABELS = {'superseded': 'superseded', 'contradicted': 'outdated', 'duplicate': 'duplicate', 'fragment': 'no context', 'transient': 'one-off'}
 NOTICE_SHOWN = 3
 
 
@@ -331,7 +331,8 @@ def _sources(base, key, records):
             if (fact.get('state') != 'valid' or (fact.get('type') or fact.get('fact_type')) == 'observation'
                     or not isinstance(text, str) or not text or len(text) > 5000 or _SECRET.search(text)):
                 continue
-            sources[source] = {'text': text, 'recall_ids': [record['id']]}
+            date = fact.get('mentioned_at') or fact.get('date') or ''
+            sources[source] = {'text': text, 'date': date if isinstance(date, str) else '', 'recall_ids': [record['id']]}
     return sources
 
 
@@ -401,7 +402,7 @@ def review(llm, job):
     sources = _sources(base, key, job['recall']['records'])
     evidence = job['transcript']
     route = cron_route(job['home'])
-    cases = [{'id': sid, 'memory': row['text']} for sid, row in sources.items()]
+    cases = [{'id': sid, 'memory': row['text'], 'date': row.get('date', '')[:10]} for sid, row in sources.items()]
     batches = [cases[offset:offset + 20] for offset in range(0, len(cases), 20)]
     decisions, noisy, applied = [], [], []
     outcomes = Counter()

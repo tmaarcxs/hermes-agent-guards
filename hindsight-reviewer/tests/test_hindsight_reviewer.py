@@ -392,3 +392,24 @@ def test_cross_batch_duplicate_pairs_keep_one_copy():
     chain = [{"id": "a", "reason": "duplicate", "duplicate_of": "b"}, {"id": "b", "reason": "duplicate", "duplicate_of": "c"},
              {"id": "c", "reason": "fragment", "duplicate_of": ""}]
     assert policy.survivors(chain) == [chain[0], chain[2]]
+
+
+def test_superseded_needs_a_strictly_newer_target():
+    cases = [{"id": "old", "memory": "Curator runs every 168 hours.", "date": "2026-10-01"},
+             {"id": "new", "memory": "Curator runs every 24 hours.", "date": "2026-11-09"},
+             {"id": "undated", "memory": "Staging uses port 5432.", "date": ""},
+             {"id": "pref", "memory": "Marcos prefers weekly reports.", "date": "2026-01-01"}]
+    llm = NoiseLlm({"old": ("superseded", "new"), "new": ("superseded", "old"),
+                    "undated": ("superseded", "new"), "pref": ("superseded", "new")})
+    assert policy.noise(llm, cases) == [{"id": "old", "reason": "superseded", "duplicate_of": "new"}]
+
+
+def test_superseded_invalidation_is_reported(run):
+    bank = FakeBank()
+    many = [{"id": f"{i:08d}-0000-0000-0000-000000000000", "text": f"memory {i}"} for i in range(2)]
+    bank.rows[many[0]["id"]] = {"type": "world", "state": "valid", "text": "Curator runs every 168 hours.", "mentioned_at": "2026-10-01T00:00:00Z"}
+    bank.rows[many[1]["id"]] = {"type": "world", "state": "valid", "text": "Curator runs every 24 hours.", "mentioned_at": "2026-11-09T00:00:00Z"}
+    records = [{"id": many[0]["id"], "text": "Curator runs every 168 hours."}, {"id": many[1]["id"], "text": "Curator runs every 24 hours."}]
+    applied, sent = run(bank, NoiseLlm({many[0]["id"]: ("superseded", many[1]["id"])}), records=records)
+    assert applied == 1 and bank.rows[many[0]["id"]]["state"] == "invalidated" and bank.rows[many[1]["id"]]["state"] == "valid"
+    assert sent[0][1].endswith("(superseded)")
