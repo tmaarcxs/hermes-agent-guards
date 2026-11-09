@@ -43,17 +43,19 @@ _lock = _state.__dict__.setdefault('lock', threading.Lock())
 _gateway = _state.__dict__.setdefault('gateway', {})
 _SECRET = re.compile(r'(?i)(?:bearer\s+\S{12,}|(?:api[_-]?key|client[_-]?secret|password|token)\s*[:=]\s*["\']?\S{12,}|\bsk-[a-zA-Z0-9_-]{16,})')
 NOTICE_PREFIX = '🧠 Memory review: '
-NOTICE_LABELS = {'contradicted': 'contradicted', 'duplicate': 'duplicate', 'fragment': 'no context', 'transient': 'one-off'}
+NOTICE_LABELS = {'contradicted': 'outdated', 'duplicate': 'duplicate', 'fragment': 'no context', 'transient': 'one-off'}
+NOTICE_SHOWN = 3
 
 
 def notice(items):
-    """One line like the background review's: what was invalidated and why, secrets masked."""
+    """One short line: up to three invalidated memories with their reason, secrets masked."""
     parts = []
-    for kind, text in items:
+    for kind, text in items[:NOTICE_SHOWN]:
         text = ' '.join(text.split())
-        text = '[text withheld]' if _SECRET.search(text) else (text if len(text) <= 80 else text[:79].rstrip() + '…')
-        parts.append(f"Memory '{text}' invalidated ({NOTICE_LABELS[kind]})")
-    return NOTICE_PREFIX + ' · '.join(parts)
+        text = '[withheld]' if _SECRET.search(text) else (text if len(text) <= 40 else text[:39].rstrip() + '…')
+        parts.append(f"'{text}' ({NOTICE_LABELS[kind]})")
+    more = f' · +{len(items) - NOTICE_SHOWN} more' if len(items) > NOTICE_SHOWN else ''
+    return NOTICE_PREFIX + 'invalidated ' + ' · '.join(parts) + more
 
 
 def patch_provider():

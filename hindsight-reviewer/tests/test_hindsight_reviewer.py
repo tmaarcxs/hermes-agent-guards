@@ -86,7 +86,7 @@ def test_a_confirmed_contradiction_invalidates_the_source_fact_and_notifies_once
     applied, sent = run(bank, llm)
     assert applied == 1 and [p[0] for p in bank.patches] == [FACT]
     assert bank.rows[FACT]["state"] == "invalidated" and bank.rows[OBS]["state"] == "valid"
-    assert sent == [({"platform": "telegram", "chat_id": "1"}, "🧠 Memory review: Memory 'The staging database runs on port 5432.' invalidated (contradicted)")]
+    assert sent == [({"platform": "telegram", "chat_id": "1"}, "🧠 Memory review: invalidated 'The staging database runs on port 5432.' (outdated)")]
     assert all(call.get("model") == "cron-model" and call.get("provider") == "cron-provider" for call in llm.calls)
 
 
@@ -330,9 +330,8 @@ def test_gateway_handle_survives_a_module_reload():
     assert sys.modules["hermes_hindsight_reviewer_state"].gateway is reviewer._gateway
 
 
-def test_notice_lists_each_invalidation_like_the_background_review():
+def test_notice_is_short_and_masks_secrets():
     text = reviewer.notice([("contradicted", "Kanban is the execution layer."), ("duplicate", "x " * 60),
-                            ("fragment", "token: sk-abcdefghijklmnopqrstuv")])
-    assert text.startswith("🧠 Memory review: Memory 'Kanban is the execution layer.' invalidated (contradicted) · Memory 'x x")
-    assert "…' invalidated (duplicate)" in text and "'[text withheld]' invalidated (no context)" in text
-    assert "sk-" not in text
+                            ("fragment", "token: sk-abcdefghijklmnopqrstuv"), ("transient", "a"), ("transient", "b")])
+    assert text == ("🧠 Memory review: invalidated 'Kanban is the execution layer.' (outdated) · "
+                    "'" + ("x " * 20).strip()[:39] + "…' (duplicate) · '[withheld]' (no context) · +2 more")
