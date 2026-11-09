@@ -70,11 +70,11 @@ def run(monkeypatch, tmp_path):
     monkeypatch.setattr(reviewer, "notify", lambda origin, text: sent.append((origin, text)))
     monkeypatch.setitem(sys.modules, "hermes_yaml", types.SimpleNamespace(safe_load=lambda text: {"cron": {"model": "cron-model", "model_provider": "cron-provider"}}))
 
-    def go(bank, llm, user=USER, assistant=""):
+    def go(bank, llm, user=USER, assistant="", records=None):
         monkeypatch.setattr(reviewer, "_http", bank)
         transcript = "[USER]\n" + user + ("\n\n[ASSISTANT]\n" + assistant if assistant else "")
         job = {"home": str(tmp_path), "session_id": "s", "turn_id": "t", "transcript": transcript, "quotable": [user],
-               "recall": {"bank": "b", "records": [{"id": OBS, "text": "Staging DB is on 5432."}], "block": "x"},
+               "recall": {"bank": "b", "records": records or [{"id": OBS, "text": "Staging DB is on 5432."}], "block": "x"},
                "origin": {"platform": "telegram", "chat_id": "1"}}
         return reviewer.review(llm, job), sent
     return go
@@ -142,3 +142,61 @@ def test_conversation_context_quotes_user_and_tool_text_but_not_memory_blocks():
     transcript, quotable = reviewer.conversation_context(rows)
     assert "5432" not in transcript and "[ASSISTANT TOOL CALLS] terminal" in transcript
     assert quotable == ["check the port", "listening on 6543"]
+
+
+def test_memory_tool_results_are_never_quotable_evidence():
+    pytest.importorskip("agent.background_review")
+    rows = [{"role": "user", "content": "what port?"},
+            {"role": "assistant", "content": "", "tool_calls": [{"id": "c1", "function": {"name": "hindsight_recall"}},
+                                                               {"id": "c2", "function": {"name": "terminal"}}]},
+            {"role": "tool", "tool_call_id": "c1", "content": "1. Staging is on 6543"},
+            {"role": "tool", "tool_call_id": "c2", "content": "listening on 6543"}]
+    transcript, quotable = reviewer.conversation_context(rows)
+    assert quotable == ["what port?", "listening on 6543"]
+    assert "Staging is on 6543" in transcript
+
+
+def test_merge_reviews_injected_and_tool_recalled_memories_once():
+    injected = {"bank": "b", "records": [{"id": "1", "text": "a"}], "block": "x"}
+    tooled = {"bank": "b", "records": [{"id": "1", "text": "a"}, {"id": "2", "text": "b"}]}
+    assert reviewer._merge(injected, tooled)["records"] == [{"id": "1", "text": "a"}, {"id": "2", "text": "b"}]
+    assert reviewer._merge(None, tooled)["records"] == tooled["records"]
+    assert reviewer._merge(injected, {"bank": "other", "records": []}) is None
+    assert reviewer._merge(None, None) is None
+
+
+def test_model_calls_are_retried_up_to_ten_attempts():
+    calls = []
+
+    def flaky(value):
+        calls.append(value)
+        if len(calls) < 10:
+            raise RuntimeError("upstream 424")
+        return value
+    assert reviewer.with_retries(flaky, "ok", sleep=lambda s: None) == "ok" and len(calls) == 10
+    calls.clear()
+
+    def broken(value):
+        calls.append(value)
+        raise RuntimeError("down")
+    with pytest.raises(RuntimeError):
+        reviewer.with_retries(broken, "x", sleep=lambda s: None)
+    assert len(calls) == 10
+
+
+def test_batches_of_twenty_run_in_parallel(run):
+    bank = FakeBank()
+    many = [{"id": f"{i:08d}-0000-0000-0000-000000000000", "text": f"memory {i}"} for i in range(45)]
+    for record in many:
+        bank.rows[record["id"]] = {"type": "world", "state": "valid", "text": record["text"]}
+    import threading
+    seen = set()
+    llm = FakeLlm(decision="keep")
+    original = llm.complete_structured
+
+    def tracking(*a, **k):
+        seen.add(threading.current_thread().name)
+        return original(*a, **k)
+    llm.complete_structured = tracking
+    applied, sent = run(bank, llm, records=many)
+    assert applied == 0 and len(llm.calls) == 3 and len(seen) >= 2

@@ -33,6 +33,8 @@ logger = logging.getLogger(__name__)
 CTX = None
 _gateway = {}
 _recalls = {}
+_tool_recalls = {}
+MEMORY_TOOLS = frozenset({'hindsight_recall', 'hindsight_reflect', 'hindsight_retain', 'memory', 'session_search'})
 _lock = threading.Lock()
 _SECRET = re.compile(r'(?i)(?:bearer\s+\S{12,}|(?:api[_-]?key|client[_-]?secret|password|token)\s*[:=]\s*["\']?\S{12,}|\bsk-[a-zA-Z0-9_-]{16,})')
 NOTICE_ONE = 'A Hindsight memory was invalidated after this turn.'
@@ -77,8 +79,39 @@ def patch_provider():
             logger.warning('Hindsight review could not record recall ids; the turn is skipped', exc_info=True)
         return result
 
+    original_tool = cls._tool_recall
+
+    def tool_recall(self, args):
+        """Run the provider's own recall tool, recording the returned ids for this turn's review."""
+        captured = []
+        had_own = '_recall' in self.__dict__
+        recall = self._recall
+
+        def observed(*a, **k):
+            items = recall(*a, **k)
+            captured.append(items)
+            return items
+        self._recall = observed
+        try:
+            return original_tool(self, args)
+        finally:
+            if had_own:
+                self._recall = recall
+            else:
+                del self._recall
+            try:
+                records = [{'id': str(item.id), 'text': item.text} for items in captured for item in items
+                           if getattr(item, 'id', None) and item.text]
+                if records and self._session_id:
+                    with _lock:
+                        _tool_recalls.setdefault(self._session_id, {'bank': self._bank_id, 'records': []})['records'].extend(records)
+            except Exception:
+                logger.warning('Hindsight review could not record tool recall ids', exc_info=True)
+
     prefetch._hindsight_reviewer = True
     cls.prefetch = prefetch
+    cls._tool_recall = tool_recall
+    cls._TOOL_HANDLERS = {**cls._TOOL_HANDLERS, 'hindsight_recall': ('query', tool_recall, cls._TOOL_HANDLERS['hindsight_recall'][2])}
     return True
 
 
@@ -99,20 +132,25 @@ def on_post_llm_call(session_id='', turn_id='', user_message=None, assistant_res
                      conversation_history=None, **_):
     """Start one background review for a completed gateway turn whose injected block is known."""
     with _lock:
-        recall = _recalls.pop(session_id, None)
+        injected = _recalls.pop(session_id, None)
+        tooled = _tool_recalls.pop(session_id, None)
     try:
-        if not recall or not isinstance(user_message, str) or not isinstance(assistant_response, str):
+        if not (injected or tooled) or not isinstance(user_message, str) or not isinstance(assistant_response, str):
             return
         origin = _origin()
         if origin is None:
             return
         rows = conversation_history or []
-        user = next((row for row in reversed(rows) if isinstance(row, dict) and row.get('role') == 'user'), None)
-        from agent.memory_context import build_memory_context_block
-        api_content = user.get('api_content') if user else None
-        if not isinstance(api_content, str) or not api_content.startswith(
-                user_message + '\n\n' + build_memory_context_block(recall['block'])):
-            logger.info('Hindsight review skipped turn: injected memories could not be matched')
+        if injected:
+            user = next((row for row in reversed(rows) if isinstance(row, dict) and row.get('role') == 'user'), None)
+            from agent.memory_context import build_memory_context_block
+            api_content = user.get('api_content') if user else None
+            if not isinstance(api_content, str) or not api_content.startswith(
+                    user_message + '\n\n' + build_memory_context_block(injected['block'])):
+                logger.info('Hindsight review: injected memories could not be matched; reviewing tool recalls only')
+                injected = None
+        recall = _merge(injected, tooled)
+        if recall is None:
             return
         from hermes_constants import get_hermes_home
         transcript, quotable = conversation_context(rows)
@@ -140,19 +178,26 @@ def conversation_context(rows):
     """The background review's routed-model replay rendered as text, plus the quotable text.
 
     Uses Hermes' own ``_digest_history`` (recent messages verbatim, older turns digested). Only
-    user messages and tool results are quotable evidence; assistant text is context, never proof.
+    user messages and tool results are quotable evidence; assistant text is context, never proof,
+    and memory-tool results (recall, reflect, session search) are omitted so a memory never refutes
+    another memory.
     Injected memory blocks are stripped so a memory can never be cited against itself.
     """
     from agent.background_review import _digest_history
-    lines, quotable = [], []
+    lines, quotable, memory_calls = [], [], set()
     for message in _digest_history([row for row in rows if isinstance(row, dict)]):
         role, text = message.get('role'), _text(message)
+        for call in message.get('tool_calls') or []:
+            if isinstance(call, dict) and (call.get('function') or {}).get('name') in MEMORY_TOOLS:
+                memory_calls.add(call.get('id'))
         if role == 'assistant' and message.get('tool_calls'):
             names = [(call.get('function') or {}).get('name', '?') for call in message['tool_calls'] if isinstance(call, dict)]
             lines.append('[ASSISTANT TOOL CALLS] ' + ', '.join(names))
         if not text:
             continue
         lines.append('[' + str(role).upper() + ']\n' + text)
+        if role == 'tool' and (message.get('tool_call_id') in memory_calls or message.get('name') in MEMORY_TOOLS):
+            continue
         if role in {'user', 'tool'} and not text.startswith('[Earlier conversation digest'):
             quotable.append(text)
     transcript = '\n\n'.join(lines)
@@ -161,6 +206,19 @@ def conversation_context(rows):
 
 def _quotable(job, quote):
     return any(quote in text for text in job['quotable'])
+
+
+def _merge(injected, tooled):
+    """One review list: injected memories plus those the agent recalled itself, deduplicated by id."""
+    parts = [part for part in (injected, tooled) if part]
+    if not parts or len({part['bank'] for part in parts}) != 1:
+        return None
+    seen, records = set(), []
+    for record in (record for part in parts for record in part['records']):
+        if record['id'] not in seen:
+            seen.add(record['id'])
+            records.append(record)
+    return {'bank': parts[0]['bank'], 'records': records}
 
 
 def _run(job):
@@ -253,6 +311,24 @@ def _invalidate(base, key, source_id, text, reason):
     return 'applied'
 
 
+MAX_PARALLEL = 8
+MAX_ATTEMPTS = 10
+
+
+def with_retries(call, *args, sleep=None):
+    """Run one model call, retrying any error up to MAX_ATTEMPTS times with capped backoff."""
+    import time
+    sleep = sleep or time.sleep
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            return call(*args)
+        except Exception as error:
+            if attempt == MAX_ATTEMPTS:
+                raise
+            logger.info('Hindsight review model call failed (%s); retry %d/%d', type(error).__name__, attempt, MAX_ATTEMPTS - 1)
+            sleep(min(2 * attempt, 20))
+
+
 def review(llm, job):
     """Review one turn; returns the number of invalidated memories."""
     url, key = _connection(job['home'])
@@ -261,15 +337,19 @@ def review(llm, job):
     evidence = job['transcript']
     route = cron_route(job['home'])
     cases = [{'id': sid, 'memory': row['text']} for sid, row in sources.items()]
+    batches = [cases[offset:offset + 20] for offset in range(0, len(cases), 20)]
     decisions = []
-    for offset in range(0, len(cases), 20):
-        decisions.extend(policy.propose(llm, cases[offset:offset + 20], route, evidence))
+    if batches:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(len(batches), MAX_PARALLEL)) as pool:
+            for rows in pool.map(lambda batch: with_retries(policy.propose, llm, batch, route, evidence), batches):
+                decisions.extend(rows)
     outcomes = Counter()
     for row in decisions:
         if row['decision'] != 'candidate' or not _quotable(job, row['evidence_quote']) or _SECRET.search(row['evidence_quote']):
             continue
         text = sources[row['id']]['text']
-        if not policy.confirm(llm, text, row['evidence_quote'], evidence, route):
+        if not with_retries(policy.confirm, llm, text, row['evidence_quote'], evidence, route):
             continue
         event = uuid.uuid5(uuid.NAMESPACE_URL, 'hindsight-review:' + job['session_id'] + ':' + job['turn_id'] + ':' + row['id'])
         outcomes[_invalidate(base, key, row['id'], text, 'hindsight-review:' + str(event))] += 1
