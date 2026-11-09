@@ -33,10 +33,10 @@ class FakeLlm:
     def complete_structured(self, instructions, input, json_schema, **kwargs):
         self.calls.append(kwargs)
         payload = json.loads(input[0]["text"])
-        if isinstance(payload, dict):
+        if "MEMORY" in payload:
             return types.SimpleNamespace(parsed={"verdict": self.verdict})
         rows = [{"id": case["id"], "decision": self.decision, "category": self.category,
-                 "evidence_quote": self.quote if self.decision == "candidate" else ""} for case in payload]
+                 "evidence_quote": self.quote if self.decision == "candidate" else ""} for case in payload["MEMORIES"]]
         return types.SimpleNamespace(parsed={"items": rows})
 
 
@@ -70,9 +70,10 @@ def run(monkeypatch, tmp_path):
     monkeypatch.setattr(reviewer, "notify", lambda origin, text: sent.append((origin, text)))
     monkeypatch.setitem(sys.modules, "hermes_yaml", types.SimpleNamespace(safe_load=lambda text: {"cron": {"model": "cron-model", "model_provider": "cron-provider"}}))
 
-    def go(bank, llm, user=USER):
+    def go(bank, llm, user=USER, assistant=""):
         monkeypatch.setattr(reviewer, "_http", bank)
-        job = {"home": str(tmp_path), "session_id": "s", "turn_id": "t", "user_message": user,
+        transcript = "[USER]\n" + user + ("\n\n[ASSISTANT]\n" + assistant if assistant else "")
+        job = {"home": str(tmp_path), "session_id": "s", "turn_id": "t", "transcript": transcript, "quotable": [user],
                "recall": {"bank": "b", "records": [{"id": OBS, "text": "Staging DB is on 5432."}], "block": "x"},
                "origin": {"platform": "telegram", "chat_id": "1"}}
         return reviewer.review(llm, job), sent
@@ -123,3 +124,21 @@ def test_a_failed_read_back_raises_and_sends_nothing(run, monkeypatch):
         return result
     with pytest.raises(RuntimeError):
         run(lying, FakeLlm())
+
+
+def test_a_quote_only_found_in_assistant_text_is_not_evidence(run):
+    bank = FakeBank()
+    applied, sent = run(bank, FakeLlm(quote="the staging database is now on 6543"), user="What port is staging on?",
+                        assistant="I think the staging database is now on 6543.")
+    assert applied == 0 and bank.patches == [] and sent == []
+
+
+def test_conversation_context_quotes_user_and_tool_text_but_not_memory_blocks():
+    pytest.importorskip("agent.background_review")
+    rows = [{"role": "user", "content": "check the port <memory-context>The DB is on 5432</memory-context>"},
+            {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "terminal"}}]},
+            {"role": "tool", "content": "listening on 6543"},
+            {"role": "assistant", "content": "It is 6543."}]
+    transcript, quotable = reviewer.conversation_context(rows)
+    assert "5432" not in transcript and "[ASSISTANT TOOL CALLS] terminal" in transcript
+    assert quotable == ["check the port", "listening on 6543"]

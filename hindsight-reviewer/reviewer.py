@@ -1,9 +1,10 @@
 """Background review of the Hindsight memories injected into a turn.
 
 After each gateway turn, one daemon thread checks every memory injected into that
-turn against the user's own message, using the model selected for cron jobs (or
+turn against the same conversation context Hermes' background review replays (recent
+messages verbatim, older turns digested, including tool results), using the model selected for cron jobs (or
 the main model when none is set). A memory is invalidated only when a first pass
-proposes it with an exact quote from the user's message and a skeptical second
+proposes it with an exact quote from a user message or tool result in that context and a skeptical second
 pass confirms the quote refutes it. The thread re-reads the memory just before the
 standard ``PATCH`` and requires it to be valid and unchanged; the stock API has no
 compare-and-set, so an edit landing between that re-read and the write can still be
@@ -114,13 +115,52 @@ def on_post_llm_call(session_id='', turn_id='', user_message=None, assistant_res
             logger.info('Hindsight review skipped turn: injected memories could not be matched')
             return
         from hermes_constants import get_hermes_home
+        transcript, quotable = conversation_context(rows)
         job = {'home': str(get_hermes_home()), 'session_id': session_id, 'turn_id': turn_id,
-               'user_message': user_message, 'recall': recall, 'origin': origin}
+               'transcript': transcript, 'quotable': quotable, 'recall': recall, 'origin': origin}
         import contextvars
         copied = contextvars.copy_context()
         threading.Thread(target=lambda: copied.run(_run, job), name='hindsight-reviewer', daemon=True).start()
     except Exception:
         logger.warning('Hindsight review could not start; the turn is skipped', exc_info=True)
+
+
+_MEMORY_SPAN = re.compile(r'<memory-context>.*?</memory-context>', re.S)
+MAX_CONTEXT_CHARS = 60000
+
+
+def _text(message):
+    content = message.get('content')
+    if isinstance(content, list):
+        content = ' '.join(block.get('text', '') for block in content if isinstance(block, dict))
+    return _MEMORY_SPAN.sub('', content).strip() if isinstance(content, str) else ''
+
+
+def conversation_context(rows):
+    """The background review's routed-model replay rendered as text, plus the quotable text.
+
+    Uses Hermes' own ``_digest_history`` (recent messages verbatim, older turns digested). Only
+    user messages and tool results are quotable evidence; assistant text is context, never proof.
+    Injected memory blocks are stripped so a memory can never be cited against itself.
+    """
+    from agent.background_review import _digest_history
+    lines, quotable = [], []
+    for message in _digest_history([row for row in rows if isinstance(row, dict)]):
+        role, text = message.get('role'), _text(message)
+        if role == 'assistant' and message.get('tool_calls'):
+            names = [(call.get('function') or {}).get('name', '?') for call in message['tool_calls'] if isinstance(call, dict)]
+            lines.append('[ASSISTANT TOOL CALLS] ' + ', '.join(names))
+        if not text:
+            continue
+        lines.append('[' + str(role).upper() + ']\n' + text)
+        if role in {'user', 'tool'} and not text.startswith('[Earlier conversation digest'):
+            quotable.append(text)
+    transcript = '\n\n'.join(lines)
+    return transcript[-MAX_CONTEXT_CHARS:], quotable
+
+
+def _quotable(job, quote):
+    return any(quote in text for text in job['quotable'])
 
 
 def _run(job):
@@ -215,21 +255,18 @@ def _invalidate(base, key, source_id, text, reason):
 
 def review(llm, job):
     """Review one turn; returns the number of invalidated memories."""
-    user = job['user_message']
-    if len(user) > 16000 or _SECRET.search(user):
-        return 0
     url, key = _connection(job['home'])
     base = url + '/v1/default/banks/' + urllib.parse.quote(job['recall']['bank'], safe='') + '/memories/'
     sources = _sources(base, key, job['recall']['records'])
-    evidence = '[CURRENT USER MESSAGE]\n' + user
+    evidence = job['transcript']
     route = cron_route(job['home'])
-    cases = [{'id': sid, 'memory': row['text'], 'evidence': evidence} for sid, row in sources.items()]
+    cases = [{'id': sid, 'memory': row['text']} for sid, row in sources.items()]
     decisions = []
     for offset in range(0, len(cases), 20):
-        decisions.extend(policy.propose(llm, cases[offset:offset + 20], route))
+        decisions.extend(policy.propose(llm, cases[offset:offset + 20], route, evidence))
     outcomes = Counter()
     for row in decisions:
-        if row['decision'] != 'candidate' or row['evidence_quote'] not in user:
+        if row['decision'] != 'candidate' or not _quotable(job, row['evidence_quote']) or _SECRET.search(row['evidence_quote']):
             continue
         text = sources[row['id']]['text']
         if not policy.confirm(llm, text, row['evidence_quote'], evidence, route):
