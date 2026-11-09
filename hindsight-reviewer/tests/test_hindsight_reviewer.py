@@ -346,3 +346,20 @@ def test_notice_uses_the_turns_background_review_sender(run):
     job_patch = {"deliver": sent_by_review.append}
     applied, sent = run(bank, llm, deliver=sent_by_review.append)
     assert applied == 1 and not sent and sent_by_review == ["🧠 Memory review: invalidated 'The staging database runs on port 5432.' (outdated)"]
+
+
+def test_a_mid_turn_steering_message_does_not_skip_the_review(monkeypatch):
+    pytest.importorskip("agent.memory_context")
+    from agent.memory_context import build_memory_context_block
+    started = []
+    monkeypatch.setattr(reviewer, "_origin", lambda: {"platform": "telegram", "chat_id": "1"})
+    monkeypatch.setattr(reviewer, "_run", started.append)
+    monkeypatch.setattr(reviewer.threading, "Thread", lambda target, **k: types.SimpleNamespace(start=target))
+    reviewer._recalls["steered"] = {"bank": "b", "records": [{"id": "m1", "text": "fact"}], "block": "- fact"}
+    rows = [{"role": "user", "content": "first", "api_content": "first\n\n" + build_memory_context_block("- fact")},
+            {"role": "assistant", "content": "", "tool_calls": [{"id": "c", "function": {"name": "terminal"}}]},
+            {"role": "tool", "tool_call_id": "c", "content": "ok"},
+            {"role": "user", "content": "[OUT-OF-BAND USER MESSAGE]\nalso this\n[/OUT-OF-BAND USER MESSAGE]"}]
+    reviewer.on_post_llm_call(session_id="steered", turn_id="t", user_message="first", assistant_response="done",
+                              conversation_history=rows)
+    assert len(started) == 1 and started[0]["recall"]["records"] == [{"id": "m1", "text": "fact"}]
