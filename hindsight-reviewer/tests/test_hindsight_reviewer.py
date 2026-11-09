@@ -217,3 +217,29 @@ def test_reimported_module_rewraps_provider_so_its_registry_is_fed(monkeypatch):
     first = Provider.prefetch
     assert reviewer.patch_provider() and Provider.prefetch is not first
     assert Provider._hindsight_reviewer_originals[0].__name__ == "prefetch" and not getattr(Provider._hindsight_reviewer_originals[0], "_hindsight_reviewer", False)
+
+
+def test_every_loaded_provider_copy_feeds_one_shared_registry(monkeypatch):
+    import sys, types
+    def make():
+        class Provider:
+            _bank_id, _session_id, _recall_sync, _prefetch_method = "b", "s", True, "recall"
+            def _build_recall_bank_ids(self):
+                return ["b"]
+            def _recall(self, *a, **k):
+                return [types.SimpleNamespace(id="m1", text="fact")]
+            def prefetch(self, query, *, session_id=""):
+                self._recall(query)
+                return "block"
+            def _tool_recall(self, args):
+                return "1. x"
+            _TOOL_HANDLERS = {"hindsight_recall": ("query", _tool_recall, "fail")}
+        return Provider
+    live, fresh = make(), make()
+    monkeypatch.setitem(sys.modules, "old_hindsight_copy", types.SimpleNamespace(HindsightMemoryProvider=live))
+    monkeypatch.setitem(sys.modules, "plugins.memory", types.SimpleNamespace(
+        import_provider_module=lambda name: types.SimpleNamespace(HindsightMemoryProvider=fresh)))
+    assert reviewer.patch_provider()
+    live().prefetch("q", session_id="live-session")
+    assert reviewer._recalls.pop("live-session")["records"] == [{"id": "m1", "text": "fact"}]
+    assert sys.modules["hermes_hindsight_reviewer_state"].recalls is reviewer._recalls

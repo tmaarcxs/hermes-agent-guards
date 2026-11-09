@@ -19,7 +19,9 @@ import asyncio
 import json
 import logging
 import re
+import sys
 import threading
+import types
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -32,26 +34,36 @@ from . import policy
 logger = logging.getLogger(__name__)
 CTX = None
 _gateway = {}
-_recalls = {}
-_tool_recalls = {}
+# Plugin reloads re-import this module, but live provider instances keep the wrappers of
+# earlier imports; one process-wide registry keeps every generation feeding the same hook.
+_state = sys.modules.setdefault('hermes_hindsight_reviewer_state', types.ModuleType('hermes_hindsight_reviewer_state'))
+_recalls = _state.__dict__.setdefault('recalls', {})
+_tool_recalls = _state.__dict__.setdefault('tool_recalls', {})
 MEMORY_TOOLS = frozenset({'hindsight_recall', 'hindsight_reflect', 'hindsight_retain', 'memory', 'session_search'})
-_lock = threading.Lock()
+_lock = _state.__dict__.setdefault('lock', threading.Lock())
 _SECRET = re.compile(r'(?i)(?:bearer\s+\S{12,}|(?:api[_-]?key|client[_-]?secret|password|token)\s*[:=]\s*["\']?\S{12,}|\bsk-[a-zA-Z0-9_-]{16,})')
 NOTICE_ONE = 'A Hindsight memory was invalidated after this turn.'
 NOTICE_MANY = 'Hindsight memories were invalidated after this turn.'
 
 
 def patch_provider():
-    """Wrap the Hindsight provider's prefetch and recall tool so they record recalled ids per session.
+    """Wrap every loaded Hindsight provider class so prefetch and the recall tool record ids per session.
 
-    A plugin re-enable re-imports this module with fresh registries, so always re-wrap the
-    provider's original methods; keeping an older wrapper would feed a registry nobody reads.
+    A reload can load the provider again as a new class while live sessions keep instances of the
+    old one, so every loaded copy is (re-)wrapped from its original methods.
     """
     from plugins.memory import import_provider_module
     module = import_provider_module('hindsight')
-    cls = getattr(module, 'HindsightMemoryProvider', None) if module else None
-    if cls is None:
-        return False
+    classes = {getattr(module, 'HindsightMemoryProvider', None) if module else None}
+    classes |= {getattr(mod, 'HindsightMemoryProvider', None) for mod in list(sys.modules.values())
+                if isinstance(getattr(mod, 'HindsightMemoryProvider', None), type)}
+    classes.discard(None)
+    for cls in classes:
+        _patch(cls)
+    return bool(classes)
+
+
+def _patch(cls):
     if '_hindsight_reviewer_originals' not in cls.__dict__:
         cls._hindsight_reviewer_originals = (cls.prefetch, cls._tool_recall)
     original, original_tool = cls._hindsight_reviewer_originals
@@ -116,7 +128,6 @@ def patch_provider():
     cls.prefetch = prefetch
     cls._tool_recall = tool_recall
     cls._TOOL_HANDLERS = {**cls._TOOL_HANDLERS, 'hindsight_recall': ('query', tool_recall, cls._TOOL_HANDLERS['hindsight_recall'][2])}
-    return True
 
 
 async def on_pre_gateway_dispatch(gateway=None, **_):
