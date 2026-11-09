@@ -442,3 +442,15 @@ def test_a_provider_loaded_after_registration_is_wrapped(monkeypatch):
     fake._load_package("dir", "hindsight")
     late().prefetch("q", session_id="late-session")
     assert reviewer._recalls.pop("late-session")["records"] == [{"id": "m9", "text": "late fact"}]
+
+
+def test_notice_sender_only_in_private_chats(monkeypatch):
+    import gateway.session_context as sc
+    import types
+    agent = types.SimpleNamespace(background_review_callback=lambda text: None)
+    runner = types.SimpleNamespace(_running_agents={"agent:main:telegram:dm:1": agent, "agent:main:telegram:group:-5": agent})
+    monkeypatch.setitem(reviewer._gateway, "runner", runner)
+    monkeypatch.setattr(sc, "bound_session_key", lambda: "agent:main:telegram:dm:1")
+    assert reviewer._turn_review_callback() is agent.background_review_callback
+    monkeypatch.setattr(sc, "bound_session_key", lambda: "agent:main:telegram:group:-5")
+    assert reviewer._turn_review_callback() is None

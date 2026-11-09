@@ -178,8 +178,11 @@ def _turn_review_callback():
     """
     try:
         from gateway.session_context import bound_session_key
+        key = bound_session_key() or ''
+        if ':dm:' not in key:
+            return None  # notices only in private chats: in a group other bots would read them as messages
         agents = getattr(_gateway.get('runner'), '_running_agents', None) or {}
-        return getattr(agents.get(bound_session_key()), 'background_review_callback', None)
+        return getattr(agents.get(key), 'background_review_callback', None)
     except Exception:
         return None
 

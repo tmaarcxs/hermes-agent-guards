@@ -1,5 +1,5 @@
 name: jot-reviewer
-version: "0.1.0"
+version: "0.1.1"
 description: >-
   After each gateway turn, review the weekly Jot work board in a background thread, like
   hindsight-reviewer and Hermes' own background review. The model selected for cron jobs (or the
