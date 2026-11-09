@@ -280,3 +280,21 @@ def test_noise_is_invalidated_only_after_confirmation(run):
     assert applied == 0 and not bank.patches
     applied, sent = run(bank, NoiseLlm({FACT: ("fragment", "")}))
     assert applied == 1 and bank.patches[0][1]["reason"].startswith("hindsight-noise:fragment:")
+
+
+def test_parallel_model_calls_see_the_callers_context(run):
+    import contextvars
+    scope = contextvars.ContextVar("scope", default=None)
+    seen = []
+    llm = FakeLlm(decision="keep")
+    original = llm.complete_structured
+    def tracking(*a, **k):
+        seen.append(scope.get())
+        return original(*a, **k)
+    llm.complete_structured = tracking
+    token = scope.set("gateway-secrets")
+    try:
+        run(FakeBank(), llm)
+    finally:
+        scope.reset(token)
+    assert seen and set(seen) == {"gateway-secrets"}
