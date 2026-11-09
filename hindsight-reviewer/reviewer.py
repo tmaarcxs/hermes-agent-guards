@@ -42,8 +42,18 @@ MEMORY_TOOLS = frozenset({'hindsight_recall', 'hindsight_reflect', 'hindsight_re
 _lock = _state.__dict__.setdefault('lock', threading.Lock())
 _gateway = _state.__dict__.setdefault('gateway', {})
 _SECRET = re.compile(r'(?i)(?:bearer\s+\S{12,}|(?:api[_-]?key|client[_-]?secret|password|token)\s*[:=]\s*["\']?\S{12,}|\bsk-[a-zA-Z0-9_-]{16,})')
-NOTICE_ONE = 'A Hindsight memory was invalidated after this turn.'
-NOTICE_MANY = 'Hindsight memories were invalidated after this turn.'
+NOTICE_PREFIX = '🧠 Memory review: '
+NOTICE_LABELS = {'contradicted': 'contradicted', 'duplicate': 'duplicate', 'fragment': 'no context', 'transient': 'one-off'}
+
+
+def notice(items):
+    """One line like the background review's: what was invalidated and why, secrets masked."""
+    parts = []
+    for kind, text in items:
+        text = ' '.join(text.split())
+        text = '[text withheld]' if _SECRET.search(text) else (text if len(text) <= 80 else text[:79].rstrip() + '…')
+        parts.append(f"Memory '{text}' invalidated ({NOTICE_LABELS[kind]})")
+    return NOTICE_PREFIX + ' · '.join(parts)
 
 
 def patch_provider():
@@ -378,7 +388,7 @@ def review(llm, job):
     route = cron_route(job['home'])
     cases = [{'id': sid, 'memory': row['text']} for sid, row in sources.items()]
     batches = [cases[offset:offset + 20] for offset in range(0, len(cases), 20)]
-    decisions, noisy = [], []
+    decisions, noisy, applied = [], [], []
     outcomes = Counter()
     if batches:
         from concurrent.futures import ThreadPoolExecutor
@@ -407,6 +417,8 @@ def review(llm, job):
         event = uuid.uuid5(uuid.NAMESPACE_URL, 'hindsight-review:' + job['session_id'] + ':' + job['turn_id'] + ':' + row['id'])
         outcome = _invalidate(base, key, row['id'], text, 'hindsight-review:' + str(event))
         outcomes[outcome] += 1
+        if outcome == 'applied':
+            applied.append(('contradicted', text))
         logger.info('Hindsight review %s memory %s (contradicted)', outcome, row['id'])
     refuted_ids = {row['id'] for row in decisions if row['decision'] == 'candidate'}
     for row in noisy[:MAX_NOISE]:
@@ -420,11 +432,13 @@ def review(llm, job):
         outcome = _invalidate(base, key, row['id'], text, 'hindsight-noise:' + row['reason'] + ':' + str(event))
         outcomes[outcome] += 1
         outcomes['noise'] += outcome == 'applied'
+        if outcome == 'applied':
+            applied.append((row['reason'], text))
         logger.info('Hindsight review %s memory %s (noise: %s)', outcome, row['id'], row['reason'])
     logger.info('Hindsight review outcome: reviewed=%d applied=%d noise=%d conflict=%d failed_batches=%d',
                 len(cases), outcomes['applied'], outcomes['noise'], outcomes['conflict'], outcomes['failed_batches'])
     if outcomes['applied']:
-        notify(job['origin'], NOTICE_ONE if outcomes['applied'] == 1 else NOTICE_MANY)
+        notify(job['origin'], notice(applied))
     return outcomes['applied']
 
 
