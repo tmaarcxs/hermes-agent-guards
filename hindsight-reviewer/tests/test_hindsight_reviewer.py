@@ -86,7 +86,7 @@ def test_a_confirmed_contradiction_invalidates_the_source_fact_and_notifies_once
     applied, sent = run(bank, llm)
     assert applied == 1 and [p[0] for p in bank.patches] == [FACT]
     assert bank.rows[FACT]["state"] == "invalidated" and bank.rows[OBS]["state"] == "valid"
-    assert sent == [({"platform": "telegram", "chat_id": "1"}, "🧠 Memory review: invalidated 'The staging database runs on port 5432.' (outdated)")]
+    assert sent == [({"platform": "telegram", "chat_id": "1"}, "🧠 Memory review: 1 invalidated (1 outdated)")]
     assert all(call.get("model") == "cron-model" and call.get("provider") == "cron-provider" for call in llm.calls)
 
 
@@ -331,11 +331,10 @@ def test_gateway_handle_survives_a_module_reload():
     assert sys.modules["hermes_hindsight_reviewer_state"].gateway is reviewer._gateway
 
 
-def test_notice_is_short_and_masks_secrets():
-    text = reviewer.notice([("contradicted", "Kanban is the execution layer."), ("duplicate", "x " * 60),
-                            ("fragment", "token: sk-abcdefghijklmnopqrstuv"), ("transient", "a"), ("transient", "b")])
-    assert text == ("🧠 Memory review: invalidated 'Kanban is the execution layer.' (outdated) · "
-                    "'" + ("x " * 20).strip()[:39] + "…' (duplicate) · '[withheld]' (no context) · +2 more")
+def test_notice_is_total_then_breakdown_without_text():
+    text = reviewer.notice([("duplicate", "a"), ("superseded", "b"), ("duplicate", "c"), ("contradicted", "d"),
+                            ("fragment", "token: sk-abcdefghijklmnopqrstuv"), ("duplicate", "e"), ("superseded", "f")])
+    assert text == "🧠 Memory review: 7 invalidated (3 duplicate · 2 superseded · 1 no context · 1 outdated)"
 
 
 def test_notice_uses_the_turns_background_review_sender(run):
@@ -346,7 +345,7 @@ def test_notice_uses_the_turns_background_review_sender(run):
     import types as _t
     job_patch = {"deliver": sent_by_review.append}
     applied, sent = run(bank, llm, deliver=sent_by_review.append)
-    assert applied == 1 and not sent and sent_by_review == ["🧠 Memory review: invalidated 'The staging database runs on port 5432.' (outdated)"]
+    assert applied == 1 and not sent and sent_by_review == ["🧠 Memory review: 1 invalidated (1 outdated)"]
 
 
 def test_a_mid_turn_steering_message_does_not_skip_the_review(monkeypatch):
@@ -412,7 +411,7 @@ def test_superseded_invalidation_is_reported(run):
     records = [{"id": many[0]["id"], "text": "Curator runs every 168 hours."}, {"id": many[1]["id"], "text": "Curator runs every 24 hours."}]
     applied, sent = run(bank, NoiseLlm({many[0]["id"]: ("superseded", many[1]["id"])}), records=records)
     assert applied == 1 and bank.rows[many[0]["id"]]["state"] == "invalidated" and bank.rows[many[1]["id"]]["state"] == "valid"
-    assert sent[0][1].endswith("(superseded)")
+    assert sent[0][1] == "🧠 Memory review: 1 invalidated (1 superseded)"
 
 
 def test_a_provider_loaded_after_registration_is_wrapped(monkeypatch):

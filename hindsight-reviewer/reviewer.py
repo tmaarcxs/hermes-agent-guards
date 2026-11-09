@@ -44,18 +44,13 @@ _gateway = _state.__dict__.setdefault('gateway', {})
 _SECRET = re.compile(r'(?i)(?:bearer\s+\S{12,}|(?:api[_-]?key|client[_-]?secret|password|token)\s*[:=]\s*["\']?\S{12,}|\bsk-[a-zA-Z0-9_-]{16,})')
 NOTICE_PREFIX = '🧠 Memory review: '
 NOTICE_LABELS = {'superseded': 'superseded', 'contradicted': 'outdated', 'duplicate': 'duplicate', 'fragment': 'no context', 'transient': 'one-off'}
-NOTICE_SHOWN = 3
 
 
 def notice(items):
-    """One short line: up to three invalidated memories with their reason, secrets masked."""
-    parts = []
-    for kind, text in items[:NOTICE_SHOWN]:
-        text = ' '.join(text.split())
-        text = '[withheld]' if _SECRET.search(text) else (text if len(text) <= 40 else text[:39].rstrip() + '…')
-        parts.append(f"'{text}' ({NOTICE_LABELS[kind]})")
-    more = f' · +{len(items) - NOTICE_SHOWN} more' if len(items) > NOTICE_SHOWN else ''
-    return NOTICE_PREFIX + 'invalidated ' + ' · '.join(parts) + more
+    """Total first, then one count per reason, most frequent first; no memory text."""
+    counts = Counter(NOTICE_LABELS[kind] for kind, _ in items)
+    breakdown = ' · '.join(f'{n} {label}' for label, n in sorted(counts.items(), key=lambda pair: (-pair[1], pair[0])))
+    return f'{NOTICE_PREFIX}{len(items)} invalidated ({breakdown})'
 
 
 def patch_provider():
