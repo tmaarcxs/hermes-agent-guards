@@ -1,9 +1,10 @@
 name: hindsight-reviewer
-version: "0.2.0"
+version: "0.3.0"
 description: >-
   After each gateway turn, review the Hindsight memories injected into that turn in a
   background thread, like Hermes' own background review. The model selected for cron jobs
-  (or the main model when none is set) proposes memories the user's own message refutes,
+  (or the main model when none is set) proposes memories refuted by the same conversation context
+  Hermes' background review replays (user messages and tool results are quotable evidence),
   with an exact quote; a skeptical second pass must confirm. The memory is re-read, then
   invalidated through the stock Hindsight API with a per-turn reason, read back, and one
   notice is posted to the originating chat. No queue and no retries: any failure skips the
