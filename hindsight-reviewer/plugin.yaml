@@ -1,5 +1,5 @@
 name: hindsight-reviewer
-version: "0.7.1"
+version: "0.7.2"
 description: >-
   After each gateway turn, review the Hindsight memories injected into that turn and those
   the agent fetched itself with hindsight_recall in a
@@ -10,8 +10,8 @@ description: >-
   invalidated through the stock Hindsight API with a per-turn reason, read back, and one
   notice is posted to the originating chat. Batches of 20 memories run in parallel; each model call is retried up to
   10 times. No queue: a failure after that skips the turn. Memory-tool results never count
-  as evidence. A parallel noise pass also invalidates, after a skeptical confirmation, up to 10
-  memories per turn that are context-free fragments, duplicates of a kept memory in the same
+  as evidence. A parallel noise pass also invalidates, after a skeptical confirmation, the
+  memories that are context-free fragments, duplicates of a kept memory in the same
   batch, or one-off events; preferences, authorizations and commitments are never noise. Keeps memory.provider: hindsight; recall ids are captured by wrapping the provider's
   prefetch. Model/provider override needs plugins.entries.hermes-agent-guards/hindsight-reviewer.llm.allow_model_override
   and allow_provider_override when cron.model is set.
