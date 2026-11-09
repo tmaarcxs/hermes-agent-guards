@@ -171,3 +171,15 @@ def test_scripts_take_paths_from_the_environment():
     for name in ("append-row", "remove-row", "set-rich-row"):
         text = (_root / "scripts" / f"{name}.mts").read_text()
         assert "/Users/" not in text and "process.env.JOT_PLUGIN_DIR" in text and "process.env.JOT_DATA_DIR" in text
+
+
+def test_notice_sender_only_in_private_chats(monkeypatch):
+    import gateway.session_context as sc
+    import types
+    agent = types.SimpleNamespace(background_review_callback=lambda text: None)
+    runner = types.SimpleNamespace(_running_agents={"agent:main:telegram:dm:1": agent, "agent:main:telegram:group:-5": agent})
+    monkeypatch.setitem(reviewer._gateway, "runner", runner)
+    monkeypatch.setattr(sc, "bound_session_key", lambda: "agent:main:telegram:dm:1")
+    assert reviewer._turn_review_callback() is agent.background_review_callback
+    monkeypatch.setattr(sc, "bound_session_key", lambda: "agent:main:telegram:group:-5")
+    assert reviewer._turn_review_callback() is None

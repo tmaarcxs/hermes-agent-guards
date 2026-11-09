@@ -1,5 +1,5 @@
 name: hindsight-reviewer
-version: "0.9.2"
+version: "0.9.3"
 description: >-
   After each gateway turn, review the Hindsight memories injected into that turn and those
   the agent fetched itself with hindsight_recall in a
