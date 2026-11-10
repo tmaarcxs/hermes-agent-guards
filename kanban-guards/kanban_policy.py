@@ -56,12 +56,14 @@ def violations(tool_name: str, args: dict[str, Any], worker: str) -> list[str]:
 
 def fix(tool_name: str, args: Any, worker: str) -> dict:
     """Mechanical corrections the block would otherwise demand: the configured worker as
-    assignee, no execution override and the local-only completion contract. ``None`` removes a key."""
+    assignee, no execution override and the local-only completion contract. ``None`` removes a key.
+
+    The core acceptance gate counts skipped required check-runs as infrastructure
+    (NousResearch/hermes-agent#149974), so a PR contract cannot complete; remove this workaround when fixed.
+    """
     if tool_name != "kanban_create" or not isinstance(args, dict):
         return {}
     changes: dict = {key: None for key in EXECUTION_OVERRIDES if key in args}
-    # Workaround: the core acceptance gate counts skipped required check-runs as infra
-    # (NousResearch/hermes-agent#149974), so a PR contract can never complete. Drop when fixed.
     if args.get("completion_contract") not in (None, "", "local-only"):
         changes["completion_contract"] = "local-only"
     if args.get("assignee") != worker:

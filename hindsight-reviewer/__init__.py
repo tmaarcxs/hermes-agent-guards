@@ -10,4 +10,5 @@ def register(ctx) -> None:
     except Exception:
         reviewer.logger.warning('Hindsight provider not available; the reviewer stays idle', exc_info=True)
     ctx.register_hook("pre_gateway_dispatch", reviewer.on_pre_gateway_dispatch)
+    ctx.register_hook("post_gateway_admission", reviewer.on_post_gateway_admission)
     ctx.register_hook("post_llm_call", reviewer.on_post_llm_call)

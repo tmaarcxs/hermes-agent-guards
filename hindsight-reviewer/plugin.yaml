@@ -1,5 +1,5 @@
 name: hindsight-reviewer
-version: "0.11.0"
+version: "0.12.0"
 description: >-
   After each gateway turn, review the Hindsight memories injected into that turn and those
   the agent fetched itself with hindsight_recall in a
@@ -7,18 +7,19 @@ description: >-
   (or the main model when none is set) proposes memories refuted by the same conversation context
   Hermes' background review replays (user messages and tool results are quotable evidence),
   with an exact quote; a skeptical second pass must confirm. The memory is re-read, then
-  invalidated through the stock Hindsight API with a per-turn reason, read back, and one
-  notice is posted to the originating chat. Batches of 20 memories run in parallel; after an eligible provider failure,
+  invalidated through the stock Hindsight API with a per-turn reason and read back. A newer admitted message on that route cancels unfinished writes. A privacy-safe per-turn audit logs ids, decisions, coverage, partial failures and notice handoff without memory or evidence text.
+  Batches of 20 memories run in parallel; each case is independently validated and ambiguous model ids abstain without discarding valid siblings. After an eligible provider failure,
   each stage can try configured global fallback provider/model routes once each, through the same trusted host LLM boundary.
-  No same-route plugin retries or batch splitting; exhausted calls are skipped and counted in failed_batches. No queue. Memory-tool results never count
+  No same-route plugin retries or batch splitting; exhausted calls are counted and the turn is marked partial. Stale records are isolated; unverified writes are reported for manual checking. No queue. Memory-tool results never count
   as evidence. A parallel noise pass also invalidates, after a skeptical confirmation, the
   memories that are context-free fragments, duplicates of a kept memory anywhere in
   the turn, older memories a newer one in the turn contradicts or replaces (superseded, no quote needed,
-  the newer memory must have a strictly later date), or one-off events; preferences, authorizations and commitments are never noise. Keeps memory.provider: hindsight; recall ids are captured by wrapping the provider's
+  the newer memory must have a strictly later date), or one-off events; preferences, authorizations and commitments are never noise. Notices use the originating turn sender; unbound/group turns suppress notice delivery and record that state. Keeps memory.provider: hindsight; recall ids are captured by wrapping the provider's
   prefetch. Model/provider override needs plugins.entries.hermes-agent-guards/hindsight-reviewer.llm.allow_model_override
   and allow_provider_override when cron.model or a fallback route is set.
 author: "kur4i"
 kind: standalone
 hooks:
   - pre_gateway_dispatch
+  - post_gateway_admission
   - post_llm_call

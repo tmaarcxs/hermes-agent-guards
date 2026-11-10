@@ -36,6 +36,10 @@ class FakeLlm:
         payload = json.loads(input[0]["text"])
         if "MEMORY" in payload:
             return types.SimpleNamespace(parsed={"verdict": self.verdict})
+        if kwargs.get("purpose") == "Hindsight noise review":
+            rows = [{"id": case["id"], "decision": "keep", "reason": "none", "duplicate_of": ""}
+                    for case in payload["MEMORIES"]]
+            return types.SimpleNamespace(parsed={"items": rows})
         rows = [{"id": case["id"], "decision": self.decision, "category": self.category,
                  "evidence_quote": self.quote if self.decision == "candidate" else ""} for case in payload["MEMORIES"]]
         return types.SimpleNamespace(parsed={"items": rows})
