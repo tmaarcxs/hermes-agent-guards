@@ -31,6 +31,8 @@ _state = sys.modules.setdefault('hermes_jot_reviewer_state', types.ModuleType('h
 _gateway = _state.__dict__.setdefault('gateway', {})
 MAX_ATTEMPTS = 10
 MAX_CONTEXT_CHARS = 60000
+MAX_EARLIER_CHARS = 6000
+_review_lock = _state.__dict__.setdefault('review_lock', threading.Lock())
 DAYS = ('Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes')
 NOTICE_PREFIX = '📝 Jot review: '
 NOTICE_LABELS = {'add': 'added', 'set': 'updated', 'remove': 'removed'}
@@ -70,6 +72,13 @@ def _turn_review_callback():
         return None
 
 
+def _unattended():
+    """True in cron, Kanban and delegated-worker turns: only Marcos's own chat turns review the board."""
+    from gateway.session_context import get_session_env
+    truthy = lambda name: str(get_session_env(name, '') or os.environ.get(name, '')).strip().lower() in {'1', 'true', 'yes', 'on'}
+    return truthy('HERMES_CRON_SESSION') or truthy('HERMES_KANBAN_TASK') or truthy('HERMES_DELEGATED_CHILD_CONTEXT')
+
+
 def _jot_available():
     try:
         from tools.registry import registry
@@ -84,11 +93,14 @@ def on_post_llm_call(session_id='', turn_id='', user_message=None, assistant_res
     try:
         if not isinstance(user_message, str) or not isinstance(assistant_response, str) or _origin() is None:
             return
+        if _unattended():
+            return
         if not _jot_available():
             return
         from hermes_constants import get_hermes_home
-        job = {'home': str(get_hermes_home()), 'session_id': session_id, 'turn_id': turn_id,
-               'transcript': conversation_context(conversation_history or []), 'deliver': _turn_review_callback()}
+        earlier, turn = split_turn(conversation_history or [])
+        job = {'home': str(get_hermes_home()), 'session_id': session_id, 'turn_id': turn_id, 'turn': turn,
+               'transcript': with_earlier(earlier, turn), 'deliver': _turn_review_callback()}
         import contextvars
         copied = contextvars.copy_context()
         threading.Thread(target=lambda: copied.run(_run, job), name='jot-reviewer', daemon=True).start()
@@ -103,15 +115,35 @@ def _text(message):
     return _MEMORY_SPAN.sub('', content).strip() if isinstance(content, str) else ''
 
 
-def conversation_context(rows):
-    """The background review's replay (recent turns verbatim, older digested) as text.
+def split_turn(rows):
+    """(earlier digest, current turn) as text: the turn starts at the last user message."""
+    rows = [row for row in rows if isinstance(row, dict)]
+    start = max((i for i, row in enumerate(rows) if row.get('role') == 'user'), default=0)
+    return digest(rows[:start]), conversation_context(rows[start:])
 
-    Unlike the memory reviewer, assistant text counts: it is the record of the work done.
+
+def digest(rows):
+    """Background lines of earlier turns: user and assistant text only, newest kept within the cap."""
+    lines = []
+    for message in rows:
+        role, text = message.get('role'), _text(message).replace('\n', ' ')
+        if role in ('user', 'assistant') and text:
+            lines.append(f"{role.upper()}: {text[:300 if role == 'user' else 200]}")
+    return '\n'.join(lines)[-MAX_EARLIER_CHARS:]
+
+
+def with_earlier(earlier, turn):
+    """The model's context: earlier turns as background, then the turn under review as the only evidence."""
+    return f'=== EARLIER TURNS (background, never evidence) ===\n{earlier}\n\n=== THIS TURN (evidence) ===\n{turn}' if earlier else turn
+
+
+def conversation_context(rows):
+    """One turn's messages as text; assistant text counts as the record of the work done.
+
     Injected memory blocks are stripped so an old memory never drives a board change.
     """
-    from agent.background_review import _digest_history
     lines = []
-    for message in _digest_history([row for row in rows if isinstance(row, dict)]):
+    for message in rows:
         role, text = message.get('role'), _text(message)
         if role == 'assistant' and message.get('tool_calls'):
             names = [(call.get('function') or {}).get('name', '?') for call in message['tool_calls'] if isinstance(call, dict)]
@@ -208,7 +240,12 @@ def apply(home, note, days, change):
 
 
 def review(llm, job, now=None):
-    """Review one turn; returns the applied changes."""
+    """Review one turn; reviews of one process run one at a time so each reads the previous one's writes."""
+    with _review_lock:
+        return _review(llm, job, now)
+
+
+def _review(llm, job, now):
     today = today_heading(now)
     if today is None:
         return []
@@ -217,20 +254,25 @@ def review(llm, job, now=None):
         logger.info('Jot review: no weekly note for %s; the turn is skipped', today)
         return []
     route = cron_route(job['home'])
+    evidence = job.get('turn') or job['transcript']
     proposed = with_retries(policy.propose, llm, note['markdown'], today, job['transcript'], route)
-    changes = policy.gate(proposed, days, today, job['transcript'])
+    changes = policy.gate(proposed, days, today, evidence)
     if len(changes) != len(proposed):
         logger.info('Jot review gate dropped %d of %d proposed changes', len(proposed) - len(changes), len(proposed))
     applied = []
     for group in policy.units(changes):
-        # A move is confirmed as one change; its remove runs first so the add does not collide.
         shown = group[0] if len(group) == 1 else {'op': 'move', 'from': group[0]['day'], 'to': group[1]['day'],
                                                   'task': group[1]['task'], 'state': group[1]['state'],
                                                   'next': group[1]['next'], 'evidence_quote': group[1]['evidence_quote']}
         if not with_retries(policy.confirm, llm, shown, note['markdown'], today, job['transcript'], route):
             continue
+        fresh = _jot('jot_read', {'id': note['id']})
+        fresh_days = policy.parse_note(fresh.get('markdown') or '')
+        if len(policy.gate(group, fresh_days, today, evidence)) != len(group):
+            logger.info('Jot review skipped a change: the note changed since it was read')
+            continue
         for change in group:
-            if not apply(job['home'], note, days, change):
+            if not apply(job['home'], note, fresh_days, change):
                 break
             applied.append(change)
             logger.info('Jot review applied %s on %s: %s', change['op'], change['day'], change['task'][:80])
