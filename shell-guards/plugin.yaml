@@ -1,5 +1,5 @@
 name: shell-guards
-version: "0.13.0"
+version: "0.13.1"
 description: >
   Tell the model when a foreground wait was moved to the background: that call's
   `Background process started` result gains a `rewritten_to_background` field (the command has not

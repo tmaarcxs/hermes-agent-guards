@@ -136,6 +136,39 @@ def test_head_is_pushed_truth_table(tmp_path):
     assert plugin_source_gate.head_is_pushed(plugin) is False
 
 
+def advance_remote(tmp_path: Path, plugin: Path, name: str = "demo-plugin") -> None:
+    """Another clone pushes a commit and the plugin fetches it: the plugin is now behind its upstream."""
+    branch = subprocess.run(
+        ["git", "-C", str(plugin), "branch", "--show-current"], capture_output=True, text=True, check=True
+    ).stdout.strip()
+    other = tmp_path / "other"
+    subprocess.run(["git", "clone", "-q", "-b", branch, str(tmp_path / f"{name}.git"), str(other)], check=True)
+    subprocess.run(["git", "-C", str(other), "config", "user.email", "t@example.com"], check=True)
+    subprocess.run(["git", "-C", str(other), "config", "user.name", "t"], check=True)
+    (other / "plugin.yaml").write_text("name: demo\n# remote\n")
+    subprocess.run(["git", "-C", str(other), "commit", "-qam", "remote"], check=True)
+    subprocess.run(["git", "-C", str(other), "push", "-q", "origin", "HEAD"], check=True)
+    subprocess.run(["git", "-C", str(plugin), "fetch", "-q", "origin"], check=True)
+
+
+def test_behind_the_upstream_is_pushed_and_activates(tmp_path):
+    plugin = make_plugin(tmp_path)
+    advance_remote(tmp_path, plugin)
+    assert plugin_source_gate.head_is_pushed(plugin) is True
+    assert plugin_source_gate.activation_block("hermes plugins update demo-plugin") is None
+    assert plugin_source_gate.activation_block("hermes plugins enable demo-plugin") is None
+
+
+def test_diverged_from_the_upstream_still_blocks(tmp_path):
+    plugin = make_plugin(tmp_path)
+    advance_remote(tmp_path, plugin)
+    (plugin / "plugin.yaml").write_text("name: demo\n# local\n")
+    subprocess.run(["git", "-C", str(plugin), "commit", "-qam", "local"], check=True)
+    assert plugin_source_gate.head_is_pushed(plugin) is False
+    message = plugin_source_gate.activation_block("hermes plugins update demo-plugin")
+    assert message and "not pushed" in message
+
+
 def test_a_repo_without_upstream_is_unknown(tmp_path):
     plugin = tmp_path / "plugins" / "no-upstream"
     plugin.mkdir(parents=True)

@@ -15,7 +15,8 @@ that is the drift this gate closes.
 
 So ``hermes plugins enable`` and ``hermes plugins update`` are refused while the
 target plugin's work tree has uncommitted changes, or its HEAD is ahead of its
-upstream branch. Commit and push, then activate.
+upstream branch. Behind the upstream passes: that is a merged PR not pulled yet, which is exactly
+what ``update`` fixes. Commit and push, then activate.
 
 Read-only commands, plugins that are not git checkouts, and any error leave the
 call untouched. The gate fails open.
@@ -72,15 +73,18 @@ def uncommitted_paths(plugin: Path) -> Optional[list[str]]:
 
 
 def head_is_pushed(plugin: Path) -> Optional[bool]:
-    """True when HEAD matches the upstream branch; None when that cannot be read."""
+    """True when HEAD has no commit missing from the upstream branch; None when that cannot be read.
+
+    Behind the upstream (a merged PR not pulled yet) is pushed: every local commit is on the remote.
+    Only a commit the upstream lacks, alone or diverged, counts as unpushed.
+    """
     upstream = _git(plugin, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
     if not upstream:
         return None
-    local = _git(plugin, "rev-parse", "HEAD")
-    remote = _git(plugin, "rev-parse", upstream)
-    if local is None or remote is None:
+    ahead = _git(plugin, "rev-list", "--count", f"{upstream}..HEAD")
+    if ahead is None or not ahead.isdigit():
         return None
-    return local == remote
+    return int(ahead) == 0
 
 
 def find_plugin(name: str) -> Optional[Path]:
