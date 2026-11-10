@@ -7,6 +7,8 @@ weekly-board scripts (fresh read, revision check, isolation check), then read ba
 goes through the turn's background-review sender. Each model stage can fail over to
 configured global provider/model routes once each after a provider failure; no plugin
 retry of the same route or batch splitting is added.
+
+The shared module registry survives plugin reloads; the gateway handle is refreshed for each message.
 """
 
 import asyncio
@@ -27,7 +29,6 @@ from . import policy
 
 logger = logging.getLogger(__name__)
 CTX = None
-# Survives plugin reloads like hindsight-reviewer's registry: the gateway handle is set per message.
 _state = sys.modules.setdefault('hermes_jot_reviewer_state', types.ModuleType('hermes_jot_reviewer_state'))
 _gateway = _state.__dict__.setdefault('gateway', {})
 MAX_CONTEXT_CHARS = 60000

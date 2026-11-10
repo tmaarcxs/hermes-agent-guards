@@ -137,7 +137,10 @@ def shares_reference(task, others):
 
 
 def gate(changes, days, today, transcript):
-    """Keep only well-formed changes the note can take; the caller logs how many were dropped."""
+    """Keep only well-formed changes the note can take; the caller logs how many were dropped.
+
+    A row disappears only when it is a closed one-off or it moves to today.
+    """
     rows = {(day, row['task']): row for day, items in days.items() for row in items}
 
     def unique(day, task):
@@ -149,7 +152,6 @@ def gate(changes, days, today, transcript):
     adds = [c for c in changes if c['op'] == 'add' and c['day'] == today
             and not any(c['task'] in key[1] or key[1] in c['task'] for key in rows if key not in leaving)]
     moved = {c['task'] for c in adds}
-    # A row disappears only when it is a closed one-off (🔄) or it moves to today.
     removes = [c for c in removes if rows[(c['day'], c['task'])]['state'] == '🔄' or c['task'] in moved]
     leaving = {(c['day'], c['task']) for c in removes}
     adds = [c for c in adds if not any(c['task'] in key[1] or key[1] in c['task'] for key in rows if key not in leaving)
