@@ -32,6 +32,10 @@ _gateway = _state.__dict__.setdefault('gateway', {})
 MAX_ATTEMPTS = 10
 MAX_CONTEXT_CHARS = 60000
 MAX_EARLIER_CHARS = 6000
+MAX_DAY_CHARS = 12000
+HUMAN_SOURCES = ('telegram', 'cli', 'desktop', 'tui')
+_SYNTHETIC = ('[IMPORTANT', '[ASYNC', '[Note', '[System', '[CONTEXT COMPACTION', '[Cron delivery')
+_ORIGIN_BLOCK = re.compile(r'^Gateway message origin.*?\n\n', re.S)
 _review_lock = _state.__dict__.setdefault('review_lock', threading.Lock())
 DAYS = ('Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes')
 NOTICE_PREFIX = '📝 Jot review: '
@@ -100,7 +104,8 @@ def on_post_llm_call(session_id='', turn_id='', user_message=None, assistant_res
         from hermes_constants import get_hermes_home
         earlier, turn = split_turn(conversation_history or [])
         job = {'home': str(get_hermes_home()), 'session_id': session_id, 'turn_id': turn_id, 'turn': turn,
-               'transcript': with_earlier(earlier, turn), 'deliver': _turn_review_callback()}
+               'earlier': earlier, 'user_message': user_message, 'transcript': with_earlier(earlier, turn),
+               'deliver': _turn_review_callback()}
         import contextvars
         copied = contextvars.copy_context()
         threading.Thread(target=lambda: copied.run(_run, job), name='jot-reviewer', daemon=True).start()
@@ -132,9 +137,43 @@ def digest(rows):
     return '\n'.join(lines)[-MAX_EARLIER_CHARS:]
 
 
-def with_earlier(earlier, turn):
-    """The model's context: earlier turns as background, then the turn under review as the only evidence."""
-    return f'=== EARLIER TURNS (background, never evidence) ===\n{earlier}\n\n=== THIS TURN (evidence) ===\n{turn}' if earlier else turn
+def day_messages(home, now=None, current=''):
+    """Marcos's own messages of today across all his chat sessions, as 'HH:MM text' lines, oldest first.
+
+    Read-only; any failure returns '' so the review still runs on the turn alone. The turn's own message is left out.
+    """
+    import sqlite3
+    try:
+        day = now or datetime.date.today()
+        start = datetime.datetime.combine(day, datetime.time.min).timestamp()
+        marks = ','.join('?' * len(HUMAN_SOURCES))
+        db = sqlite3.connect(f"file:{Path(home) / 'state.db'}?mode=ro", uri=True, timeout=2)
+        try:
+            rows = db.execute(f"SELECT m.timestamp, m.content FROM messages m JOIN sessions s ON s.id = m.session_id "
+                              f"WHERE m.role = 'user' AND s.source IN ({marks}) AND m.timestamp >= ? ORDER BY m.timestamp",
+                              (*HUMAN_SOURCES, start)).fetchall()
+        finally:
+            db.close()
+    except Exception:
+        return ''
+    lines = []
+    for stamp, content in rows:
+        text = _ORIGIN_BLOCK.sub('', _MEMORY_SPAN.sub('', content or '')).strip().replace('\n', ' ')
+        if text and not text.startswith(_SYNTHETIC) and text[:200] != current.strip().replace('\n', ' ')[:200]:
+            lines.append(f"{datetime.datetime.fromtimestamp(stamp).strftime('%H:%M')} {text[:200]}")
+    return '\n'.join(lines)[-MAX_DAY_CHARS:]
+
+
+def with_earlier(earlier, turn, day=''):
+    """The model's context: today's messages and earlier turns as background, then the turn under review as the only evidence."""
+    parts = []
+    if day:
+        parts.append(f"=== TODAY'S USER MESSAGES, ALL SESSIONS (background, never evidence) ===\n{day}")
+    if earlier:
+        parts.append(f'=== EARLIER TURNS (background, never evidence) ===\n{earlier}')
+    if not parts:
+        return turn
+    return '\n\n'.join(parts) + f'\n\n=== THIS TURN (evidence) ===\n{turn}'
 
 
 def conversation_context(rows):
@@ -255,6 +294,8 @@ def _review(llm, job, now):
         return []
     route = cron_route(job['home'])
     evidence = job.get('turn') or job['transcript']
+    if 'turn' in job:
+        job = {**job, 'transcript': with_earlier(job.get('earlier', ''), job['turn'], day_messages(job['home'], now, job.get('user_message', '')))}
     proposed = with_retries(policy.propose, llm, note['markdown'], today, job['transcript'], route)
     changes = policy.gate(proposed, days, today, evidence)
     if len(changes) != len(proposed):
