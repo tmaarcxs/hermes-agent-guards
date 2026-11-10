@@ -166,25 +166,6 @@ def test_merge_reviews_injected_and_tool_recalled_memories_once():
     assert reviewer._merge(None, None) is None
 
 
-def test_model_calls_are_retried_up_to_ten_attempts():
-    calls = []
-
-    def flaky(value):
-        calls.append(value)
-        if len(calls) < 10:
-            raise RuntimeError("upstream 424")
-        return value
-    assert reviewer.with_retries(flaky, "ok", sleep=lambda s: None) == "ok" and len(calls) == 10
-    calls.clear()
-
-    def broken(value):
-        calls.append(value)
-        raise RuntimeError("down")
-    with pytest.raises(RuntimeError):
-        reviewer.with_retries(broken, "x", sleep=lambda s: None)
-    assert len(calls) == 10
-
-
 def test_batches_of_twenty_run_in_parallel(run):
     bank = FakeBank()
     many = [{"id": f"{i:08d}-0000-0000-0000-000000000000", "text": f"memory {i}"} for i in range(45)]
@@ -301,30 +282,24 @@ def test_parallel_model_calls_see_the_callers_context(run):
     assert seen and set(seen) == {"gateway-secrets"}
 
 
-def test_a_rejected_batch_skips_only_its_memories(run, monkeypatch):
-    monkeypatch.setattr(reviewer, "MAX_ATTEMPTS", 2)
-    monkeypatch.setattr(reviewer.time if hasattr(reviewer, "time") else __import__("time"), "sleep", lambda s: None)
+def test_a_failing_model_is_called_once_per_task_and_the_batch_is_counted(run):
     bank = FakeBank()
     llm = FakeLlm()
+    calls = []
     original = llm.complete_structured
     def rejecting(*a, **k):
+        calls.append(k["purpose"])
         if k["purpose"] == "Hindsight noise review":
             raise RuntimeError("Error code: 424")
         return original(*a, **k)
     llm.complete_structured = rejecting
     applied, sent = run(bank, llm)
     assert applied == 1 and len(sent) == 1
+    assert calls.count("Hindsight noise review") == 1
 
 
-def test_bisect_isolates_the_memory_the_provider_rejects(monkeypatch):
-    monkeypatch.setattr(reviewer, "MAX_ATTEMPTS", 1)
-    def call(llm, batch):
-        if any(case["id"] == "bad" for case in batch):
-            raise RuntimeError("424")
-        return [case["id"] for case in batch]
-    call.__name__ = "noise"
-    batch = [{"id": str(i)} for i in range(7)] + [{"id": "bad"}] + [{"id": "8"}]
-    assert reviewer.with_bisect(call, None, batch) == ["0", "1", "2", "3", "4", "5", "6", "8"]
+def test_no_retry_or_bisect_helpers_remain():
+    assert not any(hasattr(reviewer, name) for name in ("with_retries", "with_bisect", "_split", "MAX_ATTEMPTS"))
 
 
 def test_gateway_handle_survives_a_module_reload():
