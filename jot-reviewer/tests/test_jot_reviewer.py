@@ -25,7 +25,7 @@ NOTE = """> 🧠 Tablero semanal de trabajo.
 
 | Estado | Tarea | Siguiente paso |
 | --- | --- | --- |
-| ⏳ | AuditQC: alta en Application Insights | Esperar respuesta de TRANSREQ-902 |
+| ⏳ | Servicio: alta en Application Insights | Esperar respuesta de TICKET-902 |
 | 🔄 | Consulta: por qué falla el job de PRE | Revisar los logs |
 
 ## 📅 Martes 10
@@ -52,14 +52,14 @@ NOTE = """> 🧠 Tablero semanal de trabajo.
 | --- | --- | --- |
 | ⚪ |  |  |
 """
-CONTEXT = ("[USER]\nya han contestado TRANSREQ-902, estamos dados de alta\n\n[ASSISTANT]\nPR #1460 mergeada y desplegada en DES.\n\n"
+CONTEXT = ("[USER]\nya han contestado TICKET-902, estamos dados de alta\n\n[ASSISTANT]\nPR #1460 mergeada y desplegada en DES.\n\n"
            "[USER]\nlo del job de PRE ya está, era la variable")
 
 
 def test_parse_note_reads_days_in_order_and_skips_placeholders():
     days = policy.parse_note(NOTE)
     assert list(days) == ["Lunes 9", "Martes 10", "Miércoles 11", "Jueves 12", "Viernes 13"]
-    assert days["Lunes 9"][0] == {"state": "⏳", "task": "AuditQC: alta en Application Insights", "next": "Esperar respuesta de TRANSREQ-902"}
+    assert days["Lunes 9"][0] == {"state": "⏳", "task": "Servicio: alta en Application Insights", "next": "Esperar respuesta de TICKET-902"}
     assert days["Martes 10"] == []
 
 
@@ -70,19 +70,19 @@ def _change(op, day, task, state="🔄", nxt="Revisar", quote="PR #1460 mergeada
 def test_gate_enforces_board_rules():
     days = policy.parse_note(NOTE)
     ok = [
-        _change("set", "Lunes 9", "AuditQC: alta en Application Insights", "✅", "Nada", "estamos dados de alta"),
+        _change("set", "Lunes 9", "Servicio: alta en Application Insights", "✅", "Nada", "estamos dados de alta"),
         _change("add", "Martes 10", "Servicio: PR #1460 en DES", "✅", "nada", "PR #1460 mergeada y desplegada en DES"),
         _change("remove", "Lunes 9", "Consulta: por qué falla el job de PRE", "✅", "Nada", "lo del job de PRE ya está"),
     ]
     bad = [
-        _change("add", "Lunes 9", "AuditQC: algo de ayer"),                       # adds only go to today
-        _change("add", "Martes 10", "AuditQC: alta en Application Insights"),     # duplicate of a live row
+        _change("add", "Lunes 9", "Servicio: algo de ayer"),                       # adds only go to today
+        _change("add", "Martes 10", "Servicio: alta en Application Insights"),     # duplicate of a live row
         _change("add", "Martes 10", "Hermes: worker card t_1234abcd"),            # forbidden words / card ids
-        _change("add", "Martes 10", "AuditQC: x", "✅", "Revisar"),                # done must be Nada
-        _change("add", "Martes 10", "AuditQC: y", quote="not in the context"),     # quote must exist
+        _change("add", "Martes 10", "Servicio: x", "✅", "Revisar"),                # done must be Nada
+        _change("add", "Martes 10", "Servicio: y", quote="not in the context"),     # quote must exist
         _change("set", "Lunes 9", "No existe"),                                   # row must exist
-        _change("remove", "Lunes 9", "AuditQC: alta en Application Insights"),    # only closed 🔄 one-offs vanish
-        _change("add", "Domingo 15", "AuditQC: z"),                               # unknown day
+        _change("remove", "Lunes 9", "Servicio: alta en Application Insights"),    # only closed 🔄 one-offs vanish
+        _change("add", "Domingo 15", "Servicio: z"),                               # unknown day
     ]
     kept = policy.gate(ok, days, "Martes 10", CONTEXT)
     assert [(c["op"], c["task"]) for c in kept] == [(c["op"], c["task"]) for c in ok]
@@ -93,8 +93,8 @@ def test_gate_enforces_board_rules():
 
 def test_gate_allows_moving_an_open_row_to_today():
     days = policy.parse_note(NOTE)
-    move = [_change("remove", "Lunes 9", "AuditQC: alta en Application Insights", "⏳", "x", "estamos dados de alta"),
-            _change("add", "Martes 10", "AuditQC: alta en Application Insights", "⏳", "Confirmar acceso", "estamos dados de alta")]
+    move = [_change("remove", "Lunes 9", "Servicio: alta en Application Insights", "⏳", "x", "estamos dados de alta"),
+            _change("add", "Martes 10", "Servicio: alta en Application Insights", "⏳", "Confirmar acceso", "estamos dados de alta")]
     assert len(policy.gate(move, days, "Martes 10", CONTEXT)) == 2
 
 
@@ -133,11 +133,11 @@ def wired(monkeypatch, tmp_path):
 
 def test_review_applies_confirmed_changes_and_notifies(wired):
     job, writes, sent = wired
-    llm = FakeLlm([_change("set", "Lunes 9", "AuditQC: alta en Application Insights", "✅", "Nada", "estamos dados de alta")])
+    llm = FakeLlm([_change("set", "Lunes 9", "Servicio: alta en Application Insights", "✅", "Nada", "estamos dados de alta")])
     applied = reviewer.review(llm, job, now=datetime.date(2026, 11, 10))
     assert len(applied) == 1 and writes[0][0] == "set-rich-row"
-    assert writes[0][1] == ("n1", "Lunes 9", "AuditQC: alta en Application Insights", "⏳",
-                            "Esperar respuesta de TRANSREQ-902", "✅", "Nada", "--write")
+    assert writes[0][1] == ("n1", "Lunes 9", "Servicio: alta en Application Insights", "⏳",
+                            "Esperar respuesta de TICKET-902", "✅", "Nada", "--write")
     assert sent == ["📝 Jot review: 1 change (1 updated)"]
     assert all(call["model"] == "m" for call in llm.calls)
 
@@ -150,8 +150,8 @@ def test_review_writes_nothing_when_the_checker_says_skip(wired):
 
 def test_review_removes_before_adding_a_moved_row(wired):
     job, writes, sent = wired
-    llm = FakeLlm([_change("add", "Martes 10", "AuditQC: alta en Application Insights", "⏳", "Confirmar acceso", "estamos dados de alta"),
-                   _change("remove", "Lunes 9", "AuditQC: alta en Application Insights", "⏳", "x", "estamos dados de alta")])
+    llm = FakeLlm([_change("add", "Martes 10", "Servicio: alta en Application Insights", "⏳", "Confirmar acceso", "estamos dados de alta"),
+                   _change("remove", "Lunes 9", "Servicio: alta en Application Insights", "⏳", "x", "estamos dados de alta")])
     reviewer.review(llm, job, now=datetime.date(2026, 11, 10))
     assert [name for name, _ in writes] == ["remove-row", "append-row"]
 
@@ -206,7 +206,7 @@ def test_review_rereads_the_note_before_writing_and_skips_when_it_changed(wired,
     job, writes, sent = wired
     taken = NOTE.replace("| ⚪ |  |  |\n\n## 📅 Miércoles", "| 🔄 | Servicio: PR #1460 en DES | Revisar |\n\n## 📅 Miércoles", 1)
     monkeypatch.setattr(reviewer, "_jot", lambda name, args: {"markdown": taken})
-    llm = FakeLlm([_change("add", "Martes 10", "Servicio: PR #1460 en DES (mic#1460)", "✅", "Nada", "PR #1460 mergeada")])
+    llm = FakeLlm([_change("add", "Martes 10", "Servicio: PR #1460 en DES (repo#1460)", "✅", "Nada", "PR #1460 mergeada")])
     assert reviewer.review(llm, job, now=datetime.date(2026, 11, 10)) == [] and not writes
 
 
