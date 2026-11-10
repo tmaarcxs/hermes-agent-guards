@@ -102,8 +102,8 @@ Mark a memory as noise only when it is useless in that situation:
   work", "his procedure" or "the user" doing something unnamed. Examples: "The task is review-only.",
   "The independent review showed it made things worse.", "There is a later fix to the validation
   rules already published in the other work.", "The user recorded the reasoning in his procedure.".
-  A memory that names its system or project (for example "AuditQC", "Kanban", "Power BI",
-  "sustac-slcp") is not a fragment, even if short.
+  A memory that names its system or project (for example "Kanban", "Power BI",
+  "Project Alpha", "billing-service") is not a fragment, even if short.
 - "duplicate": another memory in MEMORIES or OTHER_MEMORIES states the same fact at least as
   completely; give that memory's id in duplicate_of. Only judge the items in MEMORIES. Similar topic or partial overlap is not a duplicate.
 - "transient": a one-off event with no lasting value, such as one finished task or one test run.
