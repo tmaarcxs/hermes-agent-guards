@@ -70,6 +70,10 @@ Answers: *is this shell command safe to run?*
   `background=true, notify=true` replacement call (the host's own deadline
   kill produces a result no transform hook sees, so those deaths stay
   silent).
+- Tells the model when it moved a foreground wait to the background: that call's
+  `Background process started` result gains a `rewritten_to_background` field
+  (not finished, do not re-run, how to collect the outcome), so the model
+  knows its wait moved.
 - Keeps skill markdown files under their size limit (blocks a call that would
   push one over; flags after the fact one that landed over).
 
