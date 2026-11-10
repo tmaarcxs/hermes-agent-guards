@@ -213,7 +213,7 @@ def test_patch_artifacts_pass(tmp_path):
     repo = root / "repo"
     repo.mkdir()
     env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
-    run = lambda *a: subprocess.run(["git", "init", "-q"] if a[0] == "init" else ["git", "-C", str(repo), *a], capture_output=True, text=True, env=env)
+    run = lambda *a: subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True, env=env)
     run("init")
     run("checkout", "-b", "work")
     (repo / "f.txt").write_text("a")

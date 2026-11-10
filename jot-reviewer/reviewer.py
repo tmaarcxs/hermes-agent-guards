@@ -4,7 +4,9 @@ Mirrors hindsight-reviewer: a daemon thread after ``post_llm_call`` replays the 
 background review's context, the cron model proposes board changes with an exact quote, a
 deterministic gate and a skeptical second call must both pass, and each change is applied with the
 weekly-board scripts (fresh read, revision check, isolation check), then read back. One short notice
-goes through the turn's background-review sender.
+goes through the turn's background-review sender. Each model stage can fail over to
+configured global provider/model routes once each after a provider failure; no plugin
+retry of the same route or batch splitting is added.
 """
 
 import asyncio

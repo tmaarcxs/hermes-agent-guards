@@ -9,7 +9,9 @@ pass confirms the quote refutes it. The thread re-reads the memory just before t
 standard ``PATCH`` and requires it to be valid and unchanged; the stock API has no
 compare-and-set, so an edit landing between that re-read and the write can still be
 invalidated. Afterwards it reads the state back and posts one notice to the
-originating chat. Nothing is queued or retried: a failure skips that turn.
+originating chat. Each stage tries its selected route once, then the configured global
+provider/model fallbacks once each after an eligible provider failure. Hermes' own
+transport recovery is separate; exhausted calls are skipped, never queued or split.
 
 Recall ids are captured by wrapping the Hindsight provider's ``_recall`` during
 ``prefetch``; the injected block itself is produced by the provider unchanged.

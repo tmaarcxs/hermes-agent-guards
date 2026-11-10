@@ -201,7 +201,46 @@ are deliberately duplicated per folder instead of shared: a common plugin would
 re-introduce a load-order dependency across three otherwise independent plugins.
 `tests/test_helper_copies_agree.py` fails when the copies drift apart.
 
+## Reviewer model failover
+
+The Hindsight and Jot reviewers use the cron model first. If the host's structured
+call still raises a provider error (including HTTP 424), every proposal and skeptical
+confirmation can try the configured `fallback_providers` chain in order. Each distinct
+provider/model pair is attempted once per stage by plugin code; host-normalized
+provider aliases and duplicate model pairs cannot re-attempt the primary. Hermes' own transport recovery is unchanged.
+There is no batch splitting, queue or same-route plugin retry. Empty/exhausted chains
+retain skip-on-failure behavior. A later stage starts on the cron route again.
+
+Fallback calls go through the same `ctx.llm` trust gate, provider authentication,
+model-specific wire routing, schema validation and existing write/readback safeguards.
+Invalid output, a denied override or a rejected decision does not trigger failover.
+Inline endpoint, credential or API-mode overrides in fallback entries are skipped:
+configure a named provider instead, so the host can resolve that transport safely.
+The host may already recover an eligible error before it reaches the plugin; this
+change covers errors that escape that existing recovery, not a replacement retry engine.
+
+The small failover helper is copied into each independently installable reviewer
+folder, following this repository's self-contained-plugin convention.
+
 ## Tests
+
+Reviewer event E2E coverage requires an installed Hermes core, the Jot plugin runtime,
+Node.js and the core's `node_modules/.bin/tsx`. Set `HERMES_REVIEWER_E2E_CORE` and
+`HERMES_REVIEWER_E2E_JOT` when they are not in the usual `~/.hermes` locations:
+
+```sh
+python -m pytest -q tests/test_reviewer_fallback_e2e.py
+```
+
+The fixture enters registered `pre_gateway_dispatch`/`post_llm_call` events, uses native
+`PluginContext.llm`, trust and auxiliary routing, and drives actual reviewer threads.
+It seeds the consumed recall metadata, serves synthetic model/Hindsight HTTP responses
+on loopback, and uses the real Jot tools, store and weekly-board CLI on isolated notes.
+The clock is fixed to a weekday. No real chat, provider, bank or note is contacted;
+non-loopback socket connections fail. Scenarios cover healthy primary, provider failover,
+exhaustion, malformed output, rejected confirmation, denied fallback trust, duplicate
+routes, and Hindsight noise confirmation. Set `HERMES_REVIEWER_E2E_ROOT` to a baseline
+checkout to run exactly the same consumer scenarios against its plugin code.
 
 ```
 PYTHONPATH="$HOME/.hermes/hermes-agent" ~/.hermes/hermes-agent/venv/bin/python -m pytest
