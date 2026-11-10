@@ -71,7 +71,7 @@ def test_gate_enforces_board_rules():
     days = policy.parse_note(NOTE)
     ok = [
         _change("set", "Lunes 9", "AuditQC: alta en Application Insights", "✅", "Nada", "estamos dados de alta"),
-        _change("add", "Martes 10", "AuditQC: PR #1460 en DES", "✅", "nada", "PR #1460 mergeada y desplegada en DES"),
+        _change("add", "Martes 10", "Servicio: PR #1460 en DES", "✅", "nada", "PR #1460 mergeada y desplegada en DES"),
         _change("remove", "Lunes 9", "Consulta: por qué falla el job de PRE", "✅", "Nada", "lo del job de PRE ya está"),
     ]
     bad = [
@@ -144,7 +144,7 @@ def test_review_applies_confirmed_changes_and_notifies(wired):
 
 def test_review_writes_nothing_when_the_checker_says_skip(wired):
     job, writes, sent = wired
-    llm = FakeLlm([_change("add", "Martes 10", "AuditQC: PR #1460 en DES", "✅", "Nada", "PR #1460 mergeada")], verdict="skip")
+    llm = FakeLlm([_change("add", "Martes 10", "Servicio: PR #1460 en DES", "✅", "Nada", "PR #1460 mergeada")], verdict="skip")
     assert reviewer.review(llm, job, now=datetime.date(2026, 11, 10)) == [] and not writes and not sent
 
 
@@ -183,3 +183,61 @@ def test_notice_sender_only_in_private_chats(monkeypatch):
     assert reviewer._turn_review_callback() is agent.background_review_callback
     monkeypatch.setattr(sc, "bound_session_key", lambda: "agent:main:telegram:group:-5")
     assert reviewer._turn_review_callback() is None
+
+
+def test_evidence_is_only_the_current_turn():
+    rows = [{"role": "user", "content": "mergea la #1460"}, {"role": "assistant", "content": "PR #1460 mergeada"},
+            {"role": "user", "content": "¿qué hora es?"}, {"role": "assistant", "content": "las diez"}]
+    earlier, turn = reviewer.split_turn(rows)
+    text = reviewer.with_earlier(earlier, turn)
+    assert "PR #1460 mergeada" in earlier and "PR #1460" not in turn and "las diez" in turn
+    assert text.index("EARLIER TURNS") < text.index("THIS TURN")
+    assert reviewer.with_earlier("", turn) == turn
+
+
+def test_a_quote_from_earlier_turns_is_not_evidence(wired):
+    job, writes, sent = wired
+    job.update(turn="[USER]\nlo del job de PRE ya está", transcript="=== EARLIER TURNS ===\nPR #1460 mergeada\n=== THIS TURN ===\n[USER]\nlo del job de PRE ya está")
+    llm = FakeLlm([_change("add", "Martes 10", "Servicio: PR #1460 en DES", "✅", "Nada", "PR #1460 mergeada")])
+    assert reviewer.review(llm, job, now=datetime.date(2026, 11, 10)) == [] and not writes
+
+
+def test_review_rereads_the_note_before_writing_and_skips_when_it_changed(wired, monkeypatch):
+    job, writes, sent = wired
+    taken = NOTE.replace("| ⚪ |  |  |\n\n## 📅 Miércoles", "| 🔄 | Servicio: PR #1460 en DES | Revisar |\n\n## 📅 Miércoles", 1)
+    monkeypatch.setattr(reviewer, "_jot", lambda name, args: {"markdown": taken})
+    llm = FakeLlm([_change("add", "Martes 10", "Servicio: PR #1460 en DES (mic#1460)", "✅", "Nada", "PR #1460 mergeada")])
+    assert reviewer.review(llm, job, now=datetime.date(2026, 11, 10)) == [] and not writes
+
+
+def test_reviews_run_one_at_a_time(wired):
+    import threading
+    job, writes, sent = wired
+    inside, overlap = [], []
+
+    class Slow(FakeLlm):
+        def complete_structured(self, *args, **kwargs):
+            inside.append(1)
+            overlap.append(len(inside))
+            import time
+            time.sleep(0.02)
+            inside.pop()
+            return super().complete_structured(*args, **kwargs)
+    threads = [threading.Thread(target=reviewer.review, args=(Slow([]), job, datetime.date(2026, 11, 10))) for _ in range(3)]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    assert max(overlap) == 1
+
+
+@pytest.mark.parametrize("name", ["HERMES_CRON_SESSION", "HERMES_KANBAN_TASK", "HERMES_DELEGATED_CHILD_CONTEXT"])
+def test_unattended_turns_never_start_a_review(monkeypatch, name):
+    started = []
+    monkeypatch.setattr(reviewer.threading, "Thread", lambda **kw: started.append(kw))
+    monkeypatch.setattr(reviewer, "_origin", lambda: {"platform": "telegram", "chat_id": "1"})
+    monkeypatch.setattr(reviewer, "_jot_available", lambda: True)
+    reviewer.on_post_llm_call(user_message="hola", assistant_response="ok", conversation_history=[])
+    assert started
+    started.clear()
+    monkeypatch.setenv(name, "1")
+    reviewer.on_post_llm_call(user_message="hola", assistant_response="ok", conversation_history=[])
+    assert not started
