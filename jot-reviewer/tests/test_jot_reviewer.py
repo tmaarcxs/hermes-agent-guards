@@ -241,3 +241,59 @@ def test_unattended_turns_never_start_a_review(monkeypatch, name):
     monkeypatch.setenv(name, "1")
     reviewer.on_post_llm_call(user_message="hola", assistant_response="ok", conversation_history=[])
     assert not started
+
+
+def _db(tmp_path, rows):
+    import sqlite3
+    path = tmp_path / "state.db"
+    db = sqlite3.connect(path)
+    db.execute("CREATE TABLE sessions (id TEXT PRIMARY KEY, source TEXT)")
+    db.execute("CREATE TABLE messages (id INTEGER PRIMARY KEY, session_id TEXT, role TEXT, content TEXT, timestamp REAL)")
+    for i, (source, role, content, stamp) in enumerate(rows):
+        db.execute("INSERT OR IGNORE INTO sessions VALUES (?, ?)", (f"s-{source}", source))
+        db.execute("INSERT INTO messages VALUES (?, ?, ?, ?, ?)", (i, f"s-{source}", role, content, stamp))
+    db.commit()
+    db.close()
+
+
+def test_day_messages_are_marcos_own_across_sessions_and_skip_machine_text(tmp_path):
+    day = datetime.date(2026, 11, 10)
+    at = lambda h: datetime.datetime(2026, 11, 10, h, 5).timestamp()
+    _db(tmp_path, [
+        ("telegram", "user", "mergea la 1460", at(9)),
+        ("desktop", "user", "<memory-context>x</memory-context>despliega a DES", at(10)),
+        ("telegram", "assistant", "hecho", at(10)),
+        ("cron", "user", "tarea de cron", at(10)),
+        ("tool", "user", "## Goal review a PR", at(10)),
+        ("telegram", "user", "[IMPORTANT: Background process done]", at(11)),
+        ("telegram", "user", "[Cron delivery: Teams] resumen", at(11)),
+        ("telegram", "user", "mensaje del turno actual", at(12)),
+        ("telegram", "user", "mensaje de ayer", datetime.datetime(2026, 11, 9, 12, 0).timestamp()),
+    ])
+    text = reviewer.day_messages(str(tmp_path), day, "mensaje del turno actual")
+    assert text.splitlines() == ["09:05 mergea la 1460", "10:05 despliega a DES"]
+
+
+def test_day_messages_fail_open(tmp_path):
+    assert reviewer.day_messages(str(tmp_path / "missing"), datetime.date(2026, 11, 10)) == ""
+
+
+def test_with_earlier_orders_day_then_earlier_then_the_turn():
+    text = reviewer.with_earlier("e", "t", "d")
+    assert text.index("TODAY'S USER MESSAGES") < text.index("EARLIER TURNS") < text.index("THIS TURN") and text.endswith("t")
+    assert reviewer.with_earlier("", "t", "") == "t"
+
+
+def test_review_sends_the_day_as_background_but_only_the_turn_as_evidence(wired, monkeypatch):
+    job, writes, sent = wired
+    seen = []
+    monkeypatch.setattr(reviewer, "day_messages", lambda home, now, current: "09:00 mergea la 1460")
+    job.update(turn="[USER]\nsí, hazlo", earlier="", user_message="sí, hazlo")
+
+    class Spy(FakeLlm):
+        def complete_structured(self, instructions, input, json_schema, **kwargs):
+            seen.append(input[0]["text"])
+            return super().complete_structured(instructions, input, json_schema, **kwargs)
+    llm = Spy([_change("add", "Martes 10", "Servicio: PR #1460 en DES", "✅", "Nada", "09:00 mergea la 1460")])
+    assert reviewer.review(llm, job, now=datetime.date(2026, 11, 10)) == [] and not writes
+    assert "09:00 mergea la 1460" in seen[0]
