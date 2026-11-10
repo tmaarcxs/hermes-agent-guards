@@ -3,6 +3,8 @@
 import json
 import re
 
+from .llm_fallback import complete_structured
+
 _PROTECTED = re.compile(r'(?i)\b(?:prefer(?:s|red|ence|ences)?|favou?rite|authori[sz](?:e|es|ed|ation)|permission|consent|identity|legal name|my name|i am called|commit(?:ment|ted|s)?|promis(?:e|ed)|obligat(?:ion|ed)|birth(?:date|day)|born|naci[oó]|i (?:always|never|want|like|dislike)|user (?:always|never|wants|likes|prefers)|prefier[oea]|preferencia|autorizaci[oó]n|autoriz[oa]|permiso|consentimiento|identidad|mi nombre|me llamo|compromiso|promet[ií]|yo (?:siempre|nunca|quiero|prefiero)|usuario (?:siempre|nunca|quiere|prefiere))\b')
 
 INSTRUCTIONS = '''Review each injected memory against the CONTEXT: the recent conversation of this chat.
@@ -43,7 +45,7 @@ def propose(llm, cases, route=None, context=None):
     ids = {case['id'] for case in cases}
     if len(ids) != len(cases):
         raise ValueError('Duplicate case ids')
-    response = llm.complete_structured(
+    response = complete_structured(llm,
         instructions=INSTRUCTIONS,
         input=[{'type':'text','text':json.dumps(cases if context is None else {'CONTEXT':context,'MEMORIES':cases}, ensure_ascii=False, separators=(',',':'))}],
         json_schema=SCHEMA, timeout=90, max_tokens=max(500, len(cases)*120),
@@ -87,7 +89,7 @@ def confirm(llm, memory, quote, evidence, route=None):
     """Skeptical second pass; a quote of the reviewer's own bracketed headers proves nothing."""
     if '[' in quote or ']' in quote or quote not in evidence:
         return False
-    response = llm.complete_structured(
+    response = complete_structured(llm,
         instructions=CONFIRM_INSTRUCTIONS,
         input=[{'type':'text','text':json.dumps({'MEMORY':memory,'QUOTE':quote,'EVIDENCE':evidence}, ensure_ascii=False)}],
         json_schema=CONFIRM_SCHEMA, timeout=60, max_tokens=100, purpose='Hindsight turn review confirmation', **(route or {}))
@@ -148,7 +150,7 @@ def noise(llm, cases, route=None, others=None):
     dates = {case['id']:case.get('date') or '' for case in [*cases, *others]}
     targets = set(texts) | {case['id'] for case in others}
     payload = {'MEMORIES':cases, 'OTHER_MEMORIES':others} if others else {'MEMORIES':cases}
-    response = llm.complete_structured(
+    response = complete_structured(llm,
         instructions=NOISE_INSTRUCTIONS,
         input=[{'type':'text','text':json.dumps(payload, ensure_ascii=False, separators=(',',':'))}],
         json_schema=NOISE_SCHEMA, timeout=90, max_tokens=max(500, len(cases)*60),
@@ -204,7 +206,7 @@ NOISE_CONFIRM_SCHEMA = {'type':'object','properties':{'verdict':{'type':'string'
 
 
 def confirm_noise(llm, memory, reason, kept='', route=None):
-    response = llm.complete_structured(
+    response = complete_structured(llm,
         instructions=NOISE_CONFIRM_INSTRUCTIONS,
         input=[{'type':'text','text':json.dumps({'MEMORY':memory,'REASON':reason,'KEPT':kept}, ensure_ascii=False)}],
         json_schema=NOISE_CONFIRM_SCHEMA, timeout=60, max_tokens=100, purpose='Hindsight noise confirmation', **(route or {}))

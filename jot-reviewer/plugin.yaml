@@ -1,5 +1,5 @@
 name: jot-reviewer
-version: "0.6.0"
+version: "0.7.0"
 description: >-
   After each gateway turn, review the weekly Jot work board in a background thread, like
   hindsight-reviewer and Hermes' own background review. The model selected for cron jobs (or the
@@ -9,9 +9,10 @@ description: >-
   A deterministic gate enforces the board rules (company work only, five states, one line per cell,
   no duplicates (a new row that names an issue, PR or ticket already on the board is dropped), adds only to today, done means Nada) and a skeptical second call must confirm each
   change. Changes are written with the weekly-board scripts (fresh read, revision check, isolation
-  check) and read back. Reviews run one at a time and re-read the note just before each write, so two turns ending together cannot add the same row twice. Only the turn under review is evidence; Marcos's messages of the day across all his sessions and earlier turns are capped background. Calibrated on the cron model, 5 runs per case over 10 cases: 45/50 with the day against 37/50 without. Cron, Kanban and delegated-worker turns never start a review. Workers, cron, one-shot and delegated runs are blocked from writing the board, so the reviewer is its only unattended writer. Each model call is made once and never retried, so a provider outage is not amplified; any failure skips the turn.
+  check) and read back. Reviews run one at a time and re-read the note just before each write, so two turns ending together cannot add the same row twice. Only the turn under review is evidence; Marcos's messages of the day across all his sessions and earlier turns are capped background. Calibrated on the cron model, 5 runs per case over 10 cases: 45/50 with the day against 37/50 without. Cron, Kanban and delegated-worker turns never start a review. Workers, cron, one-shot and delegated runs are blocked from writing the board, so the reviewer is its only unattended writer. Each stage attempts each distinct route once in plugin code; an exhausted call skips the turn.
   One notice goes through the turn's background-review sender: "📝 Jot review: N changes (...)".
-  Needs the jot plugin; idle where its tools are missing. Model override needs
+  Each model stage can use configured global provider/model fallbacks after an eligible provider failure,
+  without same-route plugin retries. Needs the jot plugin; idle where its tools are missing. Model override needs
   plugins.entries.hermes-agent-guards/jot-reviewer.llm.allow_model_override and allow_provider_override.
 author: "kur4i"
 kind: standalone

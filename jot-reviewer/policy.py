@@ -3,6 +3,8 @@
 import json
 import re
 
+from .llm_fallback import complete_structured
+
 STATES = ('🔄', '🙋', '⏳', '✅', '⚪')
 FORBIDDEN = ('(hoy)', 'worker', 'Atenea', 'Quién', 'Resumen de la semana', 'Lo que te toca a ti')
 _CARD_ID = re.compile(r'\bt_[0-9a-f]{6,}\b')
@@ -85,7 +87,7 @@ def parse_note(markdown):
 
 
 def propose(llm, note_markdown, today, transcript, route=None):
-    response = llm.complete_structured(
+    response = complete_structured(llm,
         instructions=INSTRUCTIONS,
         input=[{'type': 'text', 'text': json.dumps({'TODAY': today, 'NOTE': note_markdown, 'CONTEXT': transcript},
                                                    ensure_ascii=False)}],
@@ -176,7 +178,7 @@ def units(changes):
 
 
 def confirm(llm, change, note_markdown, today, transcript, route=None):
-    response = llm.complete_structured(
+    response = complete_structured(llm,
         instructions=CONFIRM_INSTRUCTIONS,
         input=[{'type': 'text', 'text': json.dumps({'TODAY': today, 'CHANGE': change, 'NOTE': note_markdown,
                                                     'CONTEXT': transcript}, ensure_ascii=False)}],
