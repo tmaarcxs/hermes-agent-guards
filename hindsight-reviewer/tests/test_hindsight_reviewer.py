@@ -331,7 +331,7 @@ def test_a_mid_turn_steering_message_does_not_skip_the_review(monkeypatch):
     pytest.importorskip("agent.memory_context")
     from agent.memory_context import build_memory_context_block
     started = []
-    monkeypatch.setattr(reviewer, "_origin", lambda: {"platform": "telegram", "chat_id": "1"})
+    monkeypatch.setattr(reviewer, "_origin", lambda: {"platform": "telegram", "chat_id": "1", "message_id": ""})
     monkeypatch.setattr(reviewer, "_run", started.append)
     monkeypatch.setattr(reviewer.threading, "Thread", lambda target, **k: types.SimpleNamespace(start=target))
     reviewer._recalls["steered"] = {"bank": "b", "records": [{"id": "m1", "text": "fact"}], "block": "- fact"}
@@ -350,17 +350,20 @@ def test_duplicates_are_found_across_batches(run):
     for record in many:
         bank.rows[record["id"]] = {"type": "world", "state": "valid", "text": record["text"]}
     first, last = many[0]["id"], many[24]["id"]
-    seen_other_ids = []
+    seen_other_memories = []
 
     class CrossLlm(NoiseLlm):
         def complete_structured(self, instructions, input, json_schema, **kwargs):
             payload = json.loads(input[0]["text"])
             if kwargs["purpose"] == "Hindsight noise review":
-                seen_other_ids.extend(c["id"] for c in payload.get("OTHER_MEMORIES", []))
+                others = payload.get("OTHER_MEMORIES", [])
+                seen_other_memories.extend(c["memory"] for c in others)
+                aliases = {c["memory"]: c["id"] for c in payload["MEMORIES"] + others}
+                self.flags = {aliases["memory 24"]: ("duplicate", aliases["memory 0"])}
             return super().complete_structured(instructions, input, json_schema, **kwargs)
 
-    applied, sent = run(bank, CrossLlm({last: ("duplicate", first)}), records=many)
-    assert first in seen_other_ids and applied == 1 and bank.rows[last]["state"] == "invalidated"
+    applied, sent = run(bank, CrossLlm({}), records=many)
+    assert "memory 0" in seen_other_memories and applied == 1 and bank.rows[last]["state"] == "invalidated"
     assert bank.rows[first]["state"] == "valid"
 
 
