@@ -6,6 +6,7 @@ import re
 STATES = ('🔄', '🙋', '⏳', '✅', '⚪')
 FORBIDDEN = ('(hoy)', 'worker', 'Atenea', 'Quién', 'Resumen de la semana', 'Lo que te toca a ti')
 _CARD_ID = re.compile(r'\bt_[0-9a-f]{6,}\b')
+_REF = re.compile(r'(?<![\w-])(?:[A-Za-z][\w-]*)?#\d+(?!\d)|\b[A-Z][A-Z0-9]+-\d+(?!\d)')
 _PROTECTED = re.compile(r'(?i)\b(?:password|token|secret|api[_-]?key|bearer)\b')
 
 RULES = '''The weekly Jot note is Marcos's board of WORK for his employer only (software projects and their repositories, pull requests and
@@ -110,6 +111,29 @@ def _valid(change, days, transcript):
             and (op == 'remove' or (state == '✅') == (nxt.lower() == 'nada')))
 
 
+def refs(text):
+    """(repo prefix, number) pairs for the issues and PRs a Tarea names; tickets such as TICKET-902 have an empty prefix."""
+    found = set()
+    for match in _REF.finditer(text):
+        token = match.group(0)
+        prefix, _, number = token.partition('#')
+        found.add((prefix, number) if number else ('', token))
+    return found
+
+
+def _same(a, b):
+    return a[1] == b[1] and (a[0] == b[0] or not a[0] or not b[0])
+
+
+def shares_reference(task, others):
+    """True when the task names an issue, PR or ticket that one of the other Tarea texts already names.
+
+    mic#1521 and #1521 are the same reference; mic#1521 and spa#1521 are not.
+    """
+    mine = refs(task)
+    return bool(mine) and any(_same(a, b) for other in others for a in mine for b in refs(other))
+
+
 def gate(changes, days, today, transcript):
     """Keep only well-formed changes the note can take; the caller logs how many were dropped."""
     rows = {(day, row['task']): row for day, items in days.items() for row in items}
@@ -126,7 +150,8 @@ def gate(changes, days, today, transcript):
     # A row disappears only when it is a closed one-off (🔄) or it moves to today.
     removes = [c for c in removes if rows[(c['day'], c['task'])]['state'] == '🔄' or c['task'] in moved]
     leaving = {(c['day'], c['task']) for c in removes}
-    adds = [c for c in adds if not any(c['task'] in key[1] or key[1] in c['task'] for key in rows if key not in leaving)]
+    adds = [c for c in adds if not any(c['task'] in key[1] or key[1] in c['task'] for key in rows if key not in leaving)
+            and not shares_reference(c['task'], [key[1] for key in rows if key not in leaving])]
     sets = [c for c in changes if c['op'] == 'set' and unique(c['day'], c['task'])
             and (rows[(c['day'], c['task'])]['state'], rows[(c['day'], c['task'])]['next']) != (c['state'], c['next'])]
     kept, seen = [], set()

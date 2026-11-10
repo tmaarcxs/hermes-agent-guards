@@ -297,3 +297,41 @@ def test_review_sends_the_day_as_background_but_only_the_turn_as_evidence(wired,
     llm = Spy([_change("add", "Martes 10", "Servicio: PR #1460 en DES", "✅", "Nada", "09:00 mergea la 1460")])
     assert reviewer.review(llm, job, now=datetime.date(2026, 11, 10)) == [] and not writes
     assert "09:00 mergea la 1460" in seen[0]
+
+
+def _board(*rows):
+    body = "".join(f"| {state} | {task} | {nxt} |\n" for state, task, nxt in rows)
+    return policy.parse_note(NOTE.replace("| ⚪ |  |  |\n\n## 📅 Miércoles", body + "\n## 📅 Miércoles", 1))
+
+
+@pytest.mark.parametrize("live,new", [
+    ("Servicio: regenerar la guía social v1.0 (mic#1521)", "Servicio: regenerar la guía con los builders del repo (mic#1521)"),
+    ("Servicio: regenerar la guía (mic#1521)", "Servicio: revisión de la guía (#1521)"),
+    ("Servicio: alta en métricas de uso (TICKET-902)", "Servicio: respuesta de plataforma, TICKET-902"),
+    ("Servicio: acelerar el CI (mic#1446, #1449 y spa#589 mergeadas)", "Servicio: despliegue de spa#589"),
+])
+def test_an_add_that_shares_a_reference_with_a_live_row_is_dropped(live, new):
+    days = _board(("⏳", live, "Esperar"))
+    add = _change("add", "Martes 10", new, "🔄", "Revisar", "PR #1460 mergeada")
+    assert policy.gate([add], days, "Martes 10", CONTEXT) == []
+
+
+@pytest.mark.parametrize("live,new", [
+    ("Servicio: guía (mic#1521)", "Servicio: otra cosa (spa#1521)"),
+    ("Servicio: guía (mic#1521)", "Servicio: otra cosa (mic#15210)"),
+    ("Servicio: guía (mic#1521)", "Servicio: otra cosa (mic#152)"),
+    ("Servicio: alta (TICKET-902)", "Servicio: otra cosa (TICKET-9020)"),
+    ("Servicio: guía (mic#1521)", "Servicio: PR #1460 en DES"),
+])
+def test_references_that_differ_do_not_block_an_add(live, new):
+    days = _board(("⏳", live, "Esperar"))
+    add = _change("add", "Martes 10", new, "🔄", "Revisar", "PR #1460 mergeada")
+    assert len(policy.gate([add], days, "Martes 10", CONTEXT)) == 1
+
+
+def test_a_move_may_share_its_reference_with_the_row_it_replaces():
+    days = policy.parse_note(NOTE.replace("Servicio: alta en Application Insights |", "Servicio: alta en Application Insights (TICKET-902) |", 1))
+    task = "Servicio: alta en Application Insights (TICKET-902)"
+    move = [_change("remove", "Lunes 9", task, "⏳", "x", "estamos dados de alta"),
+            _change("add", "Martes 10", task, "⏳", "Confirmar acceso", "estamos dados de alta")]
+    assert [c["op"] for c in policy.gate(move, days, "Martes 10", CONTEXT)] == ["remove", "add"]
