@@ -1,6 +1,9 @@
 name: shell-guards
-version: "0.12.1"
+version: "0.13.0"
 description: >
+  Tell the model when a foreground wait was moved to the background: that call's
+  `Background process started` result gains a `rewritten_to_background` field (the command has not
+  finished, do not re-run it, how to collect the outcome).
   Also block recursive find/grep -r/rg over the user home or / (with the Hermes home, installs and
   benchmarks), and keep a recursive grep out of node_modules, .git and .venv unless the command names
   --exclude-dir or node_modules.

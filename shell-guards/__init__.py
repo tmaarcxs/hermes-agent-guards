@@ -49,6 +49,10 @@ Intent (behaviour identical to the monolithic plugin):
 - rewrites a ``terminal`` command: unsets a ``PYTHONPATH`` that holds a Hermes install
   site-packages entry, and adds ``set -o pipefail`` to a test runner piped to ``tail``/``head``
   so the real exit status shows (no "re-run without the pipe" turn);
+- states the rewrite: when the guard moves a foreground wait to the background, that call's
+  ``Background process started`` result gains one ``rewritten_to_background`` field saying the
+  command has NOT finished, must not be re-run, and how to collect its outcome (the rewrite itself
+  carries no message, and one install saw 231 such rewrites in 7 days);
 - rewrites: a ``transform_tool_result`` turns Hermes core's poll-only promoted-process
   note ("poll it with process(action=\"poll\", session_id=...)") into the event-driven
   instruction consistent with the guards: ``process_manage(action="wait", session_id=...)``
@@ -77,6 +81,7 @@ try:
     from . import (
         _policy,
         background_notify_gate,
+        background_wait_note,
         base_branch_gate,
         git_stash_gate,
         hermes_home_gate,
@@ -145,12 +150,20 @@ def _transform_tool_result(**kwargs) -> Optional[str]:
             return rewritten
     except Exception:
         pass
+    result = kwargs.get("result")
     try:
-        return skill_size.transform(
-            kwargs.get("tool_name") or "", kwargs.get("args"), kwargs.get("result"),
+        noted = background_wait_note.transform(
+            kwargs.get("tool_name") or "", result, tool_call_id=kwargs.get("tool_call_id") or "",
+            session_id=kwargs.get("session_id") or "")
+    except Exception:
+        noted = None
+    try:
+        flagged = skill_size.transform(
+            kwargs.get("tool_name") or "", kwargs.get("args"), noted if noted is not None else result,
             tool_call_id=kwargs.get("tool_call_id") or "")
     except Exception:
-        return None
+        flagged = None
+    return flagged if flagged is not None else noted
 
 
 def _transform_terminal_output(**kwargs) -> Optional[str]:
@@ -217,6 +230,8 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
                 return {"action": "block", "message": "agent-guards blocked terminal [__init__]: " + "; ".join(found)}
             changes = {**wait_fix, **(background_notify_gate.fix(tool_name, args) or {}), **(terminal_env_fix.fix(tool_name, args) or {})}
             changes = {**(changes or {}), **(terminal_policy.rewrite_deadline_args(tool_name, args) or {})}
+            if wait_fix:
+                background_wait_note.record(str(kwargs.get("tool_call_id") or ""), str(kwargs.get("session_id") or ""))
             return {"action": "modify", "args": changes} if changes else None
         blocked = terminal_policy.attach_cap_block(args)
         if blocked:
