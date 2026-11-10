@@ -17,7 +17,6 @@ import shutil
 import subprocess
 import sys
 import threading
-import time
 import types
 from collections import Counter
 from pathlib import Path
@@ -29,7 +28,6 @@ CTX = None
 # Survives plugin reloads like hindsight-reviewer's registry: the gateway handle is set per message.
 _state = sys.modules.setdefault('hermes_jot_reviewer_state', types.ModuleType('hermes_jot_reviewer_state'))
 _gateway = _state.__dict__.setdefault('gateway', {})
-MAX_ATTEMPTS = 10
 MAX_CONTEXT_CHARS = 60000
 MAX_EARLIER_CHARS = 6000
 MAX_DAY_CHARS = 12000
@@ -215,20 +213,6 @@ def cron_route(home):
     return route
 
 
-def with_retries(call, *args, sleep=None):
-    """Run one model call, retrying any error up to MAX_ATTEMPTS times with capped backoff."""
-    sleep = sleep or time.sleep
-    for attempt in range(1, MAX_ATTEMPTS + 1):
-        try:
-            return call(*args)
-        except Exception as error:
-            if attempt == MAX_ATTEMPTS:
-                raise
-            logger.info('Jot review model call failed (%s: %s); retry %d/%d', type(error).__name__,
-                        str(error)[:120], attempt, MAX_ATTEMPTS - 1)
-            sleep(min(2 * attempt, 20))
-
-
 def _jot(name, args):
     from tools.registry import registry
     raw = registry.dispatch(name, args)
@@ -296,7 +280,7 @@ def _review(llm, job, now):
     evidence = job.get('turn') or job['transcript']
     if 'turn' in job:
         job = {**job, 'transcript': with_earlier(job.get('earlier', ''), job['turn'], day_messages(job['home'], now, job.get('user_message', '')))}
-    proposed = with_retries(policy.propose, llm, note['markdown'], today, job['transcript'], route)
+    proposed = policy.propose(llm, note['markdown'], today, job['transcript'], route)
     changes = policy.gate(proposed, days, today, evidence)
     if len(changes) != len(proposed):
         logger.info('Jot review gate dropped %d of %d proposed changes', len(proposed) - len(changes), len(proposed))
@@ -305,7 +289,7 @@ def _review(llm, job, now):
         shown = group[0] if len(group) == 1 else {'op': 'move', 'from': group[0]['day'], 'to': group[1]['day'],
                                                   'task': group[1]['task'], 'state': group[1]['state'],
                                                   'next': group[1]['next'], 'evidence_quote': group[1]['evidence_quote']}
-        if not with_retries(policy.confirm, llm, shown, note['markdown'], today, job['transcript'], route):
+        if not policy.confirm(llm, shown, note['markdown'], today, job['transcript'], route):
             continue
         fresh = _jot('jot_read', {'id': note['id']})
         fresh_days = policy.parse_note(fresh.get('markdown') or '')

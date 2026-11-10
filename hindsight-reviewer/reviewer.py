@@ -373,45 +373,6 @@ def _invalidate(base, key, source_id, text, reason):
 
 
 MAX_PARALLEL = 8
-MAX_ATTEMPTS = 10
-
-
-def with_retries(call, *args, sleep=None):
-    """Run one model call, retrying any error up to MAX_ATTEMPTS times with capped backoff."""
-    import time
-    sleep = sleep or time.sleep
-    for attempt in range(1, MAX_ATTEMPTS + 1):
-        try:
-            return call(*args)
-        except Exception as error:
-            if attempt == MAX_ATTEMPTS:
-                raise
-            logger.info('Hindsight review model call failed (%s: %s); retry %d/%d', type(error).__name__,
-                        str(error)[:120], attempt, MAX_ATTEMPTS - 1)
-            sleep(min(2 * attempt, 20))
-
-
-def with_bisect(call, llm, batch, *rest):
-    """Retry a batch; if the provider still rejects it, halve it so one bad memory loses only itself."""
-    try:
-        return with_retries(call, llm, batch, *rest)
-    except Exception:
-        if len(batch) == 1:
-            raise
-    half = len(batch) // 2
-    return _split(call, llm, batch[:half], *rest) + _split(call, llm, batch[half:], *rest)
-
-
-def _split(call, llm, batch, *rest):
-    try:
-        return call(llm, batch, *rest)
-    except Exception as error:
-        if len(batch) == 1:
-            logger.warning('Hindsight %s skipped memory %s (%s: %s)', call.__name__, batch[0].get('id'),
-                           type(error).__name__, str(error)[:200])
-            return []
-    half = len(batch) // 2
-    return _split(call, llm, batch[:half], *rest) + _split(call, llm, batch[half:], *rest)
 
 
 def review(llm, job):
@@ -431,7 +392,7 @@ def review(llm, job):
         with ThreadPoolExecutor(max_workers=min(2 * len(batches), MAX_PARALLEL)) as pool:
             # Pool threads start with an empty context, and the gateway's scoped credentials live in
             # it: copy this thread's context once per call (a Context cannot be entered twice at once).
-            submit = lambda call, *args: pool.submit(contextvars.copy_context().run, with_bisect, call, *args)
+            submit = lambda call, *args: pool.submit(contextvars.copy_context().run, call, *args)
             refuted = [submit(policy.propose, llm, batch, route, evidence) for batch in batches]
             flagged = [submit(policy.noise, llm, batch, route, cases) for batch in batches]
             # A batch the provider keeps rejecting skips only its own memories, not the whole turn.
@@ -447,7 +408,7 @@ def review(llm, job):
         if row['decision'] != 'candidate' or not _quotable(job, row['evidence_quote']) or _SECRET.search(row['evidence_quote']):
             continue
         text = sources[row['id']]['text']
-        if not with_retries(policy.confirm, llm, text, row['evidence_quote'], evidence, route):
+        if not policy.confirm(llm, text, row['evidence_quote'], evidence, route):
             continue
         event = uuid.uuid5(uuid.NAMESPACE_URL, 'hindsight-review:' + job['session_id'] + ':' + job['turn_id'] + ':' + row['id'])
         outcome = _invalidate(base, key, row['id'], text, 'hindsight-review:' + str(event))
@@ -462,7 +423,7 @@ def review(llm, job):
             continue
         text = sources[row['id']]['text']
         kept = sources[row['duplicate_of']]['text'] if row['duplicate_of'] else ''
-        if not with_retries(policy.confirm_noise, llm, text, row['reason'], kept, route):
+        if not policy.confirm_noise(llm, text, row['reason'], kept, route):
             continue
         event = uuid.uuid5(uuid.NAMESPACE_URL, 'hindsight-noise:' + job['session_id'] + ':' + job['turn_id'] + ':' + row['id'])
         outcome = _invalidate(base, key, row['id'], text, 'hindsight-noise:' + row['reason'] + ':' + str(event))

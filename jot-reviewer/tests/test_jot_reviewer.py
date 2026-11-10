@@ -156,15 +156,17 @@ def test_review_removes_before_adding_a_moved_row(wired):
     assert [name for name, _ in writes] == ["remove-row", "append-row"]
 
 
-def test_model_calls_retry_up_to_ten_times(monkeypatch):
+def test_a_failing_model_call_is_not_retried():
+    assert not any(hasattr(reviewer, name) for name in ("with_retries", "MAX_ATTEMPTS"))
     calls = []
 
-    def flaky():
-        calls.append(1)
-        if len(calls) < 10:
+    class Llm:
+        def complete_structured(self, **kwargs):
+            calls.append(1)
             raise RuntimeError("424")
-        return "ok"
-    assert reviewer.with_retries(flaky, sleep=lambda s: None) == "ok" and len(calls) == 10
+    with pytest.raises(RuntimeError):
+        reviewer.policy.propose(Llm(), "md", "Lunes 9", "turn", {})
+    assert len(calls) == 1
 
 
 def test_scripts_take_paths_from_the_environment():

@@ -1,5 +1,5 @@
 name: hindsight-reviewer
-version: "0.9.4"
+version: "0.10.0"
 description: >-
   After each gateway turn, review the Hindsight memories injected into that turn and those
   the agent fetched itself with hindsight_recall in a
@@ -8,8 +8,8 @@ description: >-
   Hermes' background review replays (user messages and tool results are quotable evidence),
   with an exact quote; a skeptical second pass must confirm. The memory is re-read, then
   invalidated through the stock Hindsight API with a per-turn reason, read back, and one
-  notice is posted to the originating chat. Batches of 20 memories run in parallel; each model call is retried up to
-  10 times. No queue: a failure after that skips the turn. Memory-tool results never count
+  notice is posted to the originating chat. Batches of 20 memories run in parallel; each model call is made once.
+  A failed call is never retried or split: its batch is skipped and counted in failed_batches, so a provider outage is not amplified. No queue. Memory-tool results never count
   as evidence. A parallel noise pass also invalidates, after a skeptical confirmation, the
   memories that are context-free fragments, duplicates of a kept memory anywhere in
   the turn, older memories a newer one in the turn contradicts or replaces (superseded, no quote needed,
