@@ -1,9 +1,8 @@
 # hermes-agent-guards
 
-A monorepo of five self-contained Hermes Agent plugins: three that block
-recurring agent mistakes before a tool runs and keep delegated Kanban work
-moving, plus two smaller guards. Every guard check fails open: an internal
-error never blocks a tool call.
+A monorepo of self-contained Hermes Agent plugins that prevent recurring agent
+mistakes, keep delegated work moving, and reduce terminal output with RTK. Guard
+checks and the RTK adapter fail open: an internal error never blocks a tool call.
 
 The three guards used to ship as one monolithic `agent-guards` plugin. They are
 now independent folders, each with its own `plugin.yaml`, its own
@@ -158,6 +157,25 @@ Answers: *does a provider failure that the core calls permanent get retried?*
 - `transform_api_error_classification` classifies HTTP 424 `byok_upstream_provider_failed` as a retryable `server_error`, so the core retries in the same session instead of ending the turn.
 - Any other status, code or message is left to the core. Fails open.
 
+### `rtk-output` — terminal output compression
+
+Answers: *can this completed terminal result be shortened without changing execution?*
+
+- Runs the official `rtk pipe` **after** a successful foreground command. No argv,
+  shell, environment, cwd, approval or exit-code rewriting; venv paths, `env -u`
+  and scripts work without command-pattern matching.
+- Keeps failures, error indicators, short/unsupported output and filter errors raw.
+  Uses RTK content autodetection and a count-checked pytest filter for quiet runs.
+- Returns a shorter result only after saving the full redacted input privately,
+  with a recovery pointer and a byte-count receipt. Seven-day retention and a
+  64 MiB soft quota bound storage. No background/process-manager coverage.
+- RTK updates independently through its package manager. Disabling the plugin
+  restores unfiltered output; the RTK binary need not be removed.
+- Version 0.1.1 declares advisory host load ordering after `shell-guards`: its
+  mandatory flags win the first-string transform seam over RTK compression. The
+  adapter remains usable alone, with no sibling imports. Background results are
+  explicitly excluded by their absent foreground environment type.
+
 Each folder's `README.md` documents its own rules in full.
 
 ## Install
@@ -179,9 +197,22 @@ then refuses to move it. Install without `--ref`, and `hermes plugins update
 <name>` tracks the default branch. Reinstalling with `--force` keeps the old
 `pinned` flag, so remove and install again instead.
 
+For an updateable RTK adapter, install the **whole monorepo** (skip the install
+when it already exists), then enable only the requested sub-plugin:
+
+```sh
+brew install rtk
+hermes plugins install tmaarcxs/hermes-agent-guards --no-enable
+hermes plugins enable tmaarcxs/hermes-agent-guards/rtk-output
+```
+
+RTK itself updates with `brew upgrade rtk`. Plugin E2E tests must pass against
+that installed version before relying on the new filter behavior.
+
 ## Layout
 
 ```
+rtk-output/         one self-contained plugin (post-execution RTK + real terminal E2E)
 shell-guards/       one self-contained plugin (modules + plugin.yaml + tests)
 workspace-guards/   one self-contained plugin
 kanban-guards/      one self-contained plugin
