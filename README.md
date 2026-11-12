@@ -152,10 +152,11 @@ Answers: *does anything the agent emits contain a character the operator forbids
 
 ### `provider-guards` upstream provider failures
 
-Answers: *does a provider failure that the core calls permanent get retried?*
+Answers: *can narrowly identified upstream failures recover?*
 
 - `transform_api_error_classification` classifies HTTP 424 `byok_upstream_provider_failed` as a retryable `server_error`, so the core retries in the same session instead of ending the turn.
-- Any other status, code or message is left to the core. Fails open.
+- Copilot HTTP 400 with both `upstream_request_rejected` and the exact message `The model provider rejected the request.` permits configured fallback without retrying the rejected primary.
+- Other errors, including explicit content-policy and parameter failures, stay with the core. Fails open; no Hermes core or model-configuration changes.
 
 ### `jot-reviewer` — capability-gated board review
 
@@ -201,7 +202,7 @@ recall-guards/      one self-contained plugin
 goal-waker/         one self-contained plugin (resumes parked goals on messaging chats; one wake
                     per goal-row advance)
 text-guards/        one self-contained plugin
-provider-guards/    one self-contained plugin (retry an upstream HTTP 424)
+provider-guards/    one self-contained plugin (upstream HTTP 424 retry / Copilot rejection fallback)
 tests/              cross-plugin checks (helper-copy divergence, transform winner)
 pytest.ini          runs all folders plus tests/ in one command
 CUTOVER.md          ordered activation steps for replacing the old plugin
