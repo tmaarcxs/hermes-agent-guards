@@ -1,13 +1,11 @@
 name: provider-guards
-version: "0.1.0"
+version: "0.2.0"
 description: >-
-  Make an upstream provider failure retryable. GitHub Copilot returns HTTP 424
-  `byok_upstream_provider_failed` when the model behind it fails; the core treats an unlisted 4xx as
-  a non-retryable format error, so the turn ends on the first attempt and a Kanban worker run dies
-  with all its work. The `transform_api_error_classification` hook classifies that 424 as a
-  retryable `server_error`, so the core retries inside the same session with its own backoff and
-  then consults the fallback chain. Any other status, code or message goes to the core unchanged,
-  and the hook fails open on any error.
+  Recover narrowly identified upstream failures through the classification hook.
+  HTTP 424 BYOK failures remain retryable. Copilot HTTP 400 with the exact
+  upstream_request_rejected code and generic provider-rejection message tries
+  configured fallback without retrying the rejected primary. Other errors stay
+  with the core classifier; malformed input fails open. No Hermes core changes.
 author: "tmaarcxs"
 kind: standalone
 hooks:
