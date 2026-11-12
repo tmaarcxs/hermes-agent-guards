@@ -1,6 +1,14 @@
 name: token-efficiency
-version: 1.0.0
+version: 1.0.1
 description: Lossless new JSON result packing and content-free runtime observation.
 author: kur4i
 kind: standalone
 entrypoint: __init__.py
+requires_plugins:
+  - shell-guards
+  - workspace-guards
+provides_hooks:
+  - transform_tool_result
+  - pre_api_request
+  - post_api_request
+  - post_compaction

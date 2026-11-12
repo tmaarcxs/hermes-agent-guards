@@ -8,6 +8,8 @@ The transformer validates a complete JSON object or array and removes only JSON 
 
 No recovery pointer, custom encoding or extra model call is added. Shorter bytes do not guarantee fewer tokens on every individual payload. No provider saving percentage is claimed.
 
+Advisory dependency ordering places packing after shell-guards and workspace-guards. The host stops at the first replacement, so mandatory rewrites and repeat-block tracking must see the original result first. Missing guard plugins do not prevent standalone loading.
+
 ## Temporary, content-free observation
 
 Observation is off by default. Optional plugin settings:

@@ -167,6 +167,7 @@ Answers: *can narrowly identified upstream failures recover?*
 ### `token-efficiency` — lossless new-result packing
 
 - Removes only whitespace outside strings in strict JSON objects/arrays. Preserves values, numeric spellings, escapes and all fields; malformed/ambiguous/oversized input passes through.
+- Loads after shell/workspace result guards so mandatory rewrites and repeat-block tracking retain priority.
 - Optional content-free request-view/usage observation stops after 2500 requests or 12 hours. Disabled by default; no extra model calls or prompt changes.
 - Does not claim an inline ToolSearch receipt or a prepared-compaction lifecycle fix. The supported-hook limits and rollback are documented in its README.
 

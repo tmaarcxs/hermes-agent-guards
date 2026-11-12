@@ -45,6 +45,15 @@ if scenario == 'json':
         for literal in ('-0.00e+02', '9007199254740993', '1e999999', '-0.000', '  keep '):
             if literal in raw:
                 assert literal in out
+elif scenario == 'composition':
+    raw = json.dumps({'error': 'agent-guards blocked fixture_payload [fixture_gate]: call fixture_payload with a different payload.'})
+    first = call(raw, 'first')
+    assert json.loads(first) == json.loads(raw)
+    repeated = call(raw, 'repeat')
+    assert 'repeat_block_gate:' in repeated and 'fixture_gate' in repeated and raw in repeated, repeated
+    successful = '{ "ok": true, "literal": "  unchanged  " }'
+    assert json.loads(call(successful, 'other')) == json.loads(successful)
+    assert json.loads(call(raw, 'reset')) == json.loads(raw), 'an unrelated result must reset the guard counter'
 elif scenario == 'opaque':
     for i, raw in enumerate(['12:34:56\nESSENTIAL BUSINESS FACT\n', '{"same":1,"same":2}', '{"n":NaN}', '{invalid', '  a raw string  ', '[1, Infinity]']):
         assert call(raw, str(i)) == raw
