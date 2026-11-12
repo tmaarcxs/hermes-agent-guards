@@ -1,0 +1,6 @@
+name: token-efficiency
+version: 1.0.0
+description: Lossless new JSON result packing and content-free runtime observation.
+author: kur4i
+kind: standalone
+entrypoint: __init__.py

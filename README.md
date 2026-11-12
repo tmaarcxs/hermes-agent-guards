@@ -158,6 +158,18 @@ Answers: *can narrowly identified upstream failures recover?*
 - Copilot HTTP 400 with both `upstream_request_rejected` and the exact message `The model provider rejected the request.` permits configured fallback without retrying the rejected primary.
 - Other errors, including explicit content-policy and parameter failures, stay with the core. Fails open; no Hermes core or model-configuration changes.
 
+### `jot-reviewer` — capability-gated board review
+
+- Preserves proposal, confirmation, deterministic policy, revision and readback gates.
+- Owns its locked TypeScript runtime; imports the actual Jot writer modules before paying for model proposals. Missing capability skips the job visibly.
+- Install dependencies with `python3 install-runtime.py` in the plugin directory. Runtime packages stay in its private `.venv`; no Hermes core or global package edits.
+
+### `token-efficiency` — lossless new-result packing
+
+- Removes only whitespace outside strings in strict JSON objects/arrays. Preserves values, numeric spellings, escapes and all fields; malformed/ambiguous/oversized input passes through.
+- Optional content-free request-view/usage observation stops after 2500 requests or 12 hours. Disabled by default; no extra model calls or prompt changes.
+- Does not claim an inline ToolSearch receipt or a prepared-compaction lifecycle fix. The supported-hook limits and rollback are documented in its README.
+
 Each folder's `README.md` documents its own rules in full.
 
 ## Install

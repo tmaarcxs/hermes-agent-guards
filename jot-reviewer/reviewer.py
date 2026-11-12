@@ -193,7 +193,33 @@ def conversation_context(rows):
     return '\n\n'.join(lines)[-MAX_CONTEXT_CHARS:]
 
 
+def _bridge_command():
+    """Resolve the reviewer-owned runtime without depending on the Hermes checkout."""
+    node = shutil.which('node')
+    loader = Path(__file__).resolve().parent / 'node_modules' / 'tsx' / 'dist' / 'loader.mjs'
+    if node and loader.is_file():
+        return [node, '--import', str(loader)]
+    tsx = shutil.which('tsx')
+    return [tsx] if tsx else None
+
+
+def _bridge_ready(home):
+    """Import the actual Jot writer modules before any model proposal is admitted."""
+    command = _bridge_command()
+    if command is None or not all((SCRIPTS / f'{name}.mts').is_file() for name in ('probe-runtime', 'append-row', 'remove-row', 'set-rich-row')):
+        return False
+    try:
+        env = dict(os.environ, JOT_PLUGIN_DIR=str(Path(home) / 'plugins' / 'jot'))
+        result = subprocess.run([*command, str(SCRIPTS / 'probe-runtime.mts')], env=env, capture_output=True, text=True, timeout=15)
+        return result.returncode == 0 and result.stdout.strip() == 'runtime-ready'
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
 def _run(job):
+    if not _bridge_ready(job['home']):
+        logger.warning('Jot review skipped before model calls: writer runtime unavailable; run python3 install-runtime.py in the jot-reviewer plugin directory')
+        return
     from agent.secret_scope import build_profile_secret_scope, reset_secret_scope, set_secret_scope
     token = set_secret_scope(build_profile_secret_scope(Path(job['home'])), profile_home=job['home'])
     try:
@@ -244,11 +270,12 @@ def week_note(today):
 
 def _script(home, name, *args):
     """Run one weekly-board script against the installed Jot plugin; True when it wrote."""
-    import hermes_constants
     from plugins.plugin_storage import plugin_data_dir
     env = dict(os.environ, JOT_PLUGIN_DIR=str(Path(home) / 'plugins' / 'jot'), JOT_DATA_DIR=str(plugin_data_dir('jot')))
-    tsx = shutil.which('tsx') or str(Path(hermes_constants.__file__).resolve().parent / 'node_modules' / '.bin' / 'tsx')
-    result = subprocess.run([tsx, str(SCRIPTS / f'{name}.mts'), *args], env=env, capture_output=True, text=True, timeout=120)
+    command = _bridge_command()
+    if command is None:
+        return False
+    result = subprocess.run([*command, str(SCRIPTS / f'{name}.mts'), *args], env=env, capture_output=True, text=True, timeout=120)
     if result.returncode != 0:
         logger.info('Jot review skipped a change (%s): %s', name, (result.stderr or result.stdout).strip()[-200:])
         return False
