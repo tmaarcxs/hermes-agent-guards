@@ -1,8 +1,8 @@
 # hermes-agent-guards
 
 A monorepo of self-contained Hermes Agent plugins that prevent recurring agent
-mistakes, keep delegated work moving, and reduce terminal output with RTK. Guard
-checks and the RTK adapter fail open: an internal error never blocks a tool call.
+mistakes and keep delegated work moving. Guard checks fail open: an internal
+error never blocks a tool call.
 
 The three guards used to ship as one monolithic `agent-guards` plugin. They are
 now independent folders, each with its own `plugin.yaml`, its own
@@ -157,24 +157,17 @@ Answers: *does a provider failure that the core calls permanent get retried?*
 - `transform_api_error_classification` classifies HTTP 424 `byok_upstream_provider_failed` as a retryable `server_error`, so the core retries in the same session instead of ending the turn.
 - Any other status, code or message is left to the core. Fails open.
 
-### `rtk-output` — terminal output compression
+### `jot-reviewer` — capability-gated board review
 
-Answers: *can this completed terminal result be shortened without changing execution?*
+- Preserves proposal, confirmation, deterministic policy, revision and readback gates.
+- Owns its locked TypeScript runtime; imports the actual Jot writer modules before paying for model proposals. Missing capability skips the job visibly.
+- Install dependencies with `python3 install-runtime.py` in the plugin directory. Runtime packages stay in its private `.venv`; no Hermes core or global package edits.
 
-- Runs the official `rtk pipe` **after** a successful foreground command. No argv,
-  shell, environment, cwd, approval or exit-code rewriting; venv paths, `env -u`
-  and scripts work without command-pattern matching.
-- Keeps failures, error indicators, short/unsupported output and filter errors raw.
-  Uses RTK content autodetection and a count-checked pytest filter for quiet runs.
-- Returns a shorter result only after saving the full redacted input privately,
-  with a recovery pointer and a byte-count receipt. Seven-day retention and a
-  64 MiB soft quota bound storage. No background/process-manager coverage.
-- RTK updates independently through its package manager. Disabling the plugin
-  restores unfiltered output; the RTK binary need not be removed.
-- Version 0.1.1 declares advisory host load ordering after `shell-guards`: its
-  mandatory flags win the first-string transform seam over RTK compression. The
-  adapter remains usable alone, with no sibling imports. Background results are
-  explicitly excluded by their absent foreground environment type.
+### `token-efficiency` — lossless new-result packing
+
+- Removes only whitespace outside strings in strict JSON objects/arrays. Preserves values, numeric spellings, escapes and all fields; malformed/ambiguous/oversized input passes through.
+- Optional content-free request-view/usage observation stops after 2500 requests or 12 hours. Disabled by default; no extra model calls or prompt changes.
+- Does not claim an inline ToolSearch receipt or a prepared-compaction lifecycle fix. The supported-hook limits and rollback are documented in its README.
 
 Each folder's `README.md` documents its own rules in full.
 
@@ -197,22 +190,9 @@ then refuses to move it. Install without `--ref`, and `hermes plugins update
 <name>` tracks the default branch. Reinstalling with `--force` keeps the old
 `pinned` flag, so remove and install again instead.
 
-For an updateable RTK adapter, install the **whole monorepo** (skip the install
-when it already exists), then enable only the requested sub-plugin:
-
-```sh
-brew install rtk
-hermes plugins install tmaarcxs/hermes-agent-guards --no-enable
-hermes plugins enable tmaarcxs/hermes-agent-guards/rtk-output
-```
-
-RTK itself updates with `brew upgrade rtk`. Plugin E2E tests must pass against
-that installed version before relying on the new filter behavior.
-
 ## Layout
 
 ```
-rtk-output/         one self-contained plugin (post-execution RTK + real terminal E2E)
 shell-guards/       one self-contained plugin (modules + plugin.yaml + tests)
 workspace-guards/   one self-contained plugin
 kanban-guards/      one self-contained plugin

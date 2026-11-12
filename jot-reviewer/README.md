@@ -1,0 +1,21 @@
+# Jot reviewer
+
+The default-profile background reviewer maintains the professional weekly board. It keeps the existing proposal, deterministic gate, independent confirmation, revision check, two-cell isolation and readback workflow.
+
+## Writer capability
+
+Version 0.8.0 owns its TypeScript runner instead of assuming that Hermes core has a `node_modules/.bin/tsx`. Before any model call, the production worker imports the actual installed Jot store and rich-document validator through that runner. A missing/broken runner, missing helper or failed import skips the review with one explicit diagnostic. It does not disable Jot collaboration or change model routing.
+
+From this plugin directory:
+
+```sh
+python3 install-runtime.py
+```
+
+The installer uses the lockfile, disables package lifecycle scripts and installs under the plugin's private `.venv` directory. It links `node_modules` to that directory. It never writes Hermes core or shared global packages. Use `--dev` for TypeScript checking. An unmanaged existing `node_modules` is refused rather than deleted.
+
+A working external `tsx` remains a compatibility fallback. The owned runtime uses Node `--import` with tsx's public loader, not its CLI IPC server; this preserves long scratch paths on macOS/Node 24. The runtime import probe applies to either route. Dependency installation is not gateway activation; update and hot-reload the published plugin, then verify the real registered reviewer event.
+
+## Verification
+
+The repository's registered-event E2E uses the real PluginLlm, loopback model transport and isolated real Jot backend. It covers writes/readback, provider failover, unavailable runtime and collaboration-disabled rejection. Negative cases assert zero requests at the actual model HTTP transport, not an unused model double. No scenario writes the user's board. Model replies are controlled external fixtures, not provider savings measurements.

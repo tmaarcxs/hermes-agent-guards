@@ -5,6 +5,7 @@ import datetime
 import json
 import logging
 import os
+import shutil
 import socket
 import sys
 import threading
@@ -19,8 +20,6 @@ home, root = Path(home_arg), Path(root_arg)
 core = Path(os.environ['HERMES_REVIEWER_E2E_CORE'])
 jot = Path(os.environ['HERMES_REVIEWER_E2E_JOT'])
 sys.path.insert(0, str(core))
-import hermes_bootstrap
-import hermes_yaml
 
 os.environ.update(HERMES_HOME=str(home), HERMES_DATA_DIR=str(home), HOME=str(home),
                   HERMES_DISABLE_LAZY_INSTALLS='1', NO_PROXY='127.0.0.1,localhost')
@@ -37,6 +36,8 @@ def local_connect(sock, address):
     return original_connect(sock, address)
 
 socket.socket.connect = local_connect
+import hermes_bootstrap
+import hermes_yaml
 calls, reads, patches = Counter(), [], []
 fact_id = '00000000-0000-4000-8000-000000000001'
 fact_text = 'The other fix is ready.' if mode == 'noise' else 'Nebula staging database is on port 5432.'
@@ -167,6 +168,7 @@ class FixtureDate(datetime.date):
 clock = patch('datetime.date', FixtureDate)
 clock.start()
 note_id = None
+backend = None
 if plugin == 'hindsight-reviewer':
     reviewer._tool_recalls['fixture-session'] = {'bank': 'synthetic', 'records': [{'id': fact_id, 'text': fact_text}]}
     today = ''
@@ -187,14 +189,18 @@ else:
     created = tool('jot_create', {'title': 'Semana synthetic', 'text': note})
     note_id = created['id']
     user = 'Nebula: deploy PR #4242 is complete and verified.'
+    if mode == 'collaboration_disabled':
+        backend.handle_command('ai off')
 
 try:
+    if plugin == 'jot-reviewer':
+        print('REVIEWER_RUNTIME=' + json.dumps({'node': shutil.which('node'), 'source': str(root / plugin), 'probe_present': (root / plugin / 'scripts/probe-runtime.mts').is_file()}))
     plugins.invoke_hook('post_llm_call', session_id='fixture-session', turn_id='fixture-turn',
                         user_message=user, assistant_response='Synthetic acknowledgement.',
                         conversation_history=[{'role': 'user', 'content': user},
                                               {'role': 'assistant', 'content': 'Synthetic acknowledgement.'}])
     workers = [t for t in threading.enumerate() if t.name == plugin]
-    assert workers, 'Real post-turn hook did not admit its reviewer'
+    assert workers or mode == 'collaboration_disabled', 'Real post-turn hook did not admit its reviewer'
     for worker in workers:
         worker.join(timeout=45)
         assert not worker.is_alive(), 'Reviewer did not finish in its budget'
@@ -205,13 +211,18 @@ try:
         assert (reads[-1] == 'invalidated') == expected_write, reads
     else:
         assert isinstance(note_id, str)
+        if mode == 'collaboration_disabled':
+            assert backend is not None
+            backend.handle_command('ai on')
         after = tool('jot_read', {'id': note_id})
         markdown = after['markdown']
         assert ('✅' in markdown) == expected_write, (mode, markdown, calls)
         assert after['revision'] == (2 if expected_write else 1), after
     assert len(notices) == int(expected_write), notices
     stages = 3 if plugin == 'hindsight-reviewer' else 2
-    if mode == 'healthy':
+    if mode in {'runtime_missing', 'collaboration_disabled'}:
+        assert not calls, calls
+    elif mode == 'healthy':
         assert calls == {'primary': stages}, calls
     elif mode == 'malformed_primary':
         assert calls == {'primary': 2 if plugin == 'hindsight-reviewer' else 1}, calls
