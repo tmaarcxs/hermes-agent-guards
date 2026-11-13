@@ -130,3 +130,56 @@ def test_desktop_label_does_not_grant_unattended_source_access(desktop, source):
     env["HERMES_SESSION_SOURCE"] = source
     assert reviewer._origin() is None
     assert reviewer._turn_review_callback() is None
+
+
+def test_rotated_transcript_keeps_the_stable_desktop_owner(desktop):
+    reviewer, env, _runner, _live, sender, _worker, agent = desktop
+    env["HERMES_SESSION_ID"] = "rotated-transcript"
+    agent.session_id = "rotated-transcript"
+    assert reviewer._origin()["platform"] == "local"
+    assert reviewer._turn_review_callback() is sender
+
+
+def test_unwinding_worker_with_the_same_cached_agent_is_not_ambiguous(desktop):
+    reviewer, _env, runner, _live, sender, _worker, agent = desktop
+    from gateway.session_runtime_workers import track_turn_worker
+    track_turn_worker(runner, SimpleNamespace(worker_done=threading.Event()), [agent])
+    assert reviewer._origin()["platform"] == "local"
+    assert reviewer._turn_review_callback() is sender
+
+
+def test_empty_agent_holder_stays_idle(desktop):
+    reviewer, _env, runner, *_ = desktop
+    for _worker, holder in runner.session_authority._turn_workers.values():
+        holder[0] = None
+    assert reviewer._origin() is None
+    assert reviewer._turn_review_callback() is None
+
+
+def test_local_job_captures_the_validated_sender_once(desktop, monkeypatch):
+    reviewer, env, _runner, _live, sender, *_ = desktop
+    resolver = importlib.import_module(reviewer.__package__ + ".desktop")
+    lookups, jobs = [], []
+    def resolve(_runner):
+        lookups.append(1)
+        return sender if len(lookups) == 1 else None
+    monkeypatch.setattr(resolver, "turn_sender", resolve)
+    monkeypatch.setattr(reviewer, "_run", jobs.append)
+    class InlineThread:
+        def __init__(self, target, **kwargs):
+            self.target = target
+        def start(self):
+            self.target()
+    monkeypatch.setattr(reviewer.threading, "Thread", InlineThread)
+    if hasattr(reviewer, "_jot_available"):
+        monkeypatch.setattr(reviewer, "_jot_available", lambda: True)
+    else:
+        reviewer._tool_recalls[env["HERMES_SESSION_ID"]] = {"bank": "synthetic", "records": [
+            {"id": "11111111-1111-1111-1111-111111111111", "text": "Synthetic port is 5432."}]}
+    reviewer.on_post_llm_call(session_id=env["HERMES_SESSION_ID"], turn_id="synthetic-turn",
+        user_message="Synthetic port is 6543.", assistant_response="Acknowledged.",
+        conversation_history=[{"role": "user", "content": "Synthetic port is 6543."}])
+    assert len(jobs) == 1
+    assert jobs[0]["deliver"] is sender
+    assert len(lookups) == 1
+    assert "_desktop_sender" not in jobs[0].get("origin", {})

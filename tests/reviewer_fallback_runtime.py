@@ -150,6 +150,8 @@ reviewer = sys.modules[loaded.module.__name__ + '.reviewer']
 assert reviewer.CTX.plugin_id == key
 assert type(reviewer.CTX.llm).__name__ == 'PluginLlm'
 surface = os.environ.get('HERMES_REVIEWER_E2E_SURFACE', 'telegram')
+lifecycle = os.environ.get('HERMES_REVIEWER_E2E_LIFECYCLE', 'steady')
+current_sid = 'rotated-transcript' if lifecycle == 'rotated' else 'fixture-session'
 session_key = 'telegram:dm:424242'
 runner = SimpleNamespace(_running_agents={session_key: SimpleNamespace(background_review_callback=notices.append)})
 if surface == 'desktop':
@@ -175,8 +177,10 @@ if surface == 'desktop':
             notices.append(payload['text'])
         return native_publish(sid, payload, **kwargs)
     live.event_stream.publish = publish
-    agent = SimpleNamespace(session_id='fixture-session', background_review_callback=sender)
+    agent = SimpleNamespace(session_id=current_sid, background_review_callback=sender)
     track_turn_worker(runner, SimpleNamespace(worker_done=threading.Event()), [agent])
+    if lifecycle == 'overlap':
+        track_turn_worker(runner, SimpleNamespace(worker_done=threading.Event()), [agent])
     policy_token = _ACTIVE_POLICY.set(LocalSessionPolicy(source='gui', platform='desktop', cwd=str(home),
         model=None, toolsets=(), config_json='{}', request_json='{}', terminal_json='{}'))
 
@@ -187,7 +191,7 @@ asyncio.run(bind())
 set_session_vars(platform='local' if surface == 'desktop' else 'telegram',
                  source='local' if surface == 'desktop' else 'telegram',
                  chat_id='fixture-session' if surface == 'desktop' else '424242', chat_type='dm',
-                 user_id='424242', session_key=session_key, session_id='fixture-session', cron_session=False)
+                 user_id='424242', session_key=session_key, session_id=current_sid, cron_session=False)
 from agent import auxiliary_client
 
 class FixtureDate(datetime.date):
@@ -200,7 +204,7 @@ clock.start()
 note_id = None
 backend = None
 if plugin == 'hindsight-reviewer':
-    reviewer._tool_recalls['fixture-session'] = {'bank': 'synthetic', 'records': [{'id': fact_id, 'text': fact_text}]}
+    reviewer._tool_recalls[current_sid] = {'bank': 'synthetic', 'records': [{'id': fact_id, 'text': fact_text}]}
     today = ''
 else:
     jot_module = manager._plugins['jot'].module
@@ -225,7 +229,7 @@ else:
 try:
     if plugin == 'jot-reviewer':
         print('REVIEWER_RUNTIME=' + json.dumps({'node': shutil.which('node'), 'source': str(root / plugin), 'probe_present': (root / plugin / 'scripts/probe-runtime.mts').is_file()}))
-    plugins.invoke_hook('post_llm_call', session_id='fixture-session', turn_id='fixture-turn',
+    plugins.invoke_hook('post_llm_call', session_id=current_sid, turn_id='fixture-turn',
                         user_message=user, assistant_response='Synthetic acknowledgement.',
                         conversation_history=[{'role': 'user', 'content': user},
                                               {'role': 'assistant', 'content': 'Synthetic acknowledgement.'}])
@@ -264,7 +268,7 @@ try:
         assert calls['backup'] == (0 if mode == 'trust_denied' else initial), calls
     else:
         assert calls == {'primary': stages, 'backup': stages}, calls
-    print('REVIEWER_E2E_RESULT=' + json.dumps({'plugin': plugin, 'scenario': mode, 'surface': surface, 'http_calls': calls,
+    print('REVIEWER_E2E_RESULT=' + json.dumps({'plugin': plugin, 'scenario': mode, 'surface': surface, 'lifecycle': lifecycle, 'http_calls': calls,
                       'write_verified': expected_write, 'notice_count': len(notices),
                       'boundary': 'registered real post_llm_call event -> native PluginLlm -> real auxiliary/HTTP -> real reviewer writes/readback',
                       'external_dependencies': 'loopback model and Hindsight REST; real isolated Jot store/CLI; seeded recalled-source fixture'}))

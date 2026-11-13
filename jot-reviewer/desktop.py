@@ -21,20 +21,20 @@ def turn_sender(runner):
         key = get_session_env("HERMES_SESSION_KEY", "")
         chat = get_session_env("HERMES_SESSION_CHAT_ID", "")
         authority = active_authority(runner)
-        live = getattr(authority, "sessions", {}).get(sid)
+        live = getattr(authority, "sessions", {}).get(chat)
         if not sid or not key or not chat or live is None or live.route != key:
             return None
         source = live.source
         if getattr(source.platform, "value", source.platform) != "local" or source.chat_id != chat:
             return None
-        senders = []
+        candidates = []
         for worker, holder in list(getattr(authority, "_turn_workers", {}).values()):
             agent = holder[0] if holder else None
             if worker.worker_done.is_set() or getattr(agent, "session_id", None) != sid:
                 continue
             callback = getattr(agent, "background_review_callback", None)
-            if callable(callback):
-                senders.append(callback)
-        return senders[0] if len(senders) == 1 else None
+            if callable(callback) and not any(other is agent for other, _ in candidates):
+                candidates.append((agent, callback))
+        return candidates[0][1] if len(candidates) == 1 else None
     except Exception:
         return None

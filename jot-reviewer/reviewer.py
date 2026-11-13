@@ -63,7 +63,11 @@ def _origin():
     origin = {name: get_session_env('HERMES_SESSION_' + name.upper(), '') for name in ('platform', 'chat_id')}
     if origin['platform'] == 'local':
         from .desktop import turn_sender
-        return origin if turn_sender(_gateway.get('runner')) else None
+        sender = turn_sender(_gateway.get('runner'))
+        if sender:
+            origin['_desktop_sender'] = sender
+            return origin
+        return None
     return origin if origin['platform'] and origin['chat_id'] else None
 
 
@@ -103,8 +107,12 @@ def on_post_llm_call(session_id='', turn_id='', user_message=None, assistant_res
                      conversation_history=None, **_):
     """Start one background Jot review for a completed gateway turn."""
     try:
-        if not isinstance(user_message, str) or not isinstance(assistant_response, str) or _origin() is None:
+        if not isinstance(user_message, str) or not isinstance(assistant_response, str):
             return
+        origin = _origin()
+        if origin is None:
+            return
+        deliver = origin.pop('_desktop_sender', None) if origin['platform'] == 'local' else _turn_review_callback()
         if _unattended():
             return
         if not _jot_available():
@@ -113,7 +121,7 @@ def on_post_llm_call(session_id='', turn_id='', user_message=None, assistant_res
         earlier, turn = split_turn(conversation_history or [])
         job = {'home': str(get_hermes_home()), 'session_id': session_id, 'turn_id': turn_id, 'turn': turn,
                'earlier': earlier, 'user_message': user_message, 'transcript': with_earlier(earlier, turn),
-               'deliver': _turn_review_callback()}
+               'deliver': deliver}
         import contextvars
         copied = contextvars.copy_context()
         threading.Thread(target=lambda: copied.run(_run, job), name='jot-reviewer', daemon=True).start()

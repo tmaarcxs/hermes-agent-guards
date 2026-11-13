@@ -211,7 +211,11 @@ def _origin():
               ('platform', 'chat_id', 'chat_type', 'thread_id', 'user_id', 'message_id', 'profile')}
     if origin['platform'] == 'local':
         from .desktop import turn_sender
-        return origin if turn_sender(_gateway.get('runner')) else None
+        sender = turn_sender(_gateway.get('runner'))
+        if sender:
+            origin['_desktop_sender'] = sender
+            return origin
+        return None
     return origin if origin['platform'] and origin['chat_id'] else None
 
 
@@ -255,6 +259,7 @@ def on_post_llm_call(session_id='', turn_id='', user_message=None, assistant_res
         if origin is None:
             _audit(marker, event='skipped', reason='no_origin')
             return
+        deliver = origin.pop('_desktop_sender', None) if origin['platform'] == 'local' else _turn_review_callback()
         if not (injected or tooled):
             _audit(marker, event='skipped', reason='no_captured_memories')
             return
@@ -279,7 +284,7 @@ def on_post_llm_call(session_id='', turn_id='', user_message=None, assistant_res
         transcript, quotable = conversation_context(rows)
         job = {'home': str(get_hermes_home()), 'session_id': session_id, 'turn_id': turn_id,
                'transcript': transcript, 'quotable': quotable, 'recall': recall, 'origin': origin,
-               'deliver': _turn_review_callback(), 'defer_notice': True,
+               'deliver': deliver, 'defer_notice': True,
                'injected_count': injected_count, 'tool_count': tool_count}
         job['route_key'], job['cancel_event'] = _origin_key(origin), threading.Event()
         with _lock:

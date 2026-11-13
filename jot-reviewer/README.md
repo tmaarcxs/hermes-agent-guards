@@ -23,3 +23,5 @@ The repository's registered-event E2E uses the real PluginLlm, loopback model tr
 ## Desktop delivery
 
 Version 0.9.0 admits native Desktop turns only with a matching active local policy, profile authority, session, route, chat and exactly one unfinished agent. It captures that agents existing background-review callback, which publishes `review.summary` after the reply without opening another turn or sending to Telegram. Other local surfaces and unattended runs remain idle. Telegram private notices and group suppression are unchanged. All company-only proposal, independent confirmation, revision, serialization, isolation and readback gates remain intact. The Desktop resolver is byte-identical to Hindsight reviewers copy.
+
+The Desktop owner is looked up by its stable chat id, so transcript-id rotation does not disable review. Repeated unfinished worker holders for the same cached agent are deduplicated; distinct matching agents remain ambiguous and fail closed. The validated sender is captured once when the local turn is admitted, then removed from the origin metadata before job construction.
