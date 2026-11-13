@@ -183,3 +183,12 @@ def test_local_job_captures_the_validated_sender_once(desktop, monkeypatch):
     assert jobs[0]["deliver"] is sender
     assert len(lookups) == 1
     assert "_desktop_sender" not in jobs[0].get("origin", {})
+
+
+def test_native_desktop_needs_no_prior_messaging_dispatch(desktop, monkeypatch):
+    reviewer, _env, runner, _live, sender, *_ = desktop
+    import gateway.run as core
+    monkeypatch.setattr(core, "_gateway_runner_ref", lambda: runner)
+    monkeypatch.setitem(reviewer._gateway, "runner", None)
+    assert reviewer._origin()["platform"] == "local"
+    assert reviewer._turn_review_callback() is sender

@@ -1,5 +1,5 @@
 name: jot-reviewer
-version: "0.9.0"
+version: "0.9.1"
 description: >-
   Native Desktop turns use the active owner-bound background review sender (review.summary),
   not a Telegram adapter. Unbound, non-Desktop local and unattended local turns stay idle.

@@ -181,13 +181,16 @@ if surface == 'desktop':
     track_turn_worker(runner, SimpleNamespace(worker_done=threading.Event()), [agent])
     if lifecycle == 'overlap':
         track_turn_worker(runner, SimpleNamespace(worker_done=threading.Event()), [agent])
+    import gateway.run as core_run
+    core_run._gateway_runner_ref = lambda: runner
     policy_token = _ACTIVE_POLICY.set(LocalSessionPolicy(source='gui', platform='desktop', cwd=str(home),
         model=None, toolsets=(), config_json='{}', request_json='{}', terminal_json='{}'))
 
 async def bind():
     await plugins.ainvoke_hook('pre_gateway_dispatch', gateway=runner)
 
-asyncio.run(bind())
+if surface != 'desktop':
+    asyncio.run(bind())
 set_session_vars(platform='local' if surface == 'desktop' else 'telegram',
                  source='local' if surface == 'desktop' else 'telegram',
                  chat_id='fixture-session' if surface == 'desktop' else '424242', chat_type='dm',

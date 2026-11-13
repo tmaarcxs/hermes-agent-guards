@@ -1,6 +1,9 @@
 """Resolve only an attended Desktop turns existing owner-bound review sender."""
 
 
+import sys
+
+
 def turn_sender(runner):
     """Fail closed outside the bound Desktop owner; never send through a local adapter."""
     try:
@@ -20,6 +23,9 @@ def turn_sender(runner):
         sid = get_session_env("HERMES_SESSION_ID", "")
         key = get_session_env("HERMES_SESSION_KEY", "")
         chat = get_session_env("HERMES_SESSION_CHAT_ID", "")
+        if runner is None:
+            reference = getattr(sys.modules.get('gateway.run'), '_gateway_runner_ref', None)
+            runner = reference() if callable(reference) else None
         authority = active_authority(runner)
         live = getattr(authority, "sessions", {}).get(chat)
         if not sid or not key or not chat or live is None or live.route != key:

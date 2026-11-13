@@ -1,5 +1,5 @@
 name: hindsight-reviewer
-version: "0.13.0"
+version: "0.13.1"
 description: >-
   Native Desktop turns use the active owner-bound background review sender (review.summary),
   not a Telegram adapter. Unbound, non-Desktop local and unattended local turns stay idle.
