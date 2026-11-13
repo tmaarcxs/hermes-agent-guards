@@ -149,14 +149,44 @@ assert loaded.module is not None
 reviewer = sys.modules[loaded.module.__name__ + '.reviewer']
 assert reviewer.CTX.plugin_id == key
 assert type(reviewer.CTX.llm).__name__ == 'PluginLlm'
+surface = os.environ.get('HERMES_REVIEWER_E2E_SURFACE', 'telegram')
 session_key = 'telegram:dm:424242'
 runner = SimpleNamespace(_running_agents={session_key: SimpleNamespace(background_review_callback=notices.append)})
+if surface == 'desktop':
+    from gateway.config import Platform
+    from gateway.session_authority import LiveSession
+    from gateway.session_runtime_workers import track_turn_worker
+    from gateway.run_turn_runner import TurnRunner
+    from gateway.session_policy import LocalSessionPolicy, _ACTIVE_POLICY
+    session_key = 'local:fixture-session'
+    source = SimpleNamespace(platform=Platform.LOCAL, chat_id='fixture-session')
+    live = LiveSession(source=source, route=session_key)
+    authority = SimpleNamespace(sessions={'fixture-session': live})
+    runner = SimpleNamespace(_running_agents={}, session_authority=authority)
+    turn = object.__new__(TurnRunner)
+    turn._ctx = SimpleNamespace(source=source)
+    turn._approval_owner = (authority, 'fixture-session', 7)
+    sender, _release = turn._make_bg_review_callbacks()
+    native_publish = live.event_stream.publish
+    desktop_events = []
+    def publish(sid, payload, **kwargs):
+        desktop_events.append(kwargs['event_type'])
+        if kwargs['event_type'] == 'review.summary':
+            notices.append(payload['text'])
+        return native_publish(sid, payload, **kwargs)
+    live.event_stream.publish = publish
+    agent = SimpleNamespace(session_id='fixture-session', background_review_callback=sender)
+    track_turn_worker(runner, SimpleNamespace(worker_done=threading.Event()), [agent])
+    policy_token = _ACTIVE_POLICY.set(LocalSessionPolicy(source='gui', platform='desktop', cwd=str(home),
+        model=None, toolsets=(), config_json='{}', request_json='{}', terminal_json='{}'))
 
 async def bind():
     await plugins.ainvoke_hook('pre_gateway_dispatch', gateway=runner)
 
 asyncio.run(bind())
-set_session_vars(platform='telegram', source='telegram', chat_id='424242', chat_type='dm',
+set_session_vars(platform='local' if surface == 'desktop' else 'telegram',
+                 source='local' if surface == 'desktop' else 'telegram',
+                 chat_id='fixture-session' if surface == 'desktop' else '424242', chat_type='dm',
                  user_id='424242', session_key=session_key, session_id='fixture-session', cron_session=False)
 from agent import auxiliary_client
 
@@ -219,6 +249,8 @@ try:
         assert ('✅' in markdown) == expected_write, (mode, markdown, calls)
         assert after['revision'] == (2 if expected_write else 1), after
     assert len(notices) == int(expected_write), notices
+    if surface == 'desktop':
+        assert desktop_events == ['review.summary'] * int(expected_write), desktop_events
     stages = 3 if plugin == 'hindsight-reviewer' else 2
     if mode in {'runtime_missing', 'collaboration_disabled'}:
         assert not calls, calls
@@ -232,7 +264,7 @@ try:
         assert calls['backup'] == (0 if mode == 'trust_denied' else initial), calls
     else:
         assert calls == {'primary': stages, 'backup': stages}, calls
-    print('REVIEWER_E2E_RESULT=' + json.dumps({'plugin': plugin, 'scenario': mode, 'http_calls': calls,
+    print('REVIEWER_E2E_RESULT=' + json.dumps({'plugin': plugin, 'scenario': mode, 'surface': surface, 'http_calls': calls,
                       'write_verified': expected_write, 'notice_count': len(notices),
                       'boundary': 'registered real post_llm_call event -> native PluginLlm -> real auxiliary/HTTP -> real reviewer writes/readback',
                       'external_dependencies': 'loopback model and Hindsight REST; real isolated Jot store/CLI; seeded recalled-source fixture'}))

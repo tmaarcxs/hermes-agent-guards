@@ -19,3 +19,7 @@ A working external `tsx` remains a compatibility fallback. The owned runtime use
 ## Verification
 
 The repository's registered-event E2E uses the real PluginLlm, loopback model transport and isolated real Jot backend. It covers writes/readback, provider failover, unavailable runtime and collaboration-disabled rejection. Negative cases assert zero requests at the actual model HTTP transport, not an unused model double. No scenario writes the user's board. Model replies are controlled external fixtures, not provider savings measurements.
+
+## Desktop delivery
+
+Version 0.9.0 admits native Desktop turns only with a matching active local policy, profile authority, session, route, chat and exactly one unfinished agent. It captures that agents existing background-review callback, which publishes `review.summary` after the reply without opening another turn or sending to Telegram. Other local surfaces and unattended runs remain idle. Telegram private notices and group suppression are unchanged. All company-only proposal, independent confirmation, revision, serialization, isolation and readback gates remain intact. The Desktop resolver is byte-identical to Hindsight reviewers copy.

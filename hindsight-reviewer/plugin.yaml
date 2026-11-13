@@ -1,6 +1,8 @@
 name: hindsight-reviewer
-version: "0.12.0"
+version: "0.13.0"
 description: >-
+  Native Desktop turns use the active owner-bound background review sender (review.summary),
+  not a Telegram adapter. Unbound, non-Desktop local and unattended local turns stay idle.
   After each gateway turn, review the Hindsight memories injected into that turn and those
   the agent fetched itself with hindsight_recall in a
   background thread, like Hermes' own background review. The model selected for cron jobs

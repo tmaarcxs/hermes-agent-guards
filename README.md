@@ -278,3 +278,7 @@ ln -s ../../tools/check_privacy.sh .git/hooks/pre-push
 The hook rejects any push whose added lines match, so never bypass it with
 `git push --no-verify`; fix the content instead.
 
+
+## Native Desktop reviewer support
+
+`hindsight-reviewer` 0.13.0 and `jot-reviewer` 0.9.0 bind native Desktop turns to the active profile authority and its exact unfinished agent. Reports use the agents existing `review.summary` sender after reply completion, without another agent turn or Telegram redirection. Unsupported/unbound local surfaces and unattended runs stay idle; Telegram private delivery and group suppression remain unchanged. Existing memory and board write gates are not relaxed. Both standalone plugins carry a byte-identical Desktop resolver. Registered-event E2E covers both Desktop and Telegram with isolated persistence.

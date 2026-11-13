@@ -177,6 +177,7 @@ def test_scripts_take_paths_from_the_environment():
 
 def test_notice_sender_only_in_private_chats(monkeypatch):
     import gateway.session_context as sc
+    monkeypatch.setattr(sc, 'get_session_env', lambda name, default='': 'telegram' if name == 'HERMES_SESSION_PLATFORM' else default)
     import types
     agent = types.SimpleNamespace(background_review_callback=lambda text: None)
     runner = types.SimpleNamespace(_running_agents={"agent:main:telegram:dm:1": agent, "agent:main:telegram:group:-5": agent})

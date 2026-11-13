@@ -20,11 +20,12 @@ NODE = shutil.which('node')
                                                               'malformed_primary', 'rejected', 'trust_denied', 'duplicates']
                           for plugin in ['hindsight-reviewer', 'jot-reviewer']]
                          + [('noise', 'hindsight-reviewer'), ('runtime_missing', 'jot-reviewer'), ('collaboration_disabled', 'jot-reviewer')])
-def test_reviewer_provider_failover_at_its_registered_event(plugin, scenario, tmp_path):
+@pytest.mark.parametrize('surface', ['telegram', 'desktop'])
+def test_reviewer_provider_failover_at_its_registered_event(plugin, scenario, surface, tmp_path):
     if not (CORE / 'agent/plugin_llm.py').is_file() or not (JOT / 'runtime/worker.cjs').is_file():
         pytest.skip('Requires an installed Hermes core and Jot runtime; see README E2E setup')
     env = {name: os.environ[name] for name in ('PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL', 'SSL_CERT_FILE', 'SYSTEMROOT') if name in os.environ}
-    env.update(HERMES_REVIEWER_E2E_CORE=str(CORE), HERMES_REVIEWER_E2E_JOT=str(JOT), TMPDIR=str(tmp_path), PYTHONDONTWRITEBYTECODE='1')
+    env.update(HERMES_REVIEWER_E2E_CORE=str(CORE), HERMES_REVIEWER_E2E_JOT=str(JOT), TMPDIR=str(tmp_path), PYTHONDONTWRITEBYTECODE='1', HERMES_REVIEWER_E2E_SURFACE=surface)
     assert NODE, 'An installed Node runtime is required for Jot E2E'
     env['PATH'] = str(Path(NODE).parent) + os.pathsep + env.get('PATH', '')
     root = Path(os.environ.get('HERMES_REVIEWER_E2E_ROOT', ROOT))
@@ -46,5 +47,6 @@ def test_reviewer_provider_failover_at_its_registered_event(plugin, scenario, tm
     assert len(receipts) == 1, result.stdout + '\n' + result.stderr
     receipt = receipts[0]
     assert receipt['plugin'] == plugin and receipt['scenario'] == scenario
+    assert receipt['surface'] == surface
     assert receipt['write_verified'] == (scenario in {'fallback', 'healthy', 'duplicates', 'noise'})
     assert receipt['notice_count'] == int(receipt['write_verified'])

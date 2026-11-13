@@ -1,6 +1,8 @@
 name: jot-reviewer
-version: "0.8.0"
+version: "0.9.0"
 description: >-
+  Native Desktop turns use the active owner-bound background review sender (review.summary),
+  not a Telegram adapter. Unbound, non-Desktop local and unattended local turns stay idle.
   After each gateway turn, review the weekly Jot work board in a background thread, like
   hindsight-reviewer and Hermes' own background review. The model selected for cron jobs (or the
   main model) reads the turn with the background review's context and the current weekly note, and

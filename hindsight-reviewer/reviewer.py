@@ -209,7 +209,10 @@ def _origin():
     from gateway.session_context import get_session_env
     origin = {name: get_session_env('HERMES_SESSION_' + name.upper(), '') for name in
               ('platform', 'chat_id', 'chat_type', 'thread_id', 'user_id', 'message_id', 'profile')}
-    return origin if origin['platform'] and origin['chat_id'] and origin['platform'] != 'local' else None
+    if origin['platform'] == 'local':
+        from .desktop import turn_sender
+        return origin if turn_sender(_gateway.get('runner')) else None
+    return origin if origin['platform'] and origin['chat_id'] else None
 
 
 def _origin_key(origin):
@@ -223,6 +226,10 @@ def _turn_review_callback():
     """
     try:
         from gateway.session_context import bound_session_key
+        from gateway.session_context import get_session_env
+        if get_session_env('HERMES_SESSION_PLATFORM', '') == 'local':
+            from .desktop import turn_sender
+            return turn_sender(_gateway.get('runner'))
         key = bound_session_key() or ''
         if ':dm:' not in key:
             return None  # notices only in private chats: in a group other bots would read them as messages
