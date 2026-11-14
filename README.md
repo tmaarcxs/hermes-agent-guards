@@ -279,6 +279,16 @@ The hook rejects any push whose added lines match, so never bypass it with
 `git push --no-verify`; fix the content instead.
 
 
+## Remote Desktop Hindsight review
+
+`hindsight-reviewer` 0.14.0 also supports Desktop chats routed through `hermes serve`
+and its legacy WebSocket server. The plugin resolves the existing live server
+record, task-local UI id, route, transcript and profile; it does not trust a
+Desktop label by itself. A read-only persisted user-row fence cancels review
+on newer input. Notices use the originating agent’s `review.summary` sender
+after reply completion. Detached, ambiguous, TUI and unattended contexts stay
+idle. Native delivery and all memory confirmation/readback gates are unchanged.
+
 ## Native Desktop reviewer support
 
 `hindsight-reviewer` 0.13.1 and `jot-reviewer` 0.9.1 bind native Desktop turns to the active profile authority and its exact unfinished agent. Reports use the agents existing `review.summary` sender after reply completion, without another agent turn or Telegram redirection. Unsupported/unbound local surfaces and unattended runs stay idle; Telegram private delivery and group suppression remain unchanged. Existing memory and board write gates are not relaxed. Both standalone plugins carry a byte-identical Desktop resolver. Registered-event E2E covers both Desktop and Telegram with isolated persistence.

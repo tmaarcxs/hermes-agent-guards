@@ -2,6 +2,20 @@
 
 Reviews injected and tool-recalled memories after an eligible gateway turn. The proposal, independent confirmation, exact evidence, fresh primary-fact read, reversible invalidation and readback gates remain unchanged. A newer admitted message cancels unfinished writes.
 
+## Remote Desktop delivery (serve/WebSocket)
+
+Version 0.14.0 also recognizes the legacy `hermes serve` Desktop route. It binds the
+loaded server record by task-local UI id, route key, transcript id and profile home;
+requires one running agent and a live transport; and captures only that agent’s
+`review.summary` callback. A label alone never admits a review. Unattended, detached,
+ambiguous, TUI and foreign-profile contexts stay idle.
+
+The originating transcript’s latest persisted user-row id is checked before work
+and writes. New/queued input, cancellation, owner replacement or disconnection
+cancels unfinished work. Notices wait for the originating response to settle.
+Read-only SQLite access uses the owning profile’s existing `state.db`; unavailable
+transcript evidence fails closed. Native Desktop and messaging routes are unchanged.
+
 ## Desktop delivery
 
 Version 0.13.1 admits native Desktop turns only when the current local policy says Desktop and the active profile authority retains exactly one unfinished agent for the bound session, route and chat. Cron, Kanban, delegated, one-shot and non-Desktop local contexts stay idle. The captured agent background-review callback uses the native `review.summary` contract after reply completion. It never opens another turn, uses a local adapter send or redirects the notice to Telegram. Telegram private chats retain their existing sender; group notices remain suppressed.
