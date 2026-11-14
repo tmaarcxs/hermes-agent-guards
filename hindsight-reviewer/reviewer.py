@@ -209,6 +209,9 @@ def _origin():
     from gateway.session_context import get_session_env
     origin = {name: get_session_env('HERMES_SESSION_' + name.upper(), '') for name in
               ('platform', 'chat_id', 'chat_type', 'thread_id', 'user_id', 'message_id', 'profile')}
+    if not origin['platform']:
+        from .legacy_desktop import origin as legacy_origin
+        return legacy_origin()
     if origin['platform'] == 'local':
         from .desktop import turn_sender
         sender = turn_sender(_gateway.get('runner'))
@@ -259,6 +262,7 @@ def on_post_llm_call(session_id='', turn_id='', user_message=None, assistant_res
         if origin is None:
             _audit(marker, event='skipped', reason='no_origin')
             return
+        desktop_current = origin.pop('_desktop_current', None)
         deliver = origin.pop('_desktop_sender', None) if origin['platform'] == 'local' else _turn_review_callback()
         if not (injected or tooled):
             _audit(marker, event='skipped', reason='no_captured_memories')
@@ -284,7 +288,7 @@ def on_post_llm_call(session_id='', turn_id='', user_message=None, assistant_res
         transcript, quotable = conversation_context(rows)
         job = {'home': str(get_hermes_home()), 'session_id': session_id, 'turn_id': turn_id,
                'transcript': transcript, 'quotable': quotable, 'recall': recall, 'origin': origin,
-               'deliver': deliver, 'defer_notice': True,
+               'deliver': deliver, 'defer_notice': True, 'desktop_current': desktop_current,
                'injected_count': injected_count, 'tool_count': tool_count}
         job['route_key'], job['cancel_event'] = _origin_key(origin), threading.Event()
         with _lock:
@@ -408,13 +412,14 @@ def cron_route(home):
 def _audit(job, **fields):
     """Only correlation ids, decisions and counters; never memory, evidence or exception text."""
     logger.info('Hindsight review audit: %s', json.dumps({
-        'version': '0.13.1', 'session_id': job.get('session_id', ''), 'turn_id': job.get('turn_id', ''),
+        'version': '0.14.0', 'session_id': job.get('session_id', ''), 'turn_id': job.get('turn_id', ''),
         **fields}, sort_keys=True))
 
 
 def _superseded(job):
     event = job.get('cancel_event')
-    return event is not None and event.is_set()
+    current = job.get('desktop_current')
+    return (event is not None and event.is_set()) or (current is not None and not current())
 
 
 def _get(base, key, memory_id, stats):
