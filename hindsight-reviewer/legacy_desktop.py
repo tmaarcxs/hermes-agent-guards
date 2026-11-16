@@ -48,11 +48,11 @@ def origin():
                 return None
 
         def latest_user():
+            """Newest persisted user row; submit-time persistence includes queued inputs, so a review never crosses one already waiting."""
             with closing(sqlite3.connect((home / "state.db").as_uri() + "?mode=ro", uri=True, timeout=1)) as db:
                 return db.execute("SELECT MAX(id) FROM messages WHERE session_id IN (?, ?) AND role = ?",
                                   (key, sid, "user")).fetchone()[0]
 
-        # Submit-time persistence includes queued inputs. Do not review across one already waiting.
         with record["history_lock"]:
             if record.get("queued_prompt") or record.get("queued_prompts") or record.get("_turn_cancel_requested"):
                 return None
@@ -82,9 +82,9 @@ def origin():
                 return False
 
         def deliver(message):
+            """Hand *message* over once the turn settles; message.complete is emitted before the legacy server releases running."""
             deadline = time.monotonic() + 120
             while current():
-                # message.complete is emitted before the legacy server releases running.
                 with record["history_lock"]:
                     settled = not record.get("running")
                 if settled:

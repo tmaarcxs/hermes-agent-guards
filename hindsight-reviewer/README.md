@@ -4,6 +4,8 @@ Reviews injected and tool-recalled memories after an eligible gateway turn. The 
 
 ## Remote Desktop delivery (serve/WebSocket)
 
+Version 0.14.1 moves two inline notes in `legacy_desktop.py` into docstrings so the repository-wide no-comment-lines invariant passes; behavior is unchanged.
+
 Version 0.14.0 also recognizes the legacy `hermes serve` Desktop route. It binds the
 loaded server record by task-local UI id, route key, transcript id and profile home;
 requires one running agent and a live transport; and captures only that agent’s
