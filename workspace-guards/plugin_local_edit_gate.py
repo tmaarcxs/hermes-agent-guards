@@ -27,8 +27,26 @@ from . import _paths, home_litter_gate
 
 _GIT_TIMEOUT = 10
 
-_SAFE_GIT = frozenset({"fetch", "status", "log", "diff", "show", "rev-parse", "remote", "branch", "ls-files", "describe", "blame"})
+_SAFE_GIT = frozenset({
+    "fetch", "status", "log", "diff", "show", "rev-parse", "remote", "ls-files", "describe", "blame",
+    "rev-list", "reflog", "cat-file", "show-ref", "ls-remote", "grep", "archive", "shortlog", "ls-tree",
+    "for-each-ref", "name-rev", "merge-base", "count-objects", "check-ignore", "var", "help", "version",
+})
 """Git subcommands that never change the checked-out tree."""
+
+_BRANCH_WRITE_FLAGS = frozenset({
+    "-d", "-D", "--delete", "-m", "-M", "--move", "-c", "-C", "--copy", "-f", "--force",
+    "-u", "--set-upstream-to", "--unset-upstream", "--edit-description",
+})
+"""``git branch`` flags that delete, rename, copy or rewire a branch."""
+
+_BRANCH_LIST_FLAGS = frozenset({"-l", "--list", "--contains", "--no-contains", "--merged", "--no-merged", "--points-at"})
+"""``git branch`` flags whose operands are filters, not a new branch name."""
+
+_SHELL_HEADS = frozenset({"sh", "bash", "zsh", "dash"})
+"""Shells whose ``-c`` script is scanned as a nested command."""
+
+_HEREDOC_OPEN = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?")
 
 _MUTATING_GIT_HEADS = frozenset({"checkout", "restore", "apply"})
 """Git subcommands the task names as writes when the repository side lives in an installed checkout."""
@@ -256,11 +274,101 @@ def _git_shape(tokens: List[str]) -> bool:
         return True
     if subcommand in _SAFE_GIT:
         return True
+    if subcommand == "branch":
+        return _branch_read_only(rest[position + 1:])
+    following = rest[position + 1:]
+    if subcommand == "merge" and "--ff-only" in following:
+        return True
+    if subcommand == "worktree" and following[:1] == ["list"]:
+        return True
+    if subcommand == "stash" and following[:1] in (["list"], ["show"]):
+        return True
+    if subcommand == "config" and _config_read_only(following):
+        return True
     if subcommand == "pull" and "--ff-only" in rest:
         return True
     if subcommand == "rebase" and any(part.startswith("origin/") for part in rest):
         return True
     return False
+
+
+def _branch_read_only(operands: List[str]) -> bool:
+    """True when a ``git branch`` call only lists: no write flag, no new branch name."""
+    if any(token in _BRANCH_WRITE_FLAGS or token.startswith("--set-upstream-to=") for token in operands):
+        return False
+    if any(token in _BRANCH_LIST_FLAGS for token in operands):
+        return True
+    return all(token.startswith("-") for token in operands)
+
+
+def _config_read_only(operands: List[str]) -> bool:
+    """True when a ``git config`` call only reads: a ``--get*``/``--list`` flag or a lone key."""
+    if any(token.startswith(("--get", "--list")) or token == "-l" for token in operands):
+        return True
+    return len([token for token in operands if not token.startswith("-")]) == 1
+
+
+def _git_repo_dir(tokens: List[str], cwd: Optional[str]) -> Optional[str]:
+    """The directory a ``git`` segment operates on: the last ``-C`` value against *cwd*, else *cwd*."""
+    try:
+        index = tokens.index("git")
+    except ValueError:
+        return None
+    repo = cwd
+    position = index + 1
+    while position < len(tokens) - 1 and tokens[position].startswith("-"):
+        if tokens[position] == "-C":
+            value = tokens[position + 1]
+            repo = value if value.startswith(("/", "~")) or not repo else _paths._join(repo, value)
+            position += 2
+            continue
+        position += 1
+    return repo
+
+
+def _shell_script(tokens: List[str]) -> Optional[str]:
+    """The ``-c`` script of an ``sh``/``bash`` segment, or ``None`` for any other shape."""
+    index = home_litter_gate._head_index(tokens)
+    if index >= len(tokens) or Path(tokens[index]).name not in _SHELL_HEADS:
+        return None
+    for position in range(index + 1, len(tokens) - 1):
+        token = tokens[position]
+        if not token.startswith("-") or token.startswith("--"):
+            return None
+        if "c" in token[1:]:
+            return tokens[position + 1]
+    return None
+
+
+def _python_heredoc_targets(command: str) -> List[str]:
+    """Write targets of python heredoc bodies (``python3 - <<'EOF' ... EOF``).
+
+    Only a heredoc opened on a line whose command runs python is scanned, and
+    only literals the creation-call net marks as written count, so a script
+    that reads an installed file passes.
+    """
+    targets: List[str] = []
+    delim = None
+    python = False
+    body: List[str] = []
+    for line in command.split("\n"):
+        if delim is not None:
+            if line.strip() == delim:
+                if python:
+                    code = "\n".join(body)
+                    targets.extend(
+                        literal for literal in home_litter_gate._py_creation_literals(code)
+                        if "/" in literal or literal.startswith("~")
+                    )
+                delim, body = None, []
+            else:
+                body.append(line)
+            continue
+        match = _HEREDOC_OPEN.search(line)
+        if match:
+            delim = match.group(1)
+            python = re.search(r"\bpython[0-9.]*\b", line[:match.start()]) is not None
+    return targets
 
 
 def _hermes_shape(segment: str) -> bool:
@@ -382,14 +490,35 @@ def _perl_open_literals(segment: str) -> List[str]:
     return literals
 
 
-def terminal_block(command: str, base_cwd: Optional[str] = None) -> Optional[str]:
-    """The block message when a shell command would write an installed plugin checkout."""
-    blanked = _paths._strip_heredoc_bodies(str(command or ""))
+def terminal_block(command: str, base_cwd: Optional[str] = None, depth: int = 0) -> Optional[str]:
+    """The block message when a shell command would write an installed plugin checkout.
+
+    Beyond path operands, a mutating ``git`` segment whose repository (``-C``,
+    an in-string ``cd`` or the tool's ``workdir``) is an installed checkout is
+    a write, an ``sh``/``bash -c`` script is scanned as a nested command, and a
+    python heredoc body contributes the paths its creation calls write.
+    """
+    raw = str(command or "")
+    for candidate in _python_heredoc_targets(raw):
+        resolved = _resolve(candidate, base_cwd)
+        if resolved is not None and _installed_checkout(resolved) is not None:
+            return _message("terminal", resolved)
+    blanked = _paths._strip_heredoc_bodies(raw)
     for cwd, segment in _paths._segments(blanked, base_cwd):
-        tokens = _paths._tokens(segment)
+        tokens = _paths._tokens(segment.strip("()"))
         if _segment_allowed(tokens, segment):
             continue
         head = tokens[0].lower() if tokens else ""
+        script = _shell_script(tokens)
+        if script is not None and depth < 3:
+            nested = terminal_block(script, cwd, depth + 1)
+            if nested is not None:
+                return nested
+        if head == "git":
+            repo_dir = _git_repo_dir(tokens, cwd)
+            repo = _resolve(repo_dir, None) if repo_dir and not repo_dir.startswith("$") else None
+            if repo is not None and _installed_checkout(repo) is not None:
+                return _message("terminal", repo)
         candidates = _operand_targets(cwd, segment, tokens)
         if head in _LITERAL_HEADS:
             candidates.extend(_literal_targets(tokens))

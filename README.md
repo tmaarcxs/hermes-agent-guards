@@ -91,7 +91,9 @@ Answers: *is this path one the agent may write to?*
   (`mkdir -p $HERMES_KANBAN_WORKSPACE/<name>`).
 - Blocks writes (`write_file`, `patch`, terminal redirect/tee/sed -i/perl -i,
   inline python/perl writes, `cp`/`mv`/`rm`/`touch`/`mkdir`, `git checkout --`/
-  `restore`/`apply`) that target an installed plugin checkout
+  `restore`/`apply`, any mutating git call run in it via `-C`, `cd` or the
+  tool's `workdir`, `sh -c` scripts and python heredoc writes) that target an
+  installed plugin checkout
   (`~/.hermes/plugins/<name>/` or `~/.hermes/profiles/<profile>/plugins/<name>/`
   whose nearest git work tree carries an origin remote) and names the exact
   cycle instead: the matching working clone under `~/git_repos`, its
@@ -281,7 +283,7 @@ The hook rejects any push whose added lines match, so never bypass it with
 
 ## Remote Desktop Hindsight review
 
-`hindsight-reviewer` 0.14.0 also supports Desktop chats routed through `hermes serve`
+`hindsight-reviewer` 0.14.1 (0.14.0 plus a comment-to-docstring fix in `legacy_desktop.py`) also supports Desktop chats routed through `hermes serve`
 and its legacy WebSocket server. The plugin resolves the existing live server
 record, task-local UI id, route, transcript and profile; it does not trust a
 Desktop label by itself. A read-only persisted user-row fence cancels review

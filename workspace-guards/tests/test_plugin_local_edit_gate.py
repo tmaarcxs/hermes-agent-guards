@@ -272,3 +272,118 @@ def test_under_50ms_per_non_plugin_write_call():
     per_call = elapsed_ms / 100
     print(f"\nmeasured: {elapsed_ms:.1f} ms total, {per_call:.3f} ms per non-plugin write call")
     assert per_call < 50
+
+
+def installed(home):
+    return home / ".hermes" / "plugins" / "plugA"
+
+
+def in_installed(command, home):
+    return blocked("terminal", {"command": command, "workdir": str(installed(home))})
+
+
+@pytest.mark.parametrize("command", [
+    "git reset -q --hard",
+    "git switch -q main",
+    "git branch -D remove-kanban-guards",
+    "git checkout -- x.py",
+    "git restore x.py",
+    "git apply fix.patch",
+    "git stash",
+    "git clean -fd",
+    "git merge origin/main",
+    "git cherry-pick abc123",
+    "git revert abc123",
+    "git commit -am wip",
+    "git reset -q --hard && git switch -q main && git branch -D x",
+])
+def test_workdir_git_mutation_inside_installed_checkout_blocked(home, command):
+    assert in_installed(command, home)
+
+
+def test_cd_relative_git_checkout_inside_installed_checkout_blocked(home):
+    assert terminal(f"cd {installed(home)} && git checkout -- x.py", home)
+
+
+def test_git_dash_c_reset_hard_blocked(home):
+    assert terminal(f"git -C {installed(home)} reset --hard", home)
+
+
+@pytest.mark.parametrize("command", [
+    "git status -sb",
+    "git log --oneline -3",
+    "git diff",
+    "git fetch -q origin",
+    "git pull --ff-only",
+    "git branch --show-current",
+    "git branch -a",
+    "git rev-parse HEAD",
+])
+def test_workdir_read_only_git_inside_installed_checkout_allowed(home, command):
+    assert in_installed(command, home) is None
+
+
+def test_sh_c_redirect_into_installed_checkout_blocked(home):
+    target = installed(home) / "x.py"
+    assert terminal(f"sh -c 'echo x > {target}'", home)
+
+
+def test_bash_c_tee_into_installed_checkout_blocked(home):
+    target = installed(home) / "x.py"
+    assert terminal(f"bash -c \"echo x | tee {target}\"", home)
+
+
+def test_subshell_group_redirect_into_installed_checkout_blocked(home):
+    target = installed(home) / "x.py"
+    assert terminal(f"(cd /tmp && (echo x > {target}))", home)
+
+
+def test_python_heredoc_write_into_installed_checkout_blocked(home):
+    target = installed(home) / "x.py"
+    command = f"python3 - <<'EOF'\nopen('{target}', 'w').write('x')\nEOF"
+    assert terminal(command, home)
+
+
+def test_python_heredoc_pathlib_write_into_installed_checkout_blocked(home):
+    target = installed(home) / "x.py"
+    command = f"python3 - <<'PY'\nfrom pathlib import Path\nPath('{target}').write_text('x')\nPY"
+    assert terminal(command, home)
+
+
+def test_python_heredoc_read_of_installed_checkout_allowed(home):
+    target = installed(home) / "x.py"
+    command = f"python3 - <<'EOF'\nprint(open('{target}').read())\nEOF"
+    assert terminal(command, home) is None
+
+
+def test_sh_c_read_of_installed_checkout_allowed(home):
+    target = installed(home) / "x.py"
+    assert terminal(f"sh -c 'cat {target} > /tmp/copy.py'", home) is None
+
+
+@pytest.mark.parametrize("command", [
+    "git merge --ff-only origin/main",
+    "git worktree list",
+    "git stash list",
+    "git config --get remote.origin.url",
+    "git rev-list --left-right --count HEAD...@{upstream}",
+    "git reflog show origin/main -n 3",
+    "git cat-file -t f1edb70",
+    "git show-ref",
+    "git ls-remote origin refs/heads/main",
+    "git grep -n configured_worker 6ee089a -- workspace-guards",
+])
+def test_replayed_read_only_git_shapes_inside_installed_checkout_allowed(home, command):
+    assert in_installed(command, home) is None
+
+
+@pytest.mark.parametrize("command", [
+    "git worktree add -q /tmp/wt -b topic origin/main",
+    "git worktree prune",
+    "git rm -q tests/test_x.py",
+    "git switch -c topic",
+    "git config user.name x",
+    "git merge origin/main",
+])
+def test_replayed_mutating_git_shapes_inside_installed_checkout_blocked(home, command):
+    assert in_installed(command, home)
