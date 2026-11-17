@@ -338,3 +338,17 @@ def test_a_move_may_share_its_reference_with_the_row_it_replaces():
     move = [_change("remove", "Lunes 9", task, "⏳", "x", "estamos dados de alta"),
             _change("add", "Martes 10", task, "⏳", "Confirmar acceso", "estamos dados de alta")]
     assert [c["op"] for c in policy.gate(move, days, "Martes 10", CONTEXT)] == ["remove", "add"]
+
+
+def test_notices_off_still_applies_and_sends_nothing(wired, tmp_path):
+    (tmp_path / "config.yaml").write_text("plugins:\n  entries:\n    hermes-agent-guards/jot-reviewer:\n      notices: false\n")
+    job, writes, sent = wired
+    llm = FakeLlm([_change("set", "Lunes 9", "Servicio: alta en Application Insights", "✅", "Nada", "estamos dados de alta")])
+    applied = reviewer.review(llm, job, now=datetime.date(2026, 11, 10))
+    assert applied and writes[0][0] == "set-rich-row" and sent == []
+
+
+def test_jot_notices_default_on(tmp_path):
+    (tmp_path / "config.yaml").write_text("")
+    assert reviewer.notices_enabled(str(tmp_path)) is True
+    assert reviewer.notices_enabled(str(tmp_path / "missing")) is True

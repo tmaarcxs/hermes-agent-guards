@@ -2,6 +2,10 @@
 
 The default-profile background reviewer maintains the professional weekly board. It keeps the existing proposal, deterministic gate, independent confirmation, revision check, two-cell isolation and readback workflow.
 
+## Silent mode
+
+Version 0.10.0 adds `plugins.entries.hermes-agent-guards/jot-reviewer.notices`. Set it to `false` to keep reviews applying board changes without sending the chat notice. Absent, unreadable or any other value keeps notices on.
+
 ## Writer capability
 
 Version 0.8.0 owns its TypeScript runner instead of assuming that Hermes core has a `node_modules/.bin/tsx`. Before any model call, the production worker imports the actual installed Jot store and rich-document validator through that runner. A missing/broken runner, missing helper or failed import skips the review with one explicit diagnostic. It does not disable Jot collaboration or change model routing.
