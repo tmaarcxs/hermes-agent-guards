@@ -409,10 +409,21 @@ def cron_route(home):
     return route
 
 
+def notices_enabled(home):
+    """plugins.entries.hermes-agent-guards/hindsight-reviewer.notices: false silences chat notices; reviews still run."""
+    try:
+        import hermes_yaml
+        config = hermes_yaml.safe_load((Path(home) / 'config.yaml').read_text(encoding='utf-8')) or {}
+        entry = ((config.get('plugins') or {}).get('entries') or {}).get('hermes-agent-guards/hindsight-reviewer') or {}
+        return entry.get('notices', True) is not False
+    except Exception:
+        return True
+
+
 def _audit(job, **fields):
     """Only correlation ids, decisions and counters; never memory, evidence or exception text."""
     logger.info('Hindsight review audit: %s', json.dumps({
-        'version': '0.14.0', 'session_id': job.get('session_id', ''), 'turn_id': job.get('turn_id', ''),
+        'version': '0.15.0', 'session_id': job.get('session_id', ''), 'turn_id': job.get('turn_id', ''),
         **fields}, sort_keys=True))
 
 
@@ -659,7 +670,9 @@ def review(llm, job):
             if status != 'complete':
                 message += ' · review incomplete'
             try:
-                if _superseded(job):
+                if not notices_enabled(job['home']):
+                    notice_state = 'suppressed_by_config'
+                elif _superseded(job):
                     notice_state = 'suppressed_superseded'
                     _audit(job, event='notice_suppressed', reason='new_inbound_message')
                 elif job.get('deliver'):

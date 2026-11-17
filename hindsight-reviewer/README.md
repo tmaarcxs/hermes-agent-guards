@@ -2,6 +2,10 @@
 
 Reviews injected and tool-recalled memories after an eligible gateway turn. The proposal, independent confirmation, exact evidence, fresh primary-fact read, reversible invalidation and readback gates remain unchanged. A newer admitted message cancels unfinished writes.
 
+## Silent mode
+
+Version 0.15.0 adds `plugins.entries.hermes-agent-guards/hindsight-reviewer.notices`. Set it to `false` to keep every review and reversible invalidation running in the background without posting the chat notice; the audit log records `notice_state=suppressed_by_config`. Absent, unreadable or any other value keeps notices on.
+
 ## Remote Desktop delivery (serve/WebSocket)
 
 Version 0.14.1 moves two inline notes in `legacy_desktop.py` into docstrings so the repository-wide no-comment-lines invariant passes; behavior is unchanged.

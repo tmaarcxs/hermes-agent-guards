@@ -1,5 +1,5 @@
 name: hindsight-reviewer
-version: "0.14.1"
+version: "0.15.0"
 description: >-
   Native Desktop turns use the active owner-bound background review sender (review.summary),
   not a Telegram adapter. Unbound, non-Desktop local and unattended local turns stay idle.
@@ -16,7 +16,7 @@ description: >-
   as evidence. A parallel noise pass also invalidates, after a skeptical confirmation, the
   memories that are context-free fragments, duplicates of a kept memory anywhere in
   the turn, older memories a newer one in the turn contradicts or replaces (superseded, no quote needed,
-  the newer memory must have a strictly later date), or one-off events; preferences, authorizations and commitments are never noise. Notices use the originating turn sender; unbound/group turns suppress notice delivery and record that state. Keeps memory.provider: hindsight; recall ids are captured by wrapping the provider's
+  the newer memory must have a strictly later date), or one-off events; preferences, authorizations and commitments are never noise. Notices use the originating turn sender (notices: false in this plugin's entry silences them; reviews still run); unbound/group turns suppress notice delivery and record that state. Keeps memory.provider: hindsight; recall ids are captured by wrapping the provider's
   prefetch. Model/provider override needs plugins.entries.hermes-agent-guards/hindsight-reviewer.llm.allow_model_override
   and allow_provider_override when cron.model or a fallback route is set.
 author: "kur4i"
