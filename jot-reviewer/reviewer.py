@@ -257,6 +257,17 @@ def cron_route(home):
     return route
 
 
+def notices_enabled(home):
+    """plugins.entries.hermes-agent-guards/jot-reviewer.notices: false silences the change notice; changes still apply."""
+    try:
+        import hermes_yaml
+        config = hermes_yaml.safe_load((Path(home) / 'config.yaml').read_text(encoding='utf-8')) or {}
+        entry = ((config.get('plugins') or {}).get('entries') or {}).get('hermes-agent-guards/jot-reviewer') or {}
+        return entry.get('notices', True) is not False
+    except Exception:
+        return True
+
+
 def _jot(name, args):
     from tools.registry import registry
     raw = registry.dispatch(name, args)
@@ -353,6 +364,6 @@ def _review(llm, job, now):
         if missing or list(after)[:5] != list(days)[:5]:
             logger.warning('Jot review readback mismatch: %d changes not visible', len(missing))
     logger.info('Jot review outcome: proposed=%d gated=%d applied=%d', len(proposed), len(changes), len(applied))
-    if applied and job.get('deliver'):
+    if applied and job.get('deliver') and notices_enabled(job['home']):
         job['deliver'](notice(applied))
     return applied
