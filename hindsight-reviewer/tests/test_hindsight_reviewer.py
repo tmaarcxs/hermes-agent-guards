@@ -437,3 +437,22 @@ def test_notice_sender_only_in_private_chats(monkeypatch):
     assert reviewer._turn_review_callback() is agent.background_review_callback
     monkeypatch.setattr(sc, "bound_session_key", lambda: "agent:main:telegram:group:-5")
     assert reviewer._turn_review_callback() is None
+
+
+def test_notices_off_keeps_invalidating_but_sends_nothing(run, tmp_path, monkeypatch):
+    monkeypatch.setitem(sys.modules, "hermes_yaml", types.SimpleNamespace(safe_load=lambda text: {
+        "cron": {"model": "cron-model", "model_provider": "cron-provider"},
+        "plugins": {"entries": {"hermes-agent-guards/hindsight-reviewer": {"notices": False}}}}))
+    sent_by_review = []
+    applied, sent = run(FakeBank(), FakeLlm(), deliver=sent_by_review.append)
+    assert applied == 1 and not sent and sent_by_review == []
+
+
+def test_notices_default_on_when_setting_absent(tmp_path, monkeypatch):
+    monkeypatch.setitem(sys.modules, "hermes_yaml", types.SimpleNamespace(safe_load=lambda text: {}))
+    (tmp_path / "config.yaml").write_text("")
+    assert reviewer.notices_enabled(str(tmp_path)) is True
+
+
+def test_notices_on_when_config_unreadable(tmp_path):
+    assert reviewer.notices_enabled(str(tmp_path / "missing")) is True
