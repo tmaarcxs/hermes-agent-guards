@@ -57,14 +57,6 @@ def test_write_file_message_names_the_task_workspace(tmp_path):
     assert "<main-repo>/.worktrees/<task>/" in message
 
 
-def test_workspace_convention_message_names_the_three_allowed_roots():
-    args = {"workspace_path": "/tmp/somewhere/else", "workspace_kind": "dir"}
-    message = guards.workspace_convention.check("kanban_create", args)
-    assert message and "<main-checkout>/.worktrees/<task>/" in message
-    assert "~/git_repos/ad-hoc/<name>/" in message
-    assert "workspace_kind=scratch, no workspace_path" in message
-
-
 def test_plugin_local_edit_message_names_clone_worktree_and_sync(tmp_path, monkeypatch):
     """The runtime-computed alternative: matching clone + worktree add + syncs."""
     home = tmp_path / "home"

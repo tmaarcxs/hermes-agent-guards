@@ -1,19 +1,12 @@
 """workspace-guards: where writes and card workspaces may live.
 
-Self-contained plugin holding three modules (two moved from the monolithic
-``agent-guards`` plugin, base commit ``90456b2``, plus the local-edit gate):
+Self-contained plugin holding two modules:
 
 - ``home_litter_gate`` blocks creating new top-level entries directly under the
   home directory (``~/kind_of长长的``, ``cd ~ && touch x``, ``> ~/notes``),
   resolving the command's real cwd from the terminal tool's ``workdir``
   argument and the session's recorded cwd, not only an in-string ``cd``.
   Reuses the path-parsing helpers in ``_paths``.
-- ``workspace_convention`` (only with ``kanban.default_assignee`` configured)
-  rejects a ``kanban_create`` whose ``dir``/``worktree`` workspace_path leaves
-  the placement convention (outside ``<main-checkout>/.worktrees/<task>/`` or
-  ``~/git_repos/ad-hoc/``) and, for every kind including an explicit
-  ``scratch`` path or an omitted kind, a workspace_path that is a main
-  checkout, the home dir or a direct child of it.
 - ``plugin_local_edit_gate`` blocks writes into an installed plugin checkout
   (``~/.hermes/plugins/<name>/`` or ``~/.hermes/profiles/<profile>/plugins/<name>/``
   whose nearest git work tree carries an origin remote): the change belongs in
@@ -30,7 +23,7 @@ imports nothing from sibling plugins.
 """
 
 try:
-    from . import home_litter_gate, plugin_local_edit_gate, repeat_block_gate, workspace_convention
+    from . import home_litter_gate, plugin_local_edit_gate
 except ImportError:
     if __name__ != "__init__":
         raise
@@ -45,36 +38,19 @@ _MODULES = None  # bound lazily so the bare-pytest synthetic shape stays inert
 
 def register(ctx) -> None:
     ctx.register_hook("pre_tool_call", _pre_tool_call)
-    ctx.register_hook("transform_tool_result", _transform_tool_result)
 
 
 def _modules():
     global _MODULES
     if _MODULES is None:
-        from . import home_litter_gate, plugin_local_edit_gate, repeat_block_gate, workspace_convention
+        from . import home_litter_gate, plugin_local_edit_gate
 
-        _MODULES = (home_litter_gate, plugin_local_edit_gate, repeat_block_gate, workspace_convention)
+        _MODULES = (home_litter_gate, plugin_local_edit_gate)
     return _MODULES
 
 
-def _transform_tool_result(**kwargs):
-    """``transform_tool_result``: escalate a repeated identical guard block.
-
-    Only the outcome is consulted: the real guards always ran; a second block
-    of the same call is replaced by the escalation. Every error leaves the
-    result untouched (the original block text still reaches the model).
-    """
-    home_litter_gate, plugin_local_edit_gate, repeat_block_gate, workspace_convention = _modules()
-    try:
-        return repeat_block_gate.transform(
-            kwargs.get("tool_name") or "", kwargs.get("args"), kwargs.get("result"),
-            session_id=str(kwargs.get("session_id") or ""))
-    except Exception:
-        return None
-
-
 def _pre_tool_call(tool_name: str = "", args=None, **kwargs):
-    home_litter_gate, plugin_local_edit_gate, _repeat_block_gate, workspace_convention = _modules()
+    home_litter_gate, plugin_local_edit_gate = _modules()
 
     def stamp(message: str, name: str) -> str:
         marker = message.find(": ")
@@ -85,7 +61,6 @@ def _pre_tool_call(tool_name: str = "", args=None, **kwargs):
     for check, name in (
         (lambda: home_litter_gate.check(tool_name, args, **kwargs), "home_litter_gate"),
         (lambda: plugin_local_edit_gate.check(tool_name, args, **kwargs), "plugin_local_edit_gate"),
-        (lambda: workspace_convention.check(tool_name, args), "workspace_convention"),
     ):
         try:
             blocked = check()
