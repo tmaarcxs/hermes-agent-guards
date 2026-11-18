@@ -620,3 +620,19 @@ def test_abstentions_alone_keep_the_review_complete(run, caplog):
     run(FakeBank(), llm)
     finished = _audit_events(caplog, "finished")[0]
     assert finished["status"] == "complete" and finished["lost"] == 0 and finished["abstained"] >= 1
+
+
+def test_noise_confirmer_prompt_pins_the_calibrated_per_reason_tests():
+    text = policy.NOISE_CONFIRM_INSTRUCTIONS
+    assert 'answer "keep" only if you can name the specific fact that would be lost' in text
+    assert 'every concrete fact in MEMORY' in text and 'extra detail in KEPT is fine' in text
+    assert 'AND holds no specific name, value, number, path, identifier or decision' in text
+    assert 'Always answer "keep" for a preference, authorization, commitment or identity fact' in text
+    assert 'different scopes, environments or periods mean "keep"' in text
+
+
+def test_noise_confirmer_still_vetoes_on_an_unparsed_verdict():
+    llm = types.SimpleNamespace(complete_structured=lambda **k: types.SimpleNamespace(parsed={"verdict": "maybe"}))
+    assert policy.confirm_noise(llm, "m", "duplicate", "k") is False
+    llm = types.SimpleNamespace(complete_structured=lambda **k: types.SimpleNamespace(parsed=None))
+    assert policy.confirm_noise(llm, "m", "duplicate", "k") is False
