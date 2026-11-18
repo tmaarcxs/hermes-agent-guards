@@ -6,6 +6,7 @@ import json
 import sys
 import types
 import urllib.error
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -519,3 +520,103 @@ def test_an_unattended_review_never_asks_the_model_for_contradictions(monkeypatc
 def test_unattended_reviews_share_two_slots():
     assert reviewer._unattended_slots._value == 2
     assert reviewer.UNATTENDED_SURFACES >= {"cron", "subagent", "curator", "kanban"}
+
+
+def _audit_events(caplog, event):
+    rows = [json.loads(r.getMessage().split("audit: ", 1)[1]) for r in caplog.records if "Hindsight review audit" in r.getMessage()]
+    return [row for row in rows if row.get("event") == event]
+
+
+class StatusError(Exception):
+    def __init__(self, status_code, text="boom"):
+        super().__init__(text)
+        self.status_code = status_code
+
+
+@pytest.mark.parametrize("error, reason", [
+    (StatusError(404, "model SECRET-TEXT not found"), "http_404"),
+    (StatusError(424), "http_424"),
+    (urllib.error.HTTPError("http://bank", 503, "x", {}, None), "http_503"),
+    (ValueError("Incomplete model output: truncated"), "truncated"),
+    (ValueError("Incomplete model output"), "incomplete_output"),
+    (ValueError("Duplicate case ids"), "duplicate_case_ids"),
+    (ValueError("Plugin LLM structured output did not match schema: 'x' is required"), "schema_mismatch"),
+    (ValueError("anything else"), "value_error"),
+    (TimeoutError("slow"), "timeout"),
+    (ConnectionError("down"), "connection"),
+    (RuntimeError("secret memory text"), "other"),
+])
+def test_failure_reason_is_a_fixed_token_never_the_exception_text(error, reason):
+    assert reviewer.failure_reason(error) == reason
+    assert "SECRET" not in reviewer.failure_reason(error) and "secret" not in reviewer.failure_reason(error)
+
+
+def _structured(parsed, output_tokens=0):
+    return types.SimpleNamespace(parsed=parsed, usage=types.SimpleNamespace(output_tokens=output_tokens))
+
+
+def test_an_unparsed_reply_near_the_token_budget_is_reported_as_truncated():
+    case = [{"id": "a", "memory": "m", "date": ""}]
+    llm = types.SimpleNamespace(complete_structured=lambda **k: _structured(None, output_tokens=k["max_tokens"]))
+    with pytest.raises(ValueError, match="truncated"):
+        policy.noise(llm, case)
+    with pytest.raises(ValueError, match="truncated"):
+        policy.propose(llm, case)
+
+
+def test_an_unparsed_reply_well_under_the_budget_is_not_called_truncated():
+    case = [{"id": "a", "memory": "m", "date": "", "evidence": ""}]
+    llm = types.SimpleNamespace(complete_structured=lambda **k: _structured(None, output_tokens=10))
+    with pytest.raises(ValueError) as caught:
+        policy.noise(llm, case)
+    assert reviewer.failure_reason(caught.value) == "incomplete_output"
+
+
+def test_noise_lane_budget_covers_a_full_batch_of_uuid_rows():
+    seen = []
+    llm = types.SimpleNamespace(complete_structured=lambda **k: seen.append(k["max_tokens"]) or _structured({"items": []}))
+    policy.noise(llm, [{"id": "%036d" % n, "memory": "m", "date": ""} for n in range(20)])
+    assert seen[0] >= 20 * 100
+
+
+def test_gaps_split_lost_coverage_from_deliberate_abstentions():
+    lost, abstained = reviewer._gaps(Counter({"noise_failed_cases": 20, "review_missing_rows": 2, "confirmation_errors": 1,
+                                              "noise_rejected_rows": 41, "unquotable": 3, "stale_records": 1,
+                                              "noise_deferred": 2, "applied": 4}))
+    assert (lost, abstained) == (23, 47)
+    assert reviewer._gaps(Counter({"applied": 3, "noise_decided": 9})) == (0, 0)
+
+
+def test_a_failed_batch_is_partial_with_a_reason_and_no_memory_text(run, caplog, monkeypatch):
+    caplog.set_level("INFO")
+    monkeypatch.setattr(policy, "complete_structured", lambda llm, **kw: llm.complete_structured(**kw))
+    llm = FakeLlm()
+    original = llm.complete_structured
+    def failing(*a, **k):
+        if k["purpose"] == "Hindsight noise review":
+            raise StatusError(404, "model not found for " + USER)
+        return original(*a, **k)
+    llm.complete_structured = failing
+    run(FakeBank(), llm)
+    failed = _audit_events(caplog, "batch_failed")
+    assert failed and failed[0]["reason"] == "http_404" and failed[0]["lane"] == "noise" and failed[0]["size"] == 1
+    finished = _audit_events(caplog, "finished")[0]
+    assert finished["status"] == "partial" and finished["lost"] >= 1
+    assert finished["failure_reasons"] == {"noise:http_404": 1}
+    assert USER not in caplog.text and "model not found" not in "".join(r.getMessage() for r in caplog.records if "audit" in r.getMessage())
+
+
+def test_abstentions_alone_keep_the_review_complete(run, caplog):
+    caplog.set_level("INFO")
+    llm = FakeLlm(decision="keep")
+    original = llm.complete_structured
+    def invalid_target(*a, **k):
+        if k["purpose"] == "Hindsight noise review":
+            payload = json.loads(k["input"][0]["text"] if "input" in k else a[1][0]["text"])
+            rows = [{"id": c["id"], "decision": "noise", "reason": "duplicate", "duplicate_of": "not-a-case"} for c in payload["MEMORIES"]]
+            return types.SimpleNamespace(parsed={"items": rows})
+        return original(*a, **k)
+    llm.complete_structured = invalid_target
+    run(FakeBank(), llm)
+    finished = _audit_events(caplog, "finished")[0]
+    assert finished["status"] == "complete" and finished["lost"] == 0 and finished["abstained"] >= 1

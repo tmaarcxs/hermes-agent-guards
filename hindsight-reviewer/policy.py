@@ -40,10 +40,13 @@ SCHEMA = {
 }
 
 
-def _rows(response, cases, stats):
+def _rows(response, cases, stats, limit=None):
     """Reject ambiguous rows, not their independent siblings; never repair a model id."""
     rows = response.parsed.get('items') if isinstance(response.parsed, dict) else None
     if not isinstance(rows, list):
+        used = getattr(getattr(response, 'usage', None), 'output_tokens', 0)
+        if limit and isinstance(used, int) and used >= limit * 0.9:
+            raise ValueError('Incomplete model output: truncated')
         raise ValueError('Incomplete model output')
     ids = {case['id'] for case in cases}
     counts = Counter(row.get('id') for row in rows if isinstance(row, dict) and isinstance(row.get('id'), str))
@@ -70,14 +73,15 @@ def propose(llm, cases, route=None, context=None, stats=None):
     ids = {case['id'] for case in cases}
     if len(ids) != len(cases):
         raise ValueError('Duplicate case ids')
+    budget = max(500, len(cases)*120)
     response = complete_structured(llm,
         instructions=INSTRUCTIONS,
         input=[{'type':'text','text':json.dumps(cases if context is None else {'CONTEXT':context,'MEMORIES':cases}, ensure_ascii=False, separators=(',',':'))}],
-        json_schema=SCHEMA, timeout=90, max_tokens=max(500, len(cases)*120),
+        json_schema=SCHEMA, timeout=90, max_tokens=budget,
         purpose='Hindsight turn review', **(route or {}),
     )
     stats = stats if stats is not None else Counter()
-    indexed = _rows(response, cases, stats)
+    indexed = _rows(response, cases, stats, budget)
     output = []
     for case in cases:
         row = indexed.get(case['id'])
@@ -183,14 +187,15 @@ def noise(llm, cases, route=None, others=None, stats=None):
     dates = {case['id']:case.get('date') or '' for case in [*cases, *others]}
     targets = set(texts) | {case['id'] for case in others}
     payload = {'MEMORIES':cases, 'OTHER_MEMORIES':others} if others else {'MEMORIES':cases}
+    budget = max(500, len(cases)*100)
     response = complete_structured(llm,
         instructions=NOISE_INSTRUCTIONS,
         input=[{'type':'text','text':json.dumps(payload, ensure_ascii=False, separators=(',',':'))}],
-        json_schema=NOISE_SCHEMA, timeout=90, max_tokens=max(500, len(cases)*60),
+        json_schema=NOISE_SCHEMA, timeout=90, max_tokens=budget,
         purpose='Hindsight noise review', **(route or {}),
     )
     stats = stats if stats is not None else Counter()
-    indexed = _rows(response, cases, stats)
+    indexed = _rows(response, cases, stats, budget)
     output = []
     for case in cases:
         sid, row = case['id'], indexed.get(case['id'])

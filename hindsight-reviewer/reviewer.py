@@ -450,10 +450,45 @@ def notices_enabled(home):
         return True
 
 
+_REASON_PREFIXES = (
+    ('Incomplete model output: truncated', 'truncated'),
+    ('Incomplete model output', 'incomplete_output'),
+    ('Duplicate case ids', 'duplicate_case_ids'),
+    ('Plugin LLM structured output did not match schema', 'schema_mismatch'),
+)
+_LOST_SUFFIXES = ('errors', 'failed_cases', 'missing_rows')
+_LOST = {'malformed_ids', 'unresolved_recalls', 'unverified_writes', 'ambiguous_text', 'conflict', 'superseded_cases'}
+_ABSTAINED_SUFFIXES = ('rejected_rows',)
+_ABSTAINED = {'stale_records', 'changed_recalls', 'ineligible_sources', 'unquotable', 'noise_deferred'}
+
+
+def failure_reason(error):
+    """A fixed vocabulary token for why a call failed; never the exception text."""
+    for attr in ('status_code', 'code'):
+        status = getattr(error, attr, None)
+        if isinstance(status, int) and not isinstance(status, bool):
+            return 'http_%d' % status
+    if isinstance(error, ValueError):
+        message = str(error)
+        return next((token for prefix, token in _REASON_PREFIXES if message.startswith(prefix)), 'value_error')
+    if isinstance(error, TimeoutError) or type(error).__name__ == 'APITimeoutError':
+        return 'timeout'
+    if isinstance(error, ConnectionError) or type(error).__name__ == 'APIConnectionError':
+        return 'connection'
+    return 'other'
+
+
+def _gaps(outcomes):
+    """Split counters into cases never reviewed (lost) and cases reviewed but deliberately left alone."""
+    lost = sum(v for k, v in outcomes.items() if v and (k.endswith(_LOST_SUFFIXES) or k in _LOST))
+    abstained = sum(v for k, v in outcomes.items() if v and (k.endswith(_ABSTAINED_SUFFIXES) or k in _ABSTAINED))
+    return lost, abstained
+
+
 def _audit(job, **fields):
     """Only correlation ids, decisions and counters; never memory, evidence or exception text."""
     logger.info('Hindsight review audit: %s', json.dumps({
-        'version': '0.16.0', 'session_id': job.get('session_id', ''), 'turn_id': job.get('turn_id', ''),
+        'version': '0.17.0', 'session_id': job.get('session_id', ''), 'turn_id': job.get('turn_id', ''),
         **fields}, sort_keys=True))
 
 
@@ -560,7 +595,7 @@ MAX_PARALLEL = 8
 def review(llm, job):
     """Finalize every admitted job, including changes confirmed before a later failure."""
     started = time.monotonic()
-    outcomes, sources, route = Counter(), {}, {}
+    outcomes, sources, route, failures = Counter(), {}, {}, Counter()
     applied, cases = [], []
     status, notice_state = 'complete', 'not_needed'
     _audit(job, event='started', bank=job['recall']['bank'], captured=len(job['recall']['records']),
@@ -600,9 +635,14 @@ def review(llm, job):
                         try:
                             sink.extend(future.result())
                         except Exception as error:
+                            reason = failure_reason(error)
+                            failures[name + ':' + reason] += 1
                             outcomes['failed_batches'] += 1
                             outcomes[name + '_failed_cases'] += len(batch)
-                            logger.warning('Hindsight %s batch of %d memories skipped (%s)', name, len(batch), type(error).__name__)
+                            _audit(job, event='batch_failed', lane=name, size=len(batch), reason=reason,
+                                   error_type=type(error).__name__)
+                            logger.warning('Hindsight %s batch of %d memories skipped (%s: %s)', name, len(batch),
+                                           type(error).__name__, reason)
                         outcomes.update({name + '_' + k: v for k, v in stats.items() if isinstance(v, int)})
             for stats in noise_stats:
                 for row in getattr(stats, 'row_results', []):
@@ -627,7 +667,9 @@ def review(llm, job):
                 confirmed = policy.confirm(llm, text, row['evidence_quote'], evidence, route)
             except Exception as error:
                 outcomes['confirmation_errors'] += 1
-                _audit(job, event='confirmation_failed', memory_id=sid, lane='review', error_type=type(error).__name__)
+                failures['confirmation:' + failure_reason(error)] += 1
+                _audit(job, event='confirmation_failed', memory_id=sid, lane='review', error_type=type(error).__name__,
+                       reason=failure_reason(error))
                 continue
             if _superseded(job):
                 outcomes['superseded_cases'] += 1
@@ -663,7 +705,9 @@ def review(llm, job):
                 confirmed = policy.confirm_noise(llm, text, row['reason'], kept, route)
             except Exception as error:
                 outcomes['confirmation_errors'] += 1
-                _audit(job, event='confirmation_failed', memory_id=sid, lane='noise', error_type=type(error).__name__)
+                failures['confirmation:' + failure_reason(error)] += 1
+                _audit(job, event='confirmation_failed', memory_id=sid, lane='noise', error_type=type(error).__name__,
+                       reason=failure_reason(error))
                 continue
             if _superseded(job):
                 outcomes['superseded_cases'] += 1
@@ -686,15 +730,18 @@ def review(llm, job):
     except Exception as error:
         status = 'partial' if applied else 'failed'
         outcomes['job_errors'] += 1
-        _audit(job, event='failed', error_type=type(error).__name__, http_status=getattr(error, 'code', None))
+        failures['job:' + failure_reason(error)] += 1
+        _audit(job, event='failed', error_type=type(error).__name__, http_status=getattr(error, 'code', None),
+               reason=failure_reason(error))
         logger.warning('Hindsight review interrupted (%s); confirmed changes are preserved in its outcome', type(error).__name__)
         raise
     finally:
-        if status == 'complete' and any(v for k, v in outcomes.items() if k.endswith(('errors', 'failed_cases', 'missing_rows', 'rejected_rows')) or k in {'stale_records', 'malformed_ids', 'changed_recalls', 'unresolved_recalls', 'unverified_writes',
-                                                       'ambiguous_text', 'ineligible_sources', 'conflict', 'unquotable', 'noise_deferred', 'superseded_cases'}):
+        lost, abstained = _gaps(outcomes)
+        if status == 'complete' and lost:
             status = 'partial'
-        logger.info('Hindsight review outcome: reviewed=%d applied=%d noise=%d conflict=%d failed_batches=%d status=%s',
-                    len(cases), outcomes['applied'], outcomes['noise'], outcomes['conflict'], outcomes['failed_batches'], status)
+        logger.info('Hindsight review outcome: reviewed=%d applied=%d noise=%d conflict=%d failed_batches=%d abstained=%d status=%s',
+                    len(cases), outcomes['applied'], outcomes['noise'], outcomes['conflict'], outcomes['failed_batches'],
+                    abstained, status)
         if applied or outcomes['unverified_writes']:
             message = notice(applied) if applied else '🧠 Memory review: write outcome unknown; manual check needed'
             if outcomes['unverified_writes']:
@@ -720,7 +767,8 @@ def review(llm, job):
                 notice_state = 'failed'
                 _audit(job, event='notice_failed', error_type=type(error).__name__)
         _audit(job, event='finished', status=status, counts=dict(outcomes), reviewed=len(cases),
-               resolved=len(sources), notice_state=notice_state, route=route,
+               resolved=len(sources), lost=lost, abstained=abstained, failure_reasons=dict(failures),
+               notice_state=notice_state, route=route,
                elapsed_ms=round((time.monotonic() - started) * 1000))
     return outcomes['applied']
 
