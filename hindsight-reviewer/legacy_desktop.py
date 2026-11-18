@@ -16,7 +16,7 @@ def origin():
         if get_session_env("HERMES_SESSION_PLATFORM", ""):
             return None
         source = get_session_env("HERMES_SESSION_SOURCE", "")
-        if source not in {"gui", "desktop"}:
+        if source not in {"gui", "desktop", "tui"}:
             return None
         truthy = {"1", "true", "yes", "on"}
         if any(str(get_session_env(name, "") or "").strip().lower() in truthy for name in

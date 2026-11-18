@@ -456,3 +456,66 @@ def test_notices_default_on_when_setting_absent(tmp_path, monkeypatch):
 
 def test_notices_on_when_config_unreadable(tmp_path):
     assert reviewer.notices_enabled(str(tmp_path / "missing")) is True
+
+
+def _wired_turn(monkeypatch, surface_env, platform):
+    started = []
+    env = dict(surface_env)
+    import gateway.session_context as sc
+    monkeypatch.setattr(sc, "get_session_env", lambda name, default="": env.get(name, default))
+    monkeypatch.setattr(sc, "bound_session_key", lambda: "")
+    monkeypatch.setattr(reviewer, "_origin", lambda: None)
+    monkeypatch.setattr(reviewer, "_run", started.append)
+    monkeypatch.setattr(reviewer.threading, "Thread", lambda target, **k: types.SimpleNamespace(start=target))
+    reviewer._recalls["turn"] = {"bank": "b", "records": [{"id": "m1", "text": "fact"}], "block": "- fact"}
+    return started
+
+
+def _history():
+    from agent.memory_context import build_memory_context_block
+    return [{"role": "user", "content": "q", "api_content": "q\n\n" + build_memory_context_block("- fact")}]
+
+
+@pytest.mark.parametrize("platform", ["cli", "tui", "gui", "desktop", ""])
+def test_a_turn_without_a_live_viewer_is_reviewed_silently(monkeypatch, platform):
+    pytest.importorskip("agent.memory_context")
+    started = _wired_turn(monkeypatch, {}, platform)
+    reviewer.on_post_llm_call(session_id="turn", turn_id="t", user_message="q", assistant_response="a",
+                              conversation_history=_history(), platform=platform)
+    assert len(started) == 1
+    job = started[0]
+    assert job["attended"] is True and job["surface"] == platform
+    assert job["deliver"] is None and job["defer_notice"] is True and job["origin"]["message_id"] == ""
+
+
+@pytest.mark.parametrize("platform,env", [
+    ("cron", {}), ("subagent", {}), ("curator", {}), ("kanban", {}), ("oneshot", {}),
+    ("cli", {"HERMES_CRON_SESSION": "1"}), ("gui", {"HERMES_DELEGATED_CHILD_CONTEXT": "true"}),
+    ("cli", {"HERMES_SINGLE_QUERY_SESSION": "1"}), ("cli", {"HERMES_KANBAN_TASK": "t_1"})])
+def test_machine_written_turns_are_reviewed_without_contradiction_proposals(monkeypatch, platform, env):
+    pytest.importorskip("agent.memory_context")
+    started = _wired_turn(monkeypatch, env, platform)
+    reviewer.on_post_llm_call(session_id="turn", turn_id="t", user_message="q", assistant_response="a",
+                              conversation_history=_history(), platform=platform)
+    assert len(started) == 1 and started[0]["attended"] is False
+
+
+def test_an_unattended_review_never_asks_the_model_for_contradictions(monkeypatch, tmp_path):
+    monkeypatch.setattr(reviewer, "_connection", lambda home: ("http://bank", ""))
+    monkeypatch.setitem(sys.modules, "hermes_yaml", types.SimpleNamespace(safe_load=lambda text: {}))
+    (tmp_path / "config.yaml").write_text("")
+    bank, llm = FakeBank(), FakeLlm()
+    monkeypatch.setattr(reviewer, "_http", bank)
+    job = {"home": str(tmp_path), "session_id": "s", "turn_id": "t", "transcript": "[USER]\n" + USER, "quotable": [USER],
+           "recall": {"bank": "b", "records": [{"id": OBS, "text": "Staging DB is on 5432."}], "block": "x"},
+           "origin": {"platform": "cron", "chat_id": "s"}, "deliver": None, "attended": False}
+    assert reviewer.review(llm, job) == 0
+    assert bank.patches == []
+    purposes = {call["purpose"] for call in llm.calls}
+    assert "Hindsight turn review" not in purposes and "Hindsight turn review confirmation" not in purposes
+    assert "Hindsight noise review" in purposes
+
+
+def test_unattended_reviews_share_two_slots():
+    assert reviewer._unattended_slots._value == 2
+    assert reviewer.UNATTENDED_SURFACES >= {"cron", "subagent", "curator", "kanban"}

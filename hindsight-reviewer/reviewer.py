@@ -51,6 +51,9 @@ _gateway = _state.__dict__.setdefault('gateway', {})
 _active_reviews = _state.__dict__.setdefault('active_reviews', {})
 _latest_admissions = _state.__dict__.setdefault('latest_admissions', {})
 _SECRET = re.compile(r'(?i)(?:bearer\s+\S{12,}|(?:api[_-]?key|client[_-]?secret|password|token)\s*[:=]\s*["\']?\S{12,}|\bsk-[a-zA-Z0-9_-]{16,})')
+UNATTENDED_SURFACES = frozenset({'cron', 'subagent', 'curator', 'kanban', 'oneshot', 'tool', 'api_server', 'webhook', 'bot_room'})
+UNATTENDED_FLAGS = ('HERMES_CRON_SESSION', 'HERMES_DELEGATED_CHILD_CONTEXT', 'HERMES_SINGLE_QUERY_SESSION')
+_unattended_slots = _state.__dict__.setdefault('unattended_slots', threading.BoundedSemaphore(2))
 NOTICE_PREFIX = '🧠 Memory review: '
 NOTICE_LABELS = {'superseded': 'superseded', 'contradicted': 'outdated', 'duplicate': 'duplicate', 'fragment': 'no context', 'transient': 'one-off'}
 
@@ -222,6 +225,26 @@ def _origin():
     return origin if origin['platform'] and origin['chat_id'] else None
 
 
+def _surface(platform=''):
+    """The lowercase surface label of this turn: the hook's platform, else the session source."""
+    from gateway.session_context import get_session_env
+    return str(platform or get_session_env('HERMES_SESSION_SOURCE', '') or get_session_env('HERMES_SESSION_PLATFORM', '') or '').strip().lower()
+
+
+def _attended(surface):
+    """False for turns whose user rows are machine-written: cron, delegated, one-shot, Kanban and similar."""
+    from gateway.session_context import get_session_env
+    truthy = lambda name: str(get_session_env(name, '') or '').strip().lower() in {'1', 'true', 'yes', 'on'}
+    return (surface not in UNATTENDED_SURFACES and not any(truthy(name) for name in UNATTENDED_FLAGS)
+            and not get_session_env('HERMES_KANBAN_TASK', ''))
+
+
+def _unbound_origin(session_id, surface):
+    """Origin of a turn with no live viewer: reviewed silently, never superseded, never notified."""
+    return {'platform': surface or 'unbound', 'chat_id': session_id, 'chat_type': '', 'thread_id': '', 'user_id': '',
+            'message_id': '', 'profile': ''}
+
+
 def _origin_key(origin):
     return tuple(str(origin.get(name) or '') for name in ('platform', 'chat_id', 'thread_id', 'profile'))
 
@@ -247,7 +270,7 @@ def _turn_review_callback():
 
 
 def on_post_llm_call(session_id='', turn_id='', user_message=None, assistant_response=None,
-                     conversation_history=None, **_):
+                     conversation_history=None, platform='', **_):
     """Start one review for a completed turn with a known injected block.
 
     A mid-turn steering message adds a newer user row, so bind against every user row of the turn.
@@ -258,10 +281,11 @@ def on_post_llm_call(session_id='', turn_id='', user_message=None, assistant_res
     marker = {'session_id': session_id, 'turn_id': turn_id}
     job = None
     try:
+        surface = _surface(platform)
         origin = _origin()
         if origin is None:
-            _audit(marker, event='skipped', reason='no_origin')
-            return
+            origin = _unbound_origin(session_id, surface)
+        attended = _attended(surface)
         desktop_current = origin.pop('_desktop_current', None)
         deliver = origin.pop('_desktop_sender', None) if origin['platform'] == 'local' else _turn_review_callback()
         if not (injected or tooled):
@@ -289,6 +313,7 @@ def on_post_llm_call(session_id='', turn_id='', user_message=None, assistant_res
         job = {'home': str(get_hermes_home()), 'session_id': session_id, 'turn_id': turn_id,
                'transcript': transcript, 'quotable': quotable, 'recall': recall, 'origin': origin,
                'deliver': deliver, 'defer_notice': True, 'desktop_current': desktop_current,
+               'surface': surface, 'attended': attended,
                'injected_count': injected_count, 'tool_count': tool_count}
         job['route_key'], job['cancel_event'] = _origin_key(origin), threading.Event()
         with _lock:
@@ -369,11 +394,16 @@ def _merge(injected, tooled):
 def _run(job):
     from agent.secret_scope import build_profile_secret_scope, reset_secret_scope, set_secret_scope
     token = set_secret_scope(build_profile_secret_scope(Path(job['home'])), profile_home=job['home'])
+    slot = None if job.get('attended', True) else _unattended_slots
     try:
+        if slot:
+            slot.acquire()
         review(CTX.llm, job)
     except Exception as error:
         logger.warning('Hindsight review failed (%s: %s); the turn is skipped', type(error).__name__, error)
     finally:
+        if slot:
+            slot.release()
         reset_secret_scope(token)
         _unregister_job(job)
 
@@ -423,7 +453,7 @@ def notices_enabled(home):
 def _audit(job, **fields):
     """Only correlation ids, decisions and counters; never memory, evidence or exception text."""
     logger.info('Hindsight review audit: %s', json.dumps({
-        'version': '0.15.0', 'session_id': job.get('session_id', ''), 'turn_id': job.get('turn_id', ''),
+        'version': '0.16.0', 'session_id': job.get('session_id', ''), 'turn_id': job.get('turn_id', ''),
         **fields}, sort_keys=True))
 
 
@@ -534,7 +564,8 @@ def review(llm, job):
     applied, cases = [], []
     status, notice_state = 'complete', 'not_needed'
     _audit(job, event='started', bank=job['recall']['bank'], captured=len(job['recall']['records']),
-           injected=job.get('injected_count', 0), tool_recalled=job.get('tool_count', 0))
+           injected=job.get('injected_count', 0), tool_recalled=job.get('tool_count', 0),
+           surface=job.get('surface', ''), attended=job.get('attended', True))
     try:
         if _superseded(job):
             status = 'partial'
@@ -558,7 +589,8 @@ def review(llm, job):
             with ThreadPoolExecutor(max_workers=min(2 * len(batches), MAX_PARALLEL)) as pool:
                 submit = lambda call, *args: pool.submit(contextvars.copy_context().run, call, *args)
                 review_stats, noise_stats = [Counter() for _ in batches], [Counter() for _ in batches]
-                refuted = [submit(policy.propose, llm, batch, route, evidence, stats)
+                propose = policy.propose if job.get('attended', True) else (lambda *args: [])
+                refuted = [submit(propose, llm, batch, route, evidence, stats)
                            for batch, stats in zip(batches, review_stats)]
                 flagged = [submit(policy.noise, llm, batch, route, cases, stats)
                            for batch, stats in zip(batches, noise_stats)]

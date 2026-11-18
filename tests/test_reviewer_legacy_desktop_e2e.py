@@ -199,9 +199,11 @@ def test_legacy_desktop_at_serve_websocket(scenario, tmp_path):
                         pass
                     notices = [f for f in frames if f.get("params", {}).get("type") == "review.summary"]
                     audit = "\n".join(p.read_text() for p in (home / "logs").glob("*.log"))
-                    if scenario == "desktop" and notices:
+                    if scenario in {"desktop", "tui"} and notices:
                         break
-                    if scenario in {"baseline", "tui", "tool", "cron", "delegated"} and '"reason": "no_origin"' in audit:
+                    if scenario == "baseline" and '"reason": "no_origin"' in audit:
+                        break
+                    if scenario in {"tool", "cron", "delegated"} and '"attended": false' in audit and '"event": "finished"' in audit:
                         break
                     if (scenario == "new_input" and second and audit.count(json.dumps({"event": "finished"})[1:-1]) >= 2
                             and sum(f.get("params", {}).get("type") == "message.complete" for f in frames) >= 2):
@@ -210,7 +212,7 @@ def test_legacy_desktop_at_serve_websocket(scenario, tmp_path):
                 assert all(n["session_id"] == sid for n in notices), notices
                 assert all(n["session_id"] != other["session_id"] for n in notices)
                 assert any(path.endswith("/memories/recall") for _, path in calls), calls
-                if scenario == "desktop":
+                if scenario in {"desktop", "tui"}:
                     assert facts["state"] == "invalidated" and len(patches) == 1, (facts, calls, audit[-9000:])
                     assert stages.count("proposal") == 1 and stages.count("confirmation") == 1, stages
                     assert reads[-1] == "invalidated" and reads.count("valid") >= 2, reads
@@ -219,8 +221,11 @@ def test_legacy_desktop_at_serve_websocket(scenario, tmp_path):
                     assert types.index("message.complete") < types.index("review.summary"), types
                 else:
                     assert not patches and not notices and facts["state"] == "valid", (patches, notices, audit[-9000:])
-                    if scenario != "new_input":
+                    if scenario == "baseline":
                         assert "no_origin" in audit, audit[-9000:]
+                    if scenario in {"tool", "cron", "delegated"}:
+                        assert '"attended": false' in audit and "no_origin" not in audit, audit[-9000:]
+                        assert stages.count("proposal") == 0 and stages.count("confirmation") == 0, stages
                     if scenario == "new_input":
                         assert second and proposed.is_set() and "superseded" in audit, audit[-9000:]
                 with sqlite3.connect(home / "state.db") as db:

@@ -2,6 +2,12 @@
 
 Reviews injected and tool-recalled memories after an eligible gateway turn. The proposal, independent confirmation, exact evidence, fresh primary-fact read, reversible invalidation and readback gates remain unchanged. A newer admitted message cancels unfinished writes.
 
+## Every turn
+
+Version 0.16.0 reviews every turn that injected or recalled memories, not only Desktop and Telegram. The turn's surface is read from the `post_llm_call` platform, then the session source. A surface without a live viewer (CLI, TUI without a bound Desktop owner, cron, subagents, the curator) gets an origin with no message id and no sender: it is never superseded and never notified, and the audit line records `surface` and `attended`.
+
+Turns whose user rows are machine-written (cron, subagent, curator, Kanban, one-shot, tool, API server, webhook, bot room, or an unattended flag) run only the noise lane: duplicates, fragments and superseded memories. They never ask the model for a contradiction, because a prompt written by a scheduler is not Marcos correcting a memory. At most two such reviews run at once, so a cron burst cannot flood the model or the bank. Attended turns keep both lanes and every existing gate. The legacy `hermes serve` binder also admits the `tui` source, so a TUI session served to Desktop gets its notice.
+
 ## Silent mode
 
 Version 0.15.0 adds `plugins.entries.hermes-agent-guards/hindsight-reviewer.notices`. Set it to `false` to keep every review and reversible invalidation running in the background without posting the chat notice; the audit log records `notice_state=suppressed_by_config`. Absent, unreadable or any other value keeps notices on.
