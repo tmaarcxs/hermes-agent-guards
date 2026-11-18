@@ -2,6 +2,12 @@
 
 Reviews injected and tool-recalled memories after an eligible gateway turn. The proposal, independent confirmation, exact evidence, fresh primary-fact read, reversible invalidation and readback gates remain unchanged. A newer admitted message cancels unfinished writes.
 
+## Noise confirmer calibration
+
+Version 0.18.0 rewrites the second-pass noise confirmer after it was measured against two independent blind labelers (92% and 79% agreement) on 235 vetoed memories. 86% of the memories it vetoed (144 of 167) were real noise, while it had approved 0 false removals, so its default of keeping when unsure was costing recall, not protecting memories. Each reason now has its own test: a duplicate is noise unless a named fact, value or step is missing from the kept memory; a fragment is noise only when it names no subject and holds no specific value, path, identifier or decision; a superseded memory still needs a newer, contradicting kept memory. Preferences, authorizations, commitments and identity facts are always kept.
+
+Replayed on 261 labelled cases with three repetitions each: noise recall 0.37 to 0.46, useful memories wrongly removed 4.3% to 1.4%, and none removed by majority vote. Expected removals rise about 14% (534 to roughly 610 over the same period). A candidate that also kept the unsure default only for fragments reached 0.52 recall but removed two useful memories, so it was rejected. The model and its labels are unchanged; this is a prompt-only change with no new retries.
+
 ## Coverage status
 
 Version 0.17.0 splits what 0.16.0 called `partial`. `status=partial` now means coverage was lost: a batch or confirmation failed, the model dropped or garbled rows, a write could not be verified, or a newer message cancelled the work. Deliberate abstentions no longer downgrade the status: rejected noise rows (invalid target, unproven newer memory), unquotable evidence, deferred noise, stale or changed recalls and ineligible sources.
