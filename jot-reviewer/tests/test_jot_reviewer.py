@@ -63,8 +63,8 @@ def test_parse_note_reads_days_in_order_and_skips_placeholders():
     assert days["Martes 10"] == []
 
 
-def _change(op, day, task, state="🔄", nxt="Revisar", quote="PR #1460 mergeada"):
-    return {"op": op, "day": day, "task": task, "state": state, "next": nxt, "evidence_quote": quote}
+def _change(op, day, task, state="🔄", nxt="Revisar", quote="PR #1460 mergeada", parent=""):
+    return {"op": op, "day": day, "task": task, "state": state, "next": nxt, "evidence_quote": quote, "parent": parent}
 
 
 def test_gate_enforces_board_rules():
@@ -352,3 +352,50 @@ def test_jot_notices_default_on(tmp_path):
     (tmp_path / "config.yaml").write_text("")
     assert reviewer.notices_enabled(str(tmp_path)) is True
     assert reviewer.notices_enabled(str(tmp_path / "missing")) is True
+
+
+def _full_today(count):
+    rows = "".join(f"| 🔄 | Servicio: resultado {n} | Revisar |\n" for n in range(count))
+    return policy.parse_note(NOTE.replace("| ⚪ |  |  |\n\n## 📅 Miércoles", rows + "\n## 📅 Miércoles", 1))
+
+
+def test_an_add_that_names_a_parent_row_is_dropped():
+    add = _change("add", "Martes 10", "Servicio: despliegue en DES", "✅", "Nada", parent="Servicio: alta en Application Insights")
+    assert policy.gate([add], policy.parse_note(NOTE), "Martes 10", CONTEXT) == []
+
+
+def test_an_add_with_an_empty_parent_is_a_new_outcome():
+    add = _change("add", "Martes 10", "Servicio: investigar la clasificación de documentos", parent="  ")
+    assert len(policy.gate([add], policy.parse_note(NOTE), "Martes 10", CONTEXT)) == 1
+
+
+@pytest.mark.parametrize("task", [
+    "Servicio: diagrama del flujo de carga (flow-v2.png)",
+    "Servicio: informe de la prueba en report.pdf",
+    "Servicio: script de migración migrate.py",
+])
+def test_an_add_that_names_an_artifact_file_is_dropped(task):
+    assert policy.gate([_change("add", "Martes 10", task)], policy.parse_note(NOTE), "Martes 10", CONTEXT) == []
+
+
+def test_at_most_two_new_outcomes_per_review():
+    adds = [_change("add", "Martes 10", f"Servicio: resultado nuevo {n}") for n in range(4)]
+    kept = policy.gate(adds, policy.parse_note(NOTE), "Martes 10", CONTEXT)
+    assert [c["task"] for c in kept] == ["Servicio: resultado nuevo 0", "Servicio: resultado nuevo 1"]
+
+
+def test_a_full_day_takes_no_new_row_but_still_takes_a_move():
+    days = _full_today(policy.MAX_DAY_ROWS)
+    assert policy.gate([_change("add", "Martes 10", "Servicio: algo nuevo")], days, "Martes 10", CONTEXT) == []
+    assert len(policy.gate([_change("add", "Martes 10", "Servicio: algo nuevo")], _full_today(policy.MAX_DAY_ROWS - 1), "Martes 10", CONTEXT)) == 1
+    task = "Servicio: alta en Application Insights"
+    move = [_change("remove", "Lunes 9", task, "⏳", "x", "estamos dados de alta"),
+            _change("add", "Martes 10", task, "⏳", "Confirmar acceso", "estamos dados de alta")]
+    assert len(policy.gate(move, days, "Martes 10", CONTEXT)) == 2
+
+
+def test_the_model_contract_requires_a_parent_and_the_prompt_defaults_to_no_add():
+    item = policy.SCHEMA["properties"]["changes"]["items"]
+    assert "parent" in item["required"] and "parent" in item["properties"]
+    assert "THE DEFAULT IS NO ADD" in policy.INSTRUCTIONS
+    assert "diagram" in policy.INSTRUCTIONS and "diagram" in policy.CONFIRM_INSTRUCTIONS

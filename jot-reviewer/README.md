@@ -2,6 +2,14 @@
 
 The default-profile background reviewer maintains the professional weekly board. It keeps the existing proposal, deterministic gate, independent confirmation, revision check, two-cell isolation and readback workflow.
 
+## Granularity
+
+Version 0.11.0 stops the board from filling with steps. The proposal prompt defaults to no add: a new row is one outcome Marcos would name as a task, and work that belongs to an outcome already on the board only updates that row. Every proposed change carries a required `parent` field, the exact Tarea of the closest existing row; an add that names a parent is discarded. The deterministic gate also drops an add whose Tarea names an artifact file (png, pdf, csv, script and similar), allows at most two new outcomes per review, and refuses any new row once today's table holds eight rows. A move of an open row to today is exempt from all three. The second checker skips an add that is a step, deploy, diagram, credential retrieval or follow-up of work a row already covers.
+
+Measured on the Wednesday 18 Nov board: 31 adds and 42 sets in two days, 27 rows in one day, 12 of them with a diagram, deploy, secret or sub-PR as the whole outcome.
+
+Calibrated on the proposal stage with the cron model, 5 runs per case over 11 scripted turns: unwanted adds after the gate fell from 13 to 1 (22 to 10 adds in total; the 9 kept are the genuinely new outcomes). A deploy, diagram, secret retrieval or sub-PR of a tracked outcome went from added in 5 of 5 runs to 0 of 5.
+
 ## Silent mode
 
 Version 0.10.0 adds `plugins.entries.hermes-agent-guards/jot-reviewer.notices`. Set it to `false` to keep reviews applying board changes without sending the chat notice. Absent, unreadable or any other value keeps notices on.
