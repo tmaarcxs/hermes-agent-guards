@@ -61,14 +61,7 @@ Intent (behaviour identical to the monolithic plugin):
   already carries ``notify_on_complete=true`` keeps its poll hint;
 - normalizes: empty-string optional Kanban arguments become absent, a
   ``task_id`` of the literal ``$HERMES_KANBAN_TASK`` becomes absent, and a
-  doubled ``skill_view`` name ``x:x`` becomes ``x``;
-- sizes: blocks ``skill_manage``/``write_file``/``patch`` calls that would push
-  a skill markdown file over its limit (SKILL.md 6000, other skill ``.md``
-  12000 characters), flags after the fact a ``terminal``/``execute_code``/
-  ``patch`` call that left one over its limit (required action + tree-split
-  instruction appended to the result, no revert), and refuses on ``pre_verify``
-  to end the turn while a file this session flagged is still over its limit
-  (re-measured at check time, at most two continuations per file per session).
+  doubled ``skill_view`` name ``x:x`` becomes ``x``.
 
 Matches commands at command-word position outside quoted strings, so mentions
 in strings, grep patterns and python -c bodies pass. It catches slips, not
@@ -90,7 +83,6 @@ try:
         plugin_source_gate,
         process_poll_gate,
         signed_commit_gate,
-        skill_size,
         terminal_env_fix,
         terminal_policy,
     )
@@ -106,7 +98,6 @@ except ImportError:
 def register(ctx) -> None:
     ctx.register_hook("pre_tool_call", _pre_tool_call)
     ctx.register_hook("post_tool_call", _post_tool_call)
-    ctx.register_hook("pre_verify", _pre_verify)
     ctx.register_hook("transform_tool_result", _transform_tool_result)
     ctx.register_hook("transform_terminal_output", _transform_terminal_output)
 
@@ -120,26 +111,11 @@ def _post_tool_call(**kwargs) -> None:
     return None
 
 
-def _pre_verify(**kwargs) -> Optional[dict]:
-    """Refuse to end the turn while a file this session flagged is still over its limit.
-
-    See ``skill_size.check``: re-measures at check time, clears a fixed file silently,
-    caps at two continuations per file per session, fails open.
-    """
-    try:
-        return skill_size.verify_check(**kwargs)
-    except Exception:
-        return None
-
-
 def _transform_tool_result(**kwargs) -> Optional[str]:
-    """Rewrite core's poll-only promoted note first; the skill-size flag rides after.
+    """Rewrite core's poll-only promoted note first, then the background-wait note.
 
     The host keeps the FIRST non-``None`` string across plugins (``model_tools.py``
-    ``_apply_transform_tool_result_hook``), and callbacks do not chain — every callback
-    gets the ORIGINAL result. The core note rewrite and the skill-size flag can therefore
-    never both fire on one result (a promotion note result is not a skill write), so
-    first-wins is safe: try the note rewrite, then skill_size's flag on the original.
+    ``_apply_transform_tool_result_hook``), and callbacks do not chain.
     The deadline-completion note lives on ``transform_terminal_output`` instead: the
     host's own deadline kill produces ``_ToolTimeoutResult``, which this hook never
     sees (``_publish_sequential_result`` skips transforms for timed-out results).
@@ -157,25 +133,14 @@ def _transform_tool_result(**kwargs) -> Optional[str]:
             session_id=kwargs.get("session_id") or "")
     except Exception:
         noted = None
-    try:
-        flagged = skill_size.transform(
-            kwargs.get("tool_name") or "", kwargs.get("args"), noted if noted is not None else result,
-            tool_call_id=kwargs.get("tool_call_id") or "")
-    except Exception:
-        flagged = None
-    return flagged if flagged is not None else noted
+    return noted
 
 
 def _transform_terminal_output(**kwargs) -> Optional[str]:
-    """Deliver the skill-size flag for a ``terminal`` call before the result hook runs.
+    """Annotate the tool's own-timeout death of a clamped ``terminal`` call.
 
-    See ``skill_size.transform_terminal_output``: the host keeps only the first
-    non-``None`` ``transform_tool_result`` string across plugins, so the flag must ride
-    the earlier ``transform_terminal_output`` seam to survive alongside the
-    ``kanban-guards`` delegation nudge. The deadline clamp rides the same seam: the
-    terminal tool runs it INSIDE the tool, so the tool's own-timeout death of the
-    rewritten 405 s call gets the ``background=true`` note the later result hooks
-    cannot deliver.
+    The terminal tool runs this seam INSIDE the tool, so the rewritten 405 s call's
+    death gets the ``background=true`` note the later result hooks cannot deliver.
     """
     if kwargs.get("returncode") == 124:
         try:
@@ -186,12 +151,7 @@ def _transform_terminal_output(**kwargs) -> Optional[str]:
                 return note
         except Exception:
             pass
-    try:
-        return skill_size.transform_terminal_output(
-            kwargs.get("command") or "", kwargs.get("output"),
-            tool_call_id=kwargs.get("tool_call_id") or "")
-    except Exception:
-        return None
+    return None
 
 
 def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -> Optional[dict]:
@@ -204,8 +164,6 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
     for check, name in (
         (lambda: paas_promote_gate.check(tool_name, args), "paas_promote_gate"),
         (lambda: plugin_source_gate.check(tool_name, args), "plugin_source_gate"),
-        (lambda: skill_size.check(tool_name, args), "skill_size"),
-        (lambda: skill_size.record(tool_name, args, **kwargs), "skill_size"),
         (lambda: process_poll_gate.check(tool_name, args), "process_poll_gate"),
         (lambda: git_stash_gate.check(tool_name, args), "git_stash_gate"),
         (lambda: base_branch_gate.check(tool_name, args), "base_branch_gate"),

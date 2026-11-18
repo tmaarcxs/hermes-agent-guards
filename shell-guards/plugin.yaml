@@ -1,5 +1,5 @@
 name: shell-guards
-version: "0.13.1"
+version: "0.14.0"
 description: >
   Tell the model when a foreground wait was moved to the background: that call's
   `Background process started` result gains a `rewritten_to_background` field (the command has not
@@ -60,14 +60,7 @@ description: >
   rewritten 405 s timeout killed it gets a note naming the
   `terminal(command=..., background=true, notify=true)` replacement - the
   host's own deadline kill produces a result no transform hook sees, so those
-  deaths stay silent); and keep skill markdown
-  files under their size limit - blocks a `skill_manage`/`write_file`/`patch`
-  call that would push one over (SKILL.md 6000, other skill .md files 12000
-  characters), flags after the fact a `terminal`/`execute_code`/unified-diff
-  `patch` call that left one oversized (appending the required action and the
-  tree-split instruction to the tool result without reverting), and refuses on
-  `pre_verify` to end the turn while a flagged file is still over its limit
-  (re-measured at check time; at most two continuations per file per session).
+  deaths stay silent).
   Matches commands at command-word position
   outside quoted strings, so mentions in strings, grep patterns and python
   bodies pass; it catches slips, not deliberate evasion, and fails open.
@@ -76,12 +69,10 @@ kind: standalone
 hooks:
   - pre_tool_call
   - post_tool_call
-  - pre_verify
   - transform_tool_result
   - transform_terminal_output
 provides_hooks:
   - pre_tool_call
   - post_tool_call
-  - pre_verify
   - transform_tool_result
   - transform_terminal_output

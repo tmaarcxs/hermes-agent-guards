@@ -164,17 +164,3 @@ def test_a_failing_note_never_loses_the_rewrite_or_the_result(monkeypatch):
     assert pre("sleep 200") == REWRITE
     monkeypatch.setattr(note, "NOTE", "{unknown}")
     assert post() is None
-
-
-def test_note_and_skill_size_flag_both_reach_the_model(tmp_path, monkeypatch):
-    skills = tmp_path / "skills"
-    (skills / "cat" / "demo").mkdir(parents=True)
-    skill = skills / "cat" / "demo" / "SKILL.md"
-    skill.write_text("---\nname: demo\ndescription: Use when testing.\n---\n" + "x" * 100)
-    monkeypatch.setattr(guards.skill_size, "ROOTS", [skills])
-    guards.skill_size._PENDING.clear()
-    pre("sleep 200")
-    skill.write_text(skill.read_text() + "y" * 7000)
-    final = post()
-    assert "rewritten_to_background" in final and "over the limit for SKILL.md" in final
-    guards.skill_size._PENDING.clear()

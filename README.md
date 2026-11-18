@@ -73,8 +73,6 @@ Answers: *is this shell command safe to run?*
   `Background process started` result gains a `rewritten_to_background` field
   (not finished, do not re-run, how to collect the outcome), so the model
   knows its wait moved.
-- Keeps skill markdown files under their size limit (blocks a call that would
-  push one over; flags after the fact one that landed over).
 
 ### `workspace-guards` — where writes and card workspaces may live
 
