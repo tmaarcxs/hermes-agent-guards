@@ -2,7 +2,7 @@
 
 Pre-split this lived in ``tests/test_block_attribution.py`` and parametrized over
 one 14-name list, because all guards shared one ``_pre_tool_call``. After the
-split each plugin owns its own tuple, so this walks all three plugins' declared
+split each plugin owns its own tuple, so this walks every plugin's declared
 check lists and pins the same contract per plugin: a blocked call's message reads
 ``agent-guards blocked <tool> [<guard>]: ...`` — the census scripts match the
 exact ``agent-guards blocked `` prefix, so the guard name goes AFTER the tool
@@ -14,17 +14,13 @@ import pytest
 from _plugin_loader import load_plugin
 
 CHECK_TUPLES = {
-    "shell-guards": ("paas_promote_gate", "skill_size", "process_poll_gate"),
+    "shell-guards": ("paas_promote_gate", "process_poll_gate"),
     "workspace-guards": ("home_litter_gate", "workspace_convention"),
-    "kanban-guards": (
-        "checkpoint_gate", "kanban_policy", "github_contact",
-        "handoff_gate", "completion_gate", "backup_copy_gate", "schedule_gate",
-    ),
 }
 
 
 def _policy_of(module):
-    return getattr(module, "_policy", None) or getattr(module, "kanban_policy", None)
+    return getattr(module, "_policy", None)
 
 
 def _stub_others(monkeypatch, module, names, keep):

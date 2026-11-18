@@ -44,23 +44,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 PLUGINS = (
-    "kanban-guards",
     "shell-guards",
     "workspace-guards",
     "recall-guards",
     "provider-guards",
-    "text-guards",
-    "goal-waker",
 )
 
-MARKERS = ("agent-guards blocked", "agent-guards bounced", "System: agent-guards", "bounced kanban_")
+MARKERS = ("agent-guards blocked", "agent-guards bounced", "System: agent-guards")
 
 POINTER = re.compile(r"see the (?:docs|readme|documentation)", re.IGNORECASE)
 
 _RUNTIME_SHAPED = frozenset({
-    "kanban-guards/kanban_policy.py",
-    "kanban-guards/pr_link_gate.py",
-    "kanban-guards/unused_code_gate.py",
     "shell-guards/paas_promote_gate.py",
     "shell-guards/plugin_source_gate.py",
     "shell-guards/base_branch_gate.py",
@@ -154,9 +148,6 @@ def test_every_message_names_a_concrete_alternative():
 def test_runtime_shaped_sites_are_pinned_per_gate():
     """Each skipped file's message alternative is pinned by a per-gate test."""
     pinned = {
-        "kanban-guards/kanban_policy.py": ROOT / "kanban-guards/tests/test_kanban_policy.py",
-        "kanban-guards/pr_link_gate.py": ROOT / "kanban-guards/tests/test_pr_link_gate.py",
-        "kanban-guards/unused_code_gate.py": ROOT / "kanban-guards/tests/test_unused_code_gate.py",
         "shell-guards/paas_promote_gate.py": ROOT / "shell-guards/tests/test_paas_promote_gate.py",
         "shell-guards/plugin_source_gate.py": ROOT / "shell-guards/tests/test_agent_guards.py",
         "shell-guards/base_branch_gate.py": ROOT / "shell-guards/tests/test_base_branch_gate.py",

@@ -4,7 +4,7 @@ A monorepo of self-contained Hermes Agent plugins that prevent recurring agent
 mistakes and keep delegated work moving. Guard checks fail open: an internal
 error never blocks a tool call.
 
-The three guards used to ship as one monolithic `agent-guards` plugin. They are
+The guards used to ship as one monolithic `agent-guards` plugin. They are
 now independent folders, each with its own `plugin.yaml`, its own
 `register()`, and no imports into a sibling folder. Install and enable the ones
 you want; they do not depend on each other.
@@ -15,11 +15,7 @@ you want; they do not depend on each other.
 
 Answers: *is this shell command safe to run?*
 
-- Blocks `git stash` writes for workers (the stash stack is shared by every worktree), `process_manage` `poll`, a foreground `sleep` of 5 s or more, and a polling loop holding a
-  `sleep` of 3 s or more (run the wait in the background with a notification
-  channel; `wait` returns at the process exit). The same thresholds cover the
-  equivalent idle-wait shapes: `read -t N`, and `time.sleep(N)`/`select(..., N)`
-  inside a `python -c`/`perl -e` payload or heredoc script.
+- Blocks `git stash` writes for workers (the stash stack is shared by every worktree), and `process_manage` `poll` (`wait` returns at the process exit).
 - Blocks a `pgrep -f`/`pkill -f` inside a loop, in the foreground *and* in the
   background: the pattern is part of the loop shell's own command line, so the
   loop matches itself and never exits (observed: two waiters held 8 h on
@@ -69,12 +65,6 @@ Answers: *is this shell command safe to run?*
   `background=true, notify=true` replacement call (the host's own deadline
   kill produces a result no transform hook sees, so those deaths stay
   silent).
-- Tells the model when it moved a foreground wait to the background: that call's
-  `Background process started` result gains a `rewritten_to_background` field
-  (not finished, do not re-run, how to collect the outcome), so the model
-  knows its wait moved.
-- Keeps skill markdown files under their size limit (blocks a call that would
-  push one over; flags after the fact one that landed over).
 
 ### `workspace-guards` — where writes and card workspaces may live
 
@@ -113,45 +103,6 @@ Answers: *is this path one the agent may write to?*
   transform hooks in the core, so repeats of those stay out of reach without
   a core change.
 
-### `kanban-guards` — Kanban worker, lead and wake discipline
-
-Answers: *is this lifecycle call, board read or wake legitimate?*
-
-- Worker gates: force a budget checkpoint comment before a run is cut at the
-  iteration cap; keep delegated cards on the configured worker profile; block
-  `kanban_complete` until `metadata.acceptance` maps every numbered Acceptance
-  item to evidence; block a `kanban_request_review`/`kanban_complete` whose diff
-  added unused private Python names or imports (leading-underscore module-level
-  names nothing references — one `git grep -w` per batch decides, test references
-  count, `__all__` names and dunders are exempt — and imports the module never
-  uses, with `__init__.py` re-exports exempt); keep the published-PR completion
-  duty visible; block
-  contacts with people on GitHub from worker terminals; bounce
-  a narrated stop after a blocked lifecycle call; block `kanban_schedule`;
-  refuse a handoff that preserves a backup copy of the delivered work; block a
-  scratch-workspace handoff that names deliverables only inside the workspace
-  (uncovered paths in the handoff text, or unpushed git commits with no bundle
-  or patch artifact) — the workspace is deleted on completion.
-- Lead gates: steer a lead terminal away from `hermes kanban create` (the CLI
-  leaves the new card without a chat subscription) toward the `kanban_create`
-  tool, naming the exact call rebuilt from the blocked command's flags;
-  scope a lead chat's `kanban_list` result to the cards its own chat
-  thread is subscribed to.
-- Wakes: run every Kanban wake on one shared event-driven chassis over
-  `board_watch` — stale parked cards, review-loop thresholds, the churn corner,
-  waiting-on-external-gate runs, dispatcher stalls and unreconciled delivery
-  notices — injected into the card's subscribed chat within one dispatcher tick.
-  Wakes need `plugins.entries.kanban-guards.allow_gateway_injection: true`.
-
-### `text-guards` — banned characters in the reply
-
-Answers: *does anything the agent emits contain a character the operator forbids?*
-
-- `transform_llm_output` cleans the final reply; `pre_tool_call` cleans the tool arguments, so
-  comment bodies, files written by `write_file`/`patch` and shell commands are covered too.
-- Replaces every occurrence of the section sign, with its surrounding spaces, by a single space.
-- Never blocks a call or touches other text; returns `None` when there is nothing to clean.
-
 ### `provider-guards` upstream provider failures
 
 Answers: *can narrowly identified upstream failures recover?*
@@ -166,13 +117,6 @@ Answers: *can narrowly identified upstream failures recover?*
 - Owns its locked TypeScript runtime; imports the actual Jot writer modules before paying for model proposals. Missing capability skips the job visibly.
 - Install dependencies with `python3 install-runtime.py` in the plugin directory. Runtime packages stay in its private `.venv`; no Hermes core or global package edits.
 
-### `token-efficiency` — lossless new-result packing
-
-- Removes only whitespace outside strings in strict JSON objects/arrays. Preserves values, numeric spellings, escapes and all fields; malformed/ambiguous/oversized input passes through.
-- Loads after shell/workspace result guards so mandatory rewrites and repeat-block tracking retain priority.
-- Optional content-free request-view/usage observation stops after 2500 requests or 12 hours. Disabled by default; no extra model calls or prompt changes.
-- Does not claim an inline ToolSearch receipt or a prepared-compaction lifecycle fix. The supported-hook limits and rollback are documented in its README.
-
 Each folder's `README.md` documents its own rules in full.
 
 ## Install
@@ -180,7 +124,7 @@ Each folder's `README.md` documents its own rules in full.
 ```
 hermes plugins install tmaarcxs/hermes-agent-guards#shell-guards
 hermes plugins install tmaarcxs/hermes-agent-guards#workspace-guards
-hermes plugins install tmaarcxs/hermes-agent-guards#kanban-guards
+hermes plugins install tmaarcxs/hermes-agent-guards#recall-guards
 ```
 
 The `#<subdir>` fragment is the CLI's subdirectory syntax (see
@@ -199,21 +143,15 @@ then refuses to move it. Install without `--ref`, and `hermes plugins update
 ```
 shell-guards/       one self-contained plugin (modules + plugin.yaml + tests)
 workspace-guards/   one self-contained plugin
-kanban-guards/      one self-contained plugin
-jot-guards/         placeholder; its nudge gate was removed (shaping, not enforcement)
 recall-guards/      one self-contained plugin
-goal-waker/         one self-contained plugin (resumes parked goals on messaging chats; one wake
-                    per goal-row advance)
-text-guards/        one self-contained plugin
 provider-guards/    one self-contained plugin (upstream HTTP 424 retry / Copilot rejection fallback)
 tests/              cross-plugin checks (helper-copy divergence, transform winner)
 pytest.ini          runs all folders plus tests/ in one command
-CUTOVER.md          ordered activation steps for replacing the old plugin
 ```
 
 The two small shared-library helpers (`RETRY_INSTRUCTION`, `configured_worker()`)
 are deliberately duplicated per folder instead of shared: a common plugin would
-re-introduce a load-order dependency across three otherwise independent plugins.
+re-introduce a load-order dependency across otherwise independent plugins.
 `tests/test_helper_copies_agree.py` fails when the copies drift apart.
 
 ## Reviewer model failover
@@ -262,7 +200,7 @@ PYTHONPATH="$HOME/.hermes/hermes-agent" ~/.hermes/hermes-agent/venv/bin/python -
 ```
 
 Run from the repo root; the suite needs Python 3.10+ and the Hermes checkout on
-`PYTHONPATH`. A `pytest.ini` at the root collects all three plugin folders plus
+`PYTHONPATH`. A `pytest.ini` at the root collects every plugin folder plus
 `tests/` in one command.
 
 ## Privacy guard

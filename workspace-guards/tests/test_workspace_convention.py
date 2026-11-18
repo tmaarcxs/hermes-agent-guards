@@ -220,8 +220,7 @@ def test_message_carries_the_retry_instruction(convention_home):
     INSTRUCTION = "retry the lifecycle call in this same response"
     VIOLATION_CLAUSE = "protocol violation"
     """Same assertion the repo-wide tests/test_retry_instruction.py makes; the
-    file itself belongs to the kanban-guards lane, so the two-line helper is
-    copied here instead of importing across plugin folders."""
+    file was removed with kanban-guards, so the two-line helper lives here."""
     message = blocked({**BASE, "workspace_kind": "dir",
                        "workspace_path": str(convention_home)})
     assert INSTRUCTION in message, message

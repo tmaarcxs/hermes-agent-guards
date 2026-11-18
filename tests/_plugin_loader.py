@@ -26,7 +26,7 @@ _counter = itertools.count()
 def load_plugin(folder_name: str, probe: str = ""):
     """Load ``<ROOT>/<folder_name>/__init__.py`` under a unique package name.
 
-    ``folder_name`` is the on-disk folder (``kanban-guards``); the probe package
+    ``folder_name`` is the on-disk folder (``shell-guards``); the probe package
     name is derived from it plus a counter so two loads never collide and the
     canonical ``sys.modules`` entry is never touched.
     """
