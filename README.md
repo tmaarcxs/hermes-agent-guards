@@ -15,11 +15,7 @@ you want; they do not depend on each other.
 
 Answers: *is this shell command safe to run?*
 
-- Blocks `git stash` writes for workers (the stash stack is shared by every worktree), `process_manage` `poll`, a foreground `sleep` of 5 s or more, and a polling loop holding a
-  `sleep` of 3 s or more (run the wait in the background with a notification
-  channel; `wait` returns at the process exit). The same thresholds cover the
-  equivalent idle-wait shapes: `read -t N`, and `time.sleep(N)`/`select(..., N)`
-  inside a `python -c`/`perl -e` payload or heredoc script.
+- Blocks `git stash` writes for workers (the stash stack is shared by every worktree), and `process_manage` `poll` (`wait` returns at the process exit).
 - Blocks a `pgrep -f`/`pkill -f` inside a loop, in the foreground *and* in the
   background: the pattern is part of the loop shell's own command line, so the
   loop matches itself and never exits (observed: two waiters held 8 h on
@@ -69,10 +65,6 @@ Answers: *is this shell command safe to run?*
   `background=true, notify=true` replacement call (the host's own deadline
   kill produces a result no transform hook sees, so those deaths stay
   silent).
-- Tells the model when it moved a foreground wait to the background: that call's
-  `Background process started` result gains a `rewritten_to_background` field
-  (not finished, do not re-run, how to collect the outcome), so the model
-  knows its wait moved.
 
 ### `workspace-guards` — where writes and card workspaces may live
 

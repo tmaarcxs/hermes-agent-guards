@@ -1,7 +1,7 @@
 """Force an outcome channel on bounded background terminal jobs and other shell hygiene.
 
 Self-contained agent-guards plugin: terminal command hygiene (foreground
-sleeps/polling loops, pinned PR merges, osascript, bare force pushes, recursive
+polling, pinned PR merges, osascript, bare force pushes, recursive
 deletion of a live Hermes home), the dispatch-label guard for paas-promote, the
 background-jobs outcome-channel requirement, the inline-attach cap, argument
 normalization and the skill-file size guard.
@@ -12,10 +12,7 @@ Intent (behaviour identical to the monolithic plugin):
   ``git stash`` writes (push, pop, drop, apply, clear; ``list``/``show`` pass) for
   workers, because the stash stack is shared by every worktree of the repo;
   ``process_manage`` ``poll`` (``wait`` returns at the process exit, ``log``
-  reads output); foreground ``sleep`` of 5 s or more, or a ``for``/``while``/``until``
-  polling loop holding a ``sleep`` of 3 s or more (run the wait as
-  ``terminal(command=<the same command/loop>, background=true, notify=true)``,
-  loops with ``notify=[<ready pattern>]``);
+  reads output);
   a ``pgrep -f``/``pkill -f`` inside a loop in the foreground *and* the
   background (the pattern is part of the loop shell's own command line, so it
   self-matches and never exits — use ``pgrep -x`` or test the target directly);
@@ -49,10 +46,6 @@ Intent (behaviour identical to the monolithic plugin):
 - rewrites a ``terminal`` command: unsets a ``PYTHONPATH`` that holds a Hermes install
   site-packages entry, and adds ``set -o pipefail`` to a test runner piped to ``tail``/``head``
   so the real exit status shows (no "re-run without the pipe" turn);
-- states the rewrite: when the guard moves a foreground wait to the background, that call's
-  ``Background process started`` result gains one ``rewritten_to_background`` field saying the
-  command has NOT finished, must not be re-run, and how to collect its outcome (the rewrite itself
-  carries no message, and one install saw 231 such rewrites in 7 days);
 - rewrites: a ``transform_tool_result`` turns Hermes core's poll-only promoted-process
   note ("poll it with process(action=\"poll\", session_id=...)") into the event-driven
   instruction consistent with the guards: ``process_manage(action="wait", session_id=...)``
@@ -74,7 +67,6 @@ try:
     from . import (
         _policy,
         background_notify_gate,
-        background_wait_note,
         base_branch_gate,
         git_stash_gate,
         hermes_home_gate,
@@ -126,14 +118,7 @@ def _transform_tool_result(**kwargs) -> Optional[str]:
             return rewritten
     except Exception:
         pass
-    result = kwargs.get("result")
-    try:
-        noted = background_wait_note.transform(
-            kwargs.get("tool_name") or "", result, tool_call_id=kwargs.get("tool_call_id") or "",
-            session_id=kwargs.get("session_id") or "")
-    except Exception:
-        noted = None
-    return noted
+    return None
 
 
 def _transform_terminal_output(**kwargs) -> Optional[str]:
@@ -179,17 +164,11 @@ def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -
     try:
         args = args if isinstance(args, dict) else {}
         if tool_name == "terminal":
-            found = terminal_policy.terminal_violations(str(args.get("command") or ""), bool(args.get("background")))
-            wait_fix: dict = {}
-            if found and terminal_policy.only_waits(found) and not args.get("pty"):
-                found = terminal_policy.terminal_violations(str(args.get("command") or ""), True)  # non-wait rules still apply
-                wait_fix = {"background": True, "notify": True}
+            found = terminal_policy.terminal_violations(str(args.get("command") or ""))
             if found:
                 return {"action": "block", "message": "agent-guards blocked terminal [__init__]: " + "; ".join(found)}
-            changes = {**wait_fix, **(background_notify_gate.fix(tool_name, args) or {}), **(terminal_env_fix.fix(tool_name, args) or {})}
+            changes = {**(background_notify_gate.fix(tool_name, args) or {}), **(terminal_env_fix.fix(tool_name, args) or {})}
             changes = {**(changes or {}), **(terminal_policy.rewrite_deadline_args(tool_name, args) or {})}
-            if wait_fix:
-                background_wait_note.record(str(kwargs.get("tool_call_id") or ""), str(kwargs.get("session_id") or ""))
             return {"action": "modify", "args": changes} if changes else None
         blocked = terminal_policy.attach_cap_block(args)
         if blocked:

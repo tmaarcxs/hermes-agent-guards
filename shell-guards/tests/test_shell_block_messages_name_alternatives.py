@@ -21,25 +21,12 @@ def worker_setup(monkeypatch):
 
 
 def _run(command, background=False):
-    """pty=True keeps the wait a block: a plain foreground wait is rewritten instead."""
     return guards._pre_tool_call(tool_name="terminal", args={"command": command, "background": background, "pty": True})
 
 
 def _message(result):
     assert result is not None and result["action"] == "block"
     return result["message"]
-
-
-def test_foreground_sleep_names_the_background_call_shape():
-    message = _message(_run("sleep 300; echo done"))
-    assert "terminal(command=<the same command>, background=true, notify=true)" in message
-    assert "never sleep or poll" in message
-
-
-def test_polling_loop_names_the_background_call_shape():
-    message = _message(_run("for i in 1 2; do sleep 4; sleep 4; sleep 4; sleep 4; done"))
-    assert "terminal(command=<the same loop>, background=true, notify=[<ready pattern>])" in message
-    assert "never sleep or poll" in message
 
 
 def test_poll_block_names_wait_log_and_notify_alternatives():

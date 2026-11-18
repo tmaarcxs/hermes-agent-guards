@@ -1,4 +1,4 @@
-"""Pin the joined transform behaviour: the background-wait note survives the host pipeline.
+"""Pin the joined transform behaviour through the host's two transform seams.
 
 The host keeps the FIRST non-None string a ``transform_tool_result`` callback
 returns and drops the rest (``model_tools.py`` ``_apply_transform_tool_result_hook``:
@@ -87,20 +87,3 @@ def test_non_string_output_leaves_the_terminal_seam_untouched(plugins):
     callback = plugins["registered"]["shell-guards"]["transform_terminal_output"][0]
     assert callback(command="cat >> x", output={"ok": True}, returncode=0, task_id="",
                     env_type="local", tool_call_id="c1") is None
-
-
-def test_rewritten_wait_note_survives_the_host_pipeline(plugins):
-    """A foreground wait moved to the background keeps its note through both host seams, exactly once."""
-    shell = plugins["shell-guards"]
-    call = {"command": "sleep 200; echo hi", "background": False}
-    rewrite = shell._pre_tool_call(tool_name="terminal", args=call, tool_call_id="c1", session_id="lead-session")
-    assert rewrite == {"action": "modify", "args": {"background": True, "notify": True}}
-    started = (
-        '{"output": "Background process started", "session_id": "proc_1", "pid": 7, '
-        '"exit_code": 0, "error": null, "notify_on_complete": true}'
-    )
-    final = _run_host_pipeline(
-        plugins["registered"], _host_load_order(list(PLUGINS)), started,
-        args={**call, "background": True, "notify": True},
-    )
-    assert final.count("rewritten_to_background") == 1 and "NOT finished" in final

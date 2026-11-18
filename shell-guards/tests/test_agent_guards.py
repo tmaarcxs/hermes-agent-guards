@@ -16,35 +16,14 @@ def run(command, background=False):
 
 
 def blocked(command, background=False):
-    """True when the command does not run as written in the foreground: refused, or a pure
-    foreground wait rewritten to the background+notify call the block message asks for."""
     result = run(command, background)
-    if result is None:
-        return False
-    return result["action"] == "block" or (
-        result["action"] == "modify" and result["args"].get("background") is True and result["args"].get("notify") is True)
+    return result is not None and result["action"] == "block"
 
 
 @pytest.mark.parametrize(
     "command",
     [
-        "sleep 60",
-        "sleep 420; gh pr checks 1",
-        "sleep 45; gh pr checks 1054 2>&1",
-        "sleep 30 && gh pr view 400 --repo o/r",
-        "sleep 2m; echo done",
-        "cd x && sleep 2m",
-        "for i in 1 2; do sleep 90; done",
-        "for i in $(seq 1 12); do st=$(gh run view 1 --json status); sleep 20; done",
-        "for i in $(seq 1 30); do ST=$(status); sleep 30; done",
-        "while kill -0 $p 2>/dev/null && [ $w -lt 520 ]; do sleep 20; done",
-        "for i in 1 2; do sleep 15; done",
-        "X=1 sleep 120",
-        "sleep 5; ls",
-        "sleep 29",
-        "until [ -f ready ]; do sleep 10; done",
-        "for i in 1 2; do sleep 14; done",
-        "for i in 1 2; do sleep 3; done",
+
         "gh pr merge 12 --repo o/r --merge --admin",
         "set -e; gh pr merge 12 --merge && gh pr view 12",
         "m(){ gh pr merge $1 --merge; }",
@@ -80,9 +59,6 @@ def test_blocks(command):
 @pytest.mark.parametrize(
     "command",
     [
-        "for i in $(seq 1 30); do pg_isready -U appdb && break; sleep 1; done",
-        "for i in $(seq 1 45); do code=$(curl -s -m 2 http://127.0.0.1:55518/readiness); sleep 2; done",
-        "for i in 1 2 3 4 5 6 7 8; do curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:55518; sleep 2; done",
         "gh pr merge 12 --merge --admin --match-head-commit abc123",
         "m(){ gh pr merge $1 --merge --admin --match-head-commit $h; }",
         "grep -n 'gh pr merge' notes.md",
@@ -92,11 +68,9 @@ def test_blocks(command):
         "git push origin b",
         "git push origin feature/x-f",
         "python3 -c \"print('sleep 600')\"",
-        "cat > poll.sh <<'EOF'\nfor i in $(seq 1 30); do sleep 60; done\nEOF\nbash poll.sh",
         "grep -rn \"osascript\\\\|--admin\\\\|gh pr merge\" ~/.hermes/plugins",
         "python3 -c 'p=\"backups/worker-osascript-prohibition\"; print(p)'",
         "gh pr merge 1 --merge --match-head-commit \"$h\"",
-        "echo 'sleep 45' > instructions.md",
         "rm -rf ~/.hermes/cache/scratch/x",
         "rm -rf \"$PWD/.hermes-test-home.ab12\"",
         "rm -rf /home/u/.hermes/kanban/workspaces/t_abc/tmp",
@@ -109,89 +83,6 @@ def test_blocks(command):
 def test_allows(command):
     result = run(command)
     assert result is None or result["action"] == "modify"
-
-
-def test_background_sleep_allowed():
-    result = run("sleep 600", background=True)
-    assert result is None or result["action"] == "modify"
-
-
-"""Round-2: the wait-class scan covers `read -t`, `time.sleep`/`select()` in
-python `-c` payloads and the same shapes inside heredoc bodies.
-
-The audit's §6 probes walked past the sleep scan with `read -t 30`,
-`python3 -c "import time; time.sleep(30)"`, `perl -e 'select(...)'` and
-`for ...; do read -t 5 x; done` — the very idle-wait the sleep rules exist to
-end. The alternates get the same thresholds (5 s foreground, 3 s in a loop)
-and the same background=true notify=true alternative message.
-"""
-
-
-@pytest.mark.parametrize("command", [
-    "read -t 30 </dev/null",
-    "read -t 45; echo done",
-    "for i in 1 2 3; do read -t 8 x; done",
-    "while ! gh pr view 1; do read -t 5 x; done",
-    "python3 -c \"import time; time.sleep(30)\"",
-    "python3 -c \"import time\\nfor i in range(3): time.sleep(6)\"",
-    "python3 -c \"import select; select.select([], [], [], 30)\"",
-    "perl -e 'select(undef,undef,undef,30)'",
-    "useradd -e 2020 x",
-    "python3 -c \"import time; print(time.time())\"",
-    "python3 -c \"time.sleep(2)\"",
-    "read -t 3 x",
-    "echo 'read -t 30' > notes.md",
-    "grep -rn 'time.sleep' script.py",
-    "python3 -c \"import time; time.sleep(30)\" & wait",
-])
-def test_new_wait_shapes_decide_correctly(command):
-    """Blocked rows are the audit's bypasses; allowed rows are mentions,
-    sub-threshold waits, contract-required env fixups or a shell-backgrounded
-    interpreter (the whole job returns immediately, the sleep exemption's
-    own shape)."""
-    result = run(command)
-    should_block = command in {
-        "read -t 30 </dev/null",
-        "read -t 45; echo done",
-        'python3 -c "import time; time.sleep(30)"',
-        'python3 -c "import time\\nfor i in range(3): time.sleep(6)"',
-        'python3 -c "import select; select.select([], [], [], 30)"',
-        "perl -e 'select(undef,undef,undef,30)'",
-    }
-    should_block_loop = command in {
-        "for i in 1 2 3; do read -t 8 x; done",
-        "while ! gh pr view 1; do read -t 5 x; done",
-    }
-    if should_block or should_block_loop:
-        assert blocked(command), command  # a plain call is rewritten to background+notify
-        result = guards._pre_tool_call(tool_name="terminal", args={"command": command, "background": False, "pty": True})
-        assert result is not None and result["action"] == "block", command
-        expected = "notify=[<ready pattern>]" if should_block_loop else "notify=true)"
-        assert expected in result["message"], (command, result["message"])
-    else:
-        assert result is None or result["action"] == "modify", command
-
-
-def test_wait_background_with_notify_allowed():
-    result = run("read -t 45; echo done", background=True)
-    assert result is None or result["action"] == "modify"
-
-
-def test_python_heredoc_long_wait_blocked():
-    command = "python3 - <<'PYEOF'\nimport time\ntime.sleep(600)\nPYEOF"
-    result = guards._pre_tool_call(tool_name="terminal", args={"command": command, "background": False, "pty": True})
-    assert result is not None and result["action"] == "block"
-    assert "background=true, notify=true" in result["message"]
-
-
-def test_python_heredoc_short_wait_allowed():
-    command = "python3 - <<'PYEOF'\nimport time\ntime.sleep(2)\nPYEOF"
-    assert run(command) is None or run(command)["action"] == "modify"
-
-
-def test_shell_heredoc_read_t_loop_blocked():
-    command = "bash - <<'EOF'\nwhile ! [ -f ready ]; do read -t 10 x; done\necho ready\nEOF"
-    assert blocked(command)
 
 
 @pytest.mark.parametrize(
@@ -212,7 +103,6 @@ def test_self_matching_pgrep_loop_is_blocked(command):
 
 
 def test_self_matching_pgrep_message_names_the_fix():
-    """sleep 1 keeps this below the loop-sleep rule, so the pgrep rule is what fires."""
     result = run('while pgrep -f "migrate.py" >/dev/null; do sleep 1; done')
     assert result and result["action"] == "block"
     assert "pgrep" in result["message"] and "self-matches" in result["message"]
@@ -256,8 +146,8 @@ def test_background_still_checks_merge():
 
 
 def test_all_violations_in_one_message():
-    message = run("sleep 300; gh pr merge 1 --merge; git push -f")["message"]
-    assert "sleep" in message and "match-head-commit" in message and "force-with-lease" in message
+    message = run("osascript -e 1; gh pr merge 1 --merge; git push -f")["message"]
+    assert "osascript" in message and "match-head-commit" in message and "force-with-lease" in message
 
 
 def test_empty_kanban_args_become_absent(monkeypatch):
@@ -378,21 +268,6 @@ def test_default_deadline_resolves_to_420():
     deadline = resolve_timeout("tools.sequential_call", default=None) or resolve_timeout(
         "tools.concurrent_batch", default=420.0, env_var="HERMES_CONCURRENT_TOOL_TIMEOUT_S")
     assert deadline and guards.terminal_policy._wait_cap() == int(deadline) - 5
-
-
-def test_pure_foreground_wait_is_rewritten_to_background_notify():
-    result = run("sleep 60; gh pr checks 1")
-    assert result == {"action": "modify", "args": {"background": True, "notify": True}}
-
-
-def test_wait_with_another_violation_still_blocks():
-    result = run("sleep 60; git push -f origin main")
-    assert result["action"] == "block" and "force" in result["message"].lower()
-
-
-def test_interactive_pty_wait_is_still_blocked():
-    result = guards._pre_tool_call(tool_name="terminal", args={"command": "sleep 60", "background": False, "pty": True})
-    assert result["action"] == "block"
 
 
 def test_missing_timeout_is_shimmed_and_keeps_exit_codes(monkeypatch):
