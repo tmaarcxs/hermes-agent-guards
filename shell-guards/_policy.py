@@ -4,8 +4,7 @@
 plugins, so the two ``kanban_policy`` helpers its gates call — the worker probe
 behind ``background_notify_gate`` and the retry instruction the block message
 quotes — are carried here verbatim. Behaviour-identical copy of the
-monolithic plugin's module; the full delegation policy lives with the
-kanban-guard plugins.
+monolithic plugin's module.
 """
 
 RETRY_INSTRUCTION = (

@@ -3,8 +3,7 @@
 Self-contained Hermes plugin: **where new entries and card workspaces may live.**
 
 Moved out of the monolithic `agent-guards` plugin (base commit `90456b2`) as
-part of the three-plugin monorepo split (`shell-guards`, `workspace-guards`,
-`kanban-guards`).
+part of the plugin monorepo split.
 
 ## What it answers
 

@@ -1,7 +1,7 @@
 """``repeat_block_gate`` tests: escalate the second identical guard block, nothing else.
 
 production entry point: ``transform`` as registered on ``transform_tool_result``
-(the same shape kanban-guards' ``workspace_scope_gate`` tests pin). The block
+The block
 fixtures are the exact delivered shape in worker profile state.db: a single-line
 ``{"error": "agent-guards blocked <tool> [guard]: ...`` JSON object.
 """

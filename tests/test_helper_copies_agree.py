@@ -6,14 +6,13 @@ needs travel as verbatim copies instead of one import.
 
 - ``shell-guards/_policy.py``
 - ``workspace-guards/_policy.py``
-- ``kanban-guards/kanban_policy.py``
 
 Duplication only stays safe while the copies are identical. This test compares
 the ``RETRY_INSTRUCTION`` value, the ``configured_worker`` source and the
-``configured_worker`` behaviour of all three copies, so any edit to one copy
+``configured_worker`` behaviour of both copies, so any edit to one copy
 that is not mirrored to the others fails here instead of silently forking the
 config probe or the retry wording. When a copy legitimately must change, change
-all three in the same commit.
+both in the same commit.
 """
 
 import ast
@@ -28,7 +27,6 @@ ROOT = Path(__file__).resolve().parent.parent
 COPIES = {
     "shell-guards": ROOT / "shell-guards" / "_policy.py",
     "workspace-guards": ROOT / "workspace-guards" / "_policy.py",
-    "kanban-guards": ROOT / "kanban-guards" / "kanban_policy.py",
 }
 
 
@@ -65,20 +63,20 @@ def test_every_copy_exists(copy):
 def test_retry_instruction_is_identical_everywhere(copy):
     name, path = copy
     module = _load(path, f"_helper_probe_retry_{name.replace('-', '_')}")
-    baseline = _load(COPIES["kanban-guards"], "_helper_probe_retry_baseline")
+    baseline = _load(COPIES["shell-guards"], "_helper_probe_retry_baseline")
     assert module.RETRY_INSTRUCTION == baseline.RETRY_INSTRUCTION, (
-        f"{name} RETRY_INSTRUCTION drifted from the kanban-guards original; "
-        "keep the three copies byte-identical or change all three together"
+        f"{name} RETRY_INSTRUCTION drifted from the shell-guards original; "
+        "keep the two copies byte-identical or change both together"
     )
 
 
 def test_configured_worker_source_is_identical_everywhere(copy):
     name, path = copy
     assert _function_source(path, "configured_worker") == _function_source(
-        COPIES["kanban-guards"], "configured_worker"
+        COPIES["shell-guards"], "configured_worker"
     ), (
-        f"{name} configured_worker() source drifted from the kanban-guards "
-        "original; the three copies must stay identical"
+        f"{name} configured_worker() source drifted from the shell-guards "
+        "original; the two copies must stay identical"
     )
 
 
@@ -105,7 +103,7 @@ def test_configured_worker_behaves_the_same_everywhere(copy, config, expected):
         host_config.load_config_readonly = original
 
 
-def test_all_three_copies_agree_on_the_same_probe(copy):
+def test_both_copies_agree_on_the_same_probe(copy):
     name, path = copy
     import hermes_cli.config as host_config
 
@@ -120,4 +118,4 @@ def test_all_three_copies_agree_on_the_same_probe(copy):
         ]
     finally:
         host_config.load_config_readonly = original
-    assert mine == others[0] == others[1], f"{name} disagrees with the other copies: {mine!r} vs {others!r}"
+    assert mine == others[0], f"{name} disagrees with the other copies: {mine!r} vs {others!r}"

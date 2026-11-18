@@ -1,6 +1,6 @@
 """Bare ``pytest`` at the repo root must stay green, and the injection must stay gone.
 
-Two pre-split root-level invariants, re-pointed at the three plugin folders after
+Two pre-split root-level invariants, re-pointed at the plugin folders after
 the split (the root ``__init__.py`` no longer exists):
 
 - the synthetic-unit import shape: with no path argument pytest still forms the
@@ -29,7 +29,6 @@ ROOT = Path(__file__).resolve().parent.parent
 FOLDERS = {
     "shell-guards": ("shell_guards", ("terminal_policy",)),
     "workspace-guards": ("workspace_guards", ("home_litter_gate",)),
-    "kanban-guards": ("kanban_guards", ("stop_gate", "wakes", "workspace_scope_gate")),
 }
 
 SWARM_SPLIT_TEXT = "swarm-split reminder"

@@ -3,7 +3,7 @@
 The monorepo split made each plugin folder self-contained (Marcos, 2026-10-22):
 no cross-plugin imports, so the small shared-library bits that
 ``home_litter_gate`` and ``workspace_convention`` use travel with the plugin
-instead of importing ``kanban-guards``. ``tests/test_helper_copies_agree.py`` at
+instead of importing a sibling plugin. ``tests/test_helper_copies_agree.py`` at
 the monorepo root fails when these copies drift from the original.
 """
 
@@ -25,6 +25,6 @@ def configured_worker() -> str:
 
 def _unused_note() -> None:
     """The rest of ``kanban_policy`` (``violations``, ``check``, ``merge_hint``,
-    ``EXECUTION_OVERRIDES``) is delegation/lifecycle policy owned by kanban-guards
+    ``EXECUTION_OVERRIDES``) is delegation/lifecycle policy
     and is not used by this plugin's modules."""
     return None
