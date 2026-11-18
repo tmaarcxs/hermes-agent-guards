@@ -29,7 +29,6 @@ were left unchanged (their wording is pinned by tests).
 | Gate | Trigger | Status | Alternative named |
 |---|---|---|---|
 | home_litter_gate | new top-level entry under `~` | OK (unchanged; the wording already names every location exactly) | task workspace `HERMES_KANBAN_WORKSPACE`, Hermes scratch `~/.hermes/cache/scratch`, TMPDIR/tmp, kanban attachments, `<main-repo>/.worktrees/<task>/` or `~/git_repos/ad-hoc/<task>/` for repo work, `~/.hermes/kanban.db` for the DB |
-| workspace_convention | `kanban_create` workspace_path outside the convention | OK (unchanged) | `<main-checkout>/.worktrees/<task>/` (linked worktree), `~/git_repos/ad-hoc/<name>/` for no-repo work, default scratch `~/.hermes/kanban/workspaces/<task>` (kind=scratch, no path); "Use scratch by default." |
 
 Note: the card's top-blocked gate `workspace_write_gate` was already removed upstream
 (commit `5584b65`, PR #96) before this card branched, so its two message shapes (git

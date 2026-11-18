@@ -15,7 +15,7 @@ from _plugin_loader import load_plugin
 
 CHECK_TUPLES = {
     "shell-guards": ("paas_promote_gate", "process_poll_gate"),
-    "workspace-guards": ("home_litter_gate", "workspace_convention"),
+    "workspace-guards": ("home_litter_gate", "plugin_local_edit_gate"),
 }
 
 

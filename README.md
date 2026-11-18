@@ -66,7 +66,7 @@ Answers: *is this shell command safe to run?*
   kill produces a result no transform hook sees, so those deaths stay
   silent).
 
-### `workspace-guards` — where writes and card workspaces may live
+### `workspace-guards` — where writes may go
 
 Answers: *is this path one the agent may write to?*
 
@@ -89,19 +89,6 @@ Answers: *is this path one the agent may write to?*
   cycle instead: the matching working clone under `~/git_repos`, its
   `git worktree add` command, and `hermes -p <profile> plugins update <name>`
   for every installed copy.
-- When the profile config sets `kanban.default_assignee`, rejects a
-  `kanban_create` whose `dir`/`worktree` workspace_path leaves the placement
-  convention.
-- Escalates a call the same guard already blocked twice in one session: the
-  repeated block result is REWRITTEN (never blocked in advance — every call
-  still reaches the real guards) into a verdict that says repetition cannot
-  pass and names the way out — the exact change the original block states, or
-  `kanban_block(reason="...")` in a worker session — with the original block
-  text kept below it. `kanban_block`/`kanban_heartbeat` results are never
-  escalated; every error fails open. Reaches registry-dispatched tools
-  (`kanban_*`, skill, MCP); terminal-class blocked results do not fire
-  transform hooks in the core, so repeats of those stay out of reach without
-  a core change.
 
 ### `provider-guards` upstream provider failures
 
