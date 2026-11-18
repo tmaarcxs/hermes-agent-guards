@@ -2,6 +2,14 @@
 
 Reviews injected and tool-recalled memories after an eligible gateway turn. The proposal, independent confirmation, exact evidence, fresh primary-fact read, reversible invalidation and readback gates remain unchanged. A newer admitted message cancels unfinished writes.
 
+## Coverage status
+
+Version 0.17.0 splits what 0.16.0 called `partial`. `status=partial` now means coverage was lost: a batch or confirmation failed, the model dropped or garbled rows, a write could not be verified, or a newer message cancelled the work. Deliberate abstentions no longer downgrade the status: rejected noise rows (invalid target, unproven newer memory), unquotable evidence, deferred noise, stale or changed recalls and ineligible sources.
+
+The `finished` audit line carries `lost` and `abstained` counts, and `failure_reasons`, a map of `lane:reason` to count. A failed batch also writes one `batch_failed` line with `lane`, `size` and `reason`. Reasons are a fixed vocabulary, never exception text: `http_<status>`, `truncated`, `incomplete_output`, `duplicate_case_ids`, `schema_mismatch`, `value_error`, `timeout`, `connection`, `other`. `truncated` means the reply did not parse and the model used at least 90% of its `max_tokens`.
+
+Output budgets are 120 tokens per memory for the review lane and 100 for the noise lane (was 60), so a full batch of 20 UUID-keyed duplicate rows fits. There are still no same-route retries and no batch splitting.
+
 ## Every turn
 
 Version 0.16.0 reviews every turn that injected or recalled memories, not only Desktop and Telegram. The turn's surface is read from the `post_llm_call` platform, then the session source. A surface without a live viewer (CLI, TUI without a bound Desktop owner, cron, subagents, the curator) gets an origin with no message id and no sender: it is never superseded and never notified, and the audit line records `surface` and `attended`.

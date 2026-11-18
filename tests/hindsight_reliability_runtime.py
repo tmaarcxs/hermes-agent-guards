@@ -117,12 +117,12 @@ SCENARIOS = {
                    'bound': True, 'expected_status': 'complete'},
     'first_recall_404': {'recall': [entry('contradicted', text=OLD_CONTRA), plain(6), entry('contradicted')],
                          'get404': [OLD_CONTRA], 'expected_valid': [OLD_CONTRA],
-                         'expect_counts': {'stale_records': 1}, 'bound': True, 'expected_status': 'partial'},
+                         'expect_counts': {'stale_records': 1}, 'bound': True, 'expected_status': 'complete'},
     'observation_source_404': {'recall': [entry('observation', kind_type='observation',
                                                     sources=[T['source']]), entry('contradicted'), plain(7)],
                                'store': [entry('source')], 'get404': [T['source']],
                                'expect_counts': {'stale_records': 1}, 'bound': True,
-                               'expected_status': 'partial'},
+                               'expected_status': 'complete'},
     'prewrite_404': {'recall': [entry('contradicted', text=WARM_CONTRA), plain(8), entry('contradicted')],
                      'get404_after': {WARM_CONTRA: 1}, 'expected_valid': [WARM_CONTRA],
                      'expect_counts': {'conflict': 1}, 'bound': True, 'expected_status': 'partial'},
@@ -142,7 +142,7 @@ SCENARIOS = {
                                 'expect_counts': {'conflict': 1}, 'bound': True,
                                 'expected_status': 'partial'},
     'evidence_traps': {'recall': [entry('assistant_trap'), entry('memory_trap'), plain(15)],
-                       'expect_counts': {'unquotable': 2}, 'bound': True, 'expected_status': 'partial'},
+                       'expect_counts': {'unquotable': 2}, 'bound': True, 'expected_status': 'complete'},
     'unbound_notice': {'recall': [entry('contradicted'), plain(16)], 'bound': False,
                        'expected_status': 'complete'},
     'superseded_by_admission': {'recall': [entry('contradicted'), entry('contradicted', text=WARM_CONTRA), plain(17)],
@@ -157,7 +157,7 @@ SCENARIOS = {
     'other_thread_not_canceled': {'recall': [entry('contradicted'), plain(18), plain(19)],
                                   'cancel_other': {'chat_id': '8888', 'thread_id': 't-9'},
                                   'bound': True, 'expected_status': 'complete'},
-    'corpus': {'recall': corpus(), 'bound': True, 'expected_status': 'partial'},
+    'corpus': {'recall': corpus(), 'bound': True, 'expected_status': 'complete'},
 }
 scenario = SCENARIOS[scenario_id]
 all_records = scenario['recall'] + scenario.get('store', [])
