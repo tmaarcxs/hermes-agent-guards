@@ -356,7 +356,7 @@ def _review(llm, job, now):
             if not apply(job['home'], note, fresh_days, change):
                 break
             applied.append(change)
-            logger.info('Jot review applied %s on %s: %s', change['op'], change['day'], change['task'][:80])
+            logger.info('Jot review applied %s on %s: %s [%s]', change['op'], change['day'], change['task'][:80], change['state'])
     if applied:
         after = policy.parse_note(_jot('jot_read', {'id': note['id']}).get('markdown') or '')
         missing = [c for c in applied if c['op'] != 'remove' and not any(r['task'] == c['task'] and r['state'] == c['state']
