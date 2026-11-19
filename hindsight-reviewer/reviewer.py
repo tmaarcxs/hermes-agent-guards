@@ -488,7 +488,7 @@ def _gaps(outcomes):
 def _audit(job, **fields):
     """Only correlation ids, decisions and counters; never memory, evidence or exception text."""
     logger.info('Hindsight review audit: %s', json.dumps({
-        'version': '0.18.0', 'session_id': job.get('session_id', ''), 'turn_id': job.get('turn_id', ''),
+        'version': '0.19.0', 'session_id': job.get('session_id', ''), 'turn_id': job.get('turn_id', ''),
         **fields}, sort_keys=True))
 
 
@@ -701,21 +701,25 @@ def review(llm, job):
             kept_id = aliases[row['duplicate_of']] if row['duplicate_of'] else ''
             kept = sources[kept_id]['text'] if kept_id else ''
             _audit(job, event='decision', memory_id=sid, lane='noise', decision=row['reason'], kept_id=kept_id)
-            try:
-                confirmed = policy.confirm_noise(llm, text, row['reason'], kept, route)
-            except Exception as error:
-                outcomes['confirmation_errors'] += 1
-                failures['confirmation:' + failure_reason(error)] += 1
-                _audit(job, event='confirmation_failed', memory_id=sid, lane='noise', error_type=type(error).__name__,
-                       reason=failure_reason(error))
-                continue
-            if _superseded(job):
-                outcomes['superseded_cases'] += 1
-                continue
-            _audit(job, event='confirmation', memory_id=sid, lane='noise', decision='invalidate' if confirmed else 'keep', kept_id=kept_id)
-            if not confirmed:
-                outcomes['confirmation_kept'] += 1
-                continue
+            if row['reason'] in policy.TRUSTED_NOISE_REASONS and kept_id:
+                outcomes['confirmation_skipped'] += 1
+                _audit(job, event='confirmation_skipped', memory_id=sid, lane='noise', reason=row['reason'] + '_trusted', kept_id=kept_id)
+            else:
+                try:
+                    confirmed = policy.confirm_noise(llm, text, row['reason'], kept, route)
+                except Exception as error:
+                    outcomes['confirmation_errors'] += 1
+                    failures['confirmation:' + failure_reason(error)] += 1
+                    _audit(job, event='confirmation_failed', memory_id=sid, lane='noise', error_type=type(error).__name__,
+                           reason=failure_reason(error))
+                    continue
+                if _superseded(job):
+                    outcomes['superseded_cases'] += 1
+                    continue
+                _audit(job, event='confirmation', memory_id=sid, lane='noise', decision='invalidate' if confirmed else 'keep', kept_id=kept_id)
+                if not confirmed:
+                    outcomes['confirmation_kept'] += 1
+                    continue
             event = uuid.uuid5(uuid.NAMESPACE_URL, 'hindsight-noise:' + job['session_id'] + ':' + job['turn_id'] + ':' + sid)
             reason = 'hindsight-noise:' + row['reason'] + ':' + str(event)
             _audit(job, event='write_attempt', memory_id=sid, reason=reason, kept_id=kept_id)

@@ -636,3 +636,70 @@ def test_noise_confirmer_still_vetoes_on_an_unparsed_verdict():
     assert policy.confirm_noise(llm, "m", "duplicate", "k") is False
     llm = types.SimpleNamespace(complete_structured=lambda **k: types.SimpleNamespace(parsed=None))
     assert policy.confirm_noise(llm, "m", "duplicate", "k") is False
+
+
+KEEPER = "33333333-3333-3333-3333-333333333333"
+
+
+def _duplicate_bank(edit_keeper=None):
+    class Bank(FakeBank):
+        keeper_reads = 0
+
+        def __call__(self, method, url, key, body=None):
+            if method == "GET" and url.rsplit("/", 1)[-1] == KEEPER:
+                self.keeper_reads += 1
+                if edit_keeper and self.keeper_reads == 2:
+                    self.rows[KEEPER]["text"] = edit_keeper
+            return super().__call__(method, url, key, body)
+    bank = Bank(text="Staging DB runs on port 6543.")
+    bank.rows[FACT]["mentioned_at"] = "2026-10-01T00:00:00Z"
+    bank.rows[KEEPER] = {"type": "world", "state": "valid", "text": "The staging database listens on port 6543, host stg-db.",
+                         "mentioned_at": "2026-11-09T00:00:00Z"}
+    return bank
+
+
+def _records():
+    return [{"id": FACT, "text": "Staging DB runs on port 6543."}, {"id": KEEPER, "text": "The staging database listens on port 6543, host stg-db."}]
+
+
+def test_a_duplicate_flag_is_invalidated_without_asking_the_second_checker(run):
+    bank = _duplicate_bank()
+    llm = NoiseLlm({FACT: ("duplicate", KEEPER)}, verdict="keep")
+    applied, sent = run(bank, llm, records=_records())
+    assert applied == 1 and bank.rows[FACT]["state"] == "invalidated" and bank.rows[KEEPER]["state"] == "valid"
+    assert bank.patches[0][1]["reason"].startswith("hindsight-noise:duplicate:")
+    assert "Hindsight noise confirmation" not in [call["purpose"] for call in llm.calls]
+
+
+@pytest.mark.parametrize("reason, target", [("fragment", ""), ("transient", ""), ("superseded", KEEPER)])
+def test_every_other_reason_still_needs_the_second_checker(run, reason, target):
+    bank = _duplicate_bank()
+    llm = NoiseLlm({FACT: (reason, target)}, verdict="keep")
+    applied, sent = run(bank, llm, records=_records())
+    assert applied == 0 and not bank.patches
+    assert "Hindsight noise confirmation" in [call["purpose"] for call in llm.calls]
+
+
+def test_a_duplicate_whose_kept_copy_changed_before_the_write_is_left_alone(run):
+    bank = _duplicate_bank(edit_keeper="Something else entirely about the staging database.")
+    llm = NoiseLlm({FACT: ("duplicate", KEEPER)}, verdict="keep")
+    applied, sent = run(bank, llm, records=_records())
+    assert applied == 0 and bank.rows[FACT]["state"] == "valid"
+
+
+def test_a_duplicate_of_a_protected_memory_is_never_written(run):
+    bank = _duplicate_bank()
+    bank.rows[FACT]["text"] = "Marcos prefers the staging database on port 6543."
+    llm = NoiseLlm({FACT: ("duplicate", KEEPER)}, verdict="keep")
+    applied, sent = run(bank, llm, records=[{"id": FACT, "text": "Marcos prefers the staging database on port 6543."}, _records()[1]])
+    assert applied == 0 and bank.rows[FACT]["state"] == "valid"
+
+
+def test_skipped_confirmations_are_audited_and_counted_without_memory_text(run, caplog):
+    caplog.set_level("INFO")
+    run(_duplicate_bank(), NoiseLlm({FACT: ("duplicate", KEEPER)}, verdict="keep"), records=_records())
+    skipped = _audit_events(caplog, "confirmation_skipped")
+    assert skipped and skipped[0]["lane"] == "noise" and skipped[0]["reason"] == "duplicate_trusted" and skipped[0]["kept_id"] == KEEPER
+    finished = _audit_events(caplog, "finished")[0]
+    assert finished["counts"]["confirmation_skipped"] == 1 and finished["status"] == "complete"
+    assert "staging database" not in caplog.text

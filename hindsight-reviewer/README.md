@@ -2,6 +2,12 @@
 
 Reviews injected and tool-recalled memories after an eligible gateway turn. The proposal, independent confirmation, exact evidence, fresh primary-fact read, reversible invalidation and readback gates remain unchanged. A newer admitted message cancels unfinished writes.
 
+## Duplicates skip the second check
+
+Version 0.19.0 stops asking the second-pass confirmer about duplicate flags. In 75 blind-labelled duplicate flags across two samples, the confirmer never saved a valid memory (0 wrong), yet it vetoed 84 of 423 duplicate flags in 34 hours, all of them real duplicates. A duplicate now goes from the first pass straight to the safety re-read, which still reads both the duplicate and its kept copy and aborts if either changed or stopped being valid. Fragment, transient and superseded flags still need the confirmer, because the first pass alone was wrong 12 to 26 percent of the time on those. The protected-word filter is unchanged.
+
+The audit gains a `confirmation_skipped` event with `reason: duplicate_trusted` and the kept id, and the finished line counts `confirmation_skipped`. A duplicate flag without a kept id still goes to the confirmer. The skip is the `TRUSTED_NOISE_REASONS` set in `policy.py`; removing `duplicate` from it restores the old behavior with no other change.
+
 ## Noise confirmer calibration
 
 Version 0.18.0 rewrites the second-pass noise confirmer after it was measured against two independent blind labelers (92% and 79% agreement) on 235 vetoed memories. 86% of the memories it vetoed (144 of 167) were real noise, while it had approved 0 false removals, so its default of keeping when unsure was costing recall, not protecting memories. Each reason now has its own test: a duplicate is noise unless a named fact, value or step is missing from the kept memory; a fragment is noise only when it names no subject and holds no specific value, path, identifier or decision; a superseded memory still needs a newer, contradicting kept memory. Preferences, authorizations, commitments and identity facts are always kept.
