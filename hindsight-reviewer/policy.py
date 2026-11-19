@@ -229,6 +229,9 @@ def noise(llm, cases, route=None, others=None, stats=None):
     return survivors(output)
 
 
+TRUSTED_NOISE_REASONS = frozenset({'duplicate'})
+
+
 def survivors(output):
     """Drop noise rows that would leave a duplicate without its kept copy (across all batches).
 
