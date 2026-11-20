@@ -26,6 +26,15 @@ Version 0.18.0 rewrites the second-pass noise confirmer after it was measured ag
 
 Replayed on 261 labelled cases with three repetitions each: noise recall 0.37 to 0.46, useful memories wrongly removed 4.3% to 1.4%, and none removed by majority vote. Expected removals rise about 14% (534 to roughly 610 over the same period). A candidate that also kept the unsure default only for fragments reached 0.52 recall but removed two useful memories, so it was rejected. The model and its labels are unchanged; this is a prompt-only change with no new retries.
 
+## Incomplete-review warning (0.20.1)
+
+On a day of live turns, 7 of 36 reviews ended `review incomplete`, and the notice reached the user on 5 of them. Two causes, both harmless to the memory bank:
+
+- One missing verdict out of 20 (5 of the 7 turns). The model sometimes skips a single row. The memory is simply left alone, so this is now an abstention, counted in `abstained` and the per-lane `missing_rows` counter, not lost coverage. A batch that returns no usable row at all still raises `Incomplete model output` and still counts as lost.
+- One out-of-vocabulary value rejected a whole batch of 20 (2 of the 7 turns). The model sometimes put `fragment` or `transient` in `decision` (the enum is `keep` or `noise`), or returned `null` for a field. Both output schemas now accept any string or `null` in `decision`, `reason`, `category`, `duplicate_of` and `evidence_quote`, and the existing per-row checks (valid decision, valid reason, string target, the target and newer-date rules) reject only that row and keep the memory. Nothing can be removed on a value the checks do not recognize.
+
+An invalid review row used to count as both rejected and missing; it now counts once, as rejected.
+
 ## Coverage status
 
 Version 0.17.0 splits what 0.16.0 called `partial`. `status=partial` now means coverage was lost: a batch or confirmation failed, the model dropped or garbled rows, a write could not be verified, or a newer message cancelled the work. Deliberate abstentions no longer downgrade the status: rejected noise rows (invalid target, unproven newer memory), unquotable evidence, deferred noise, stale or changed recalls and ineligible sources.

@@ -456,9 +456,9 @@ _REASON_PREFIXES = (
     ('Duplicate case ids', 'duplicate_case_ids'),
     ('Plugin LLM structured output did not match schema', 'schema_mismatch'),
 )
-_LOST_SUFFIXES = ('errors', 'failed_cases', 'missing_rows')
+_LOST_SUFFIXES = ('errors', 'failed_cases')
 _LOST = {'malformed_ids', 'unresolved_recalls', 'unverified_writes', 'ambiguous_text', 'conflict', 'superseded_cases'}
-_ABSTAINED_SUFFIXES = ('rejected_rows',)
+_ABSTAINED_SUFFIXES = ('rejected_rows', 'missing_rows')
 _ABSTAINED = {'stale_records', 'changed_recalls', 'ineligible_sources', 'unquotable', 'noise_deferred'}
 
 
@@ -488,7 +488,7 @@ def _gaps(outcomes):
 def _audit(job, **fields):
     """Only correlation ids, decisions and counters; never memory, evidence or exception text."""
     logger.info('Hindsight review audit: %s', json.dumps({
-        'version': '0.20.0', 'session_id': job.get('session_id', ''), 'turn_id': job.get('turn_id', ''),
+        'version': '0.20.1', 'session_id': job.get('session_id', ''), 'turn_id': job.get('turn_id', ''),
         **fields}, sort_keys=True))
 
 

@@ -574,7 +574,7 @@ def test_an_unparsed_reply_well_under_the_budget_is_not_called_truncated():
 
 def test_noise_lane_budget_covers_a_full_batch_of_uuid_rows():
     seen = []
-    llm = types.SimpleNamespace(complete_structured=lambda **k: seen.append(k["max_tokens"]) or _structured({"items": []}))
+    llm = types.SimpleNamespace(complete_structured=lambda **k: seen.append(k["max_tokens"]) or _structured({"items": [_noise_row({"id": "%036d" % 0})]}))
     policy.noise(llm, [{"id": "%036d" % n, "memory": "m", "date": ""} for n in range(20)])
     assert seen[0] >= 20 * 100
 
@@ -583,8 +583,121 @@ def test_gaps_split_lost_coverage_from_deliberate_abstentions():
     lost, abstained = reviewer._gaps(Counter({"noise_failed_cases": 20, "review_missing_rows": 2, "confirmation_errors": 1,
                                               "noise_rejected_rows": 41, "unquotable": 3, "stale_records": 1,
                                               "noise_deferred": 2, "applied": 4}))
-    assert (lost, abstained) == (23, 47)
+    assert (lost, abstained) == (21, 49)
     assert reviewer._gaps(Counter({"applied": 3, "noise_decided": 9})) == (0, 0)
+
+
+def _noise_llm(rows_for):
+    def call(**kw):
+        payload = json.loads(kw["input"][0]["text"])
+        return _structured({"items": rows_for(payload["MEMORIES"])})
+    return types.SimpleNamespace(complete_structured=call)
+
+
+def _noise_row(case, decision="keep", reason="none", target=""):
+    return {"id": case["id"], "decision": decision, "reason": reason, "duplicate_of": target}
+
+
+def test_one_missing_noise_row_is_an_abstention_not_lost_coverage():
+    lost, abstained = reviewer._gaps(Counter({"noise_missing_rows": 1, "review_missing_rows": 1, "noise_decided": 18}))
+    assert (lost, abstained) == (0, 2)
+
+
+def test_a_missing_row_is_counted_and_the_memory_is_kept():
+    cases = [{"id": "m%d" % n, "memory": "memory number %d about the billing service" % n, "date": ""} for n in range(4)]
+    stats = Counter()
+    llm = _noise_llm(lambda cs: [_noise_row(c) for c in cs[:-1]])
+    assert policy.noise(llm, cases, None, None, stats) == []
+    assert stats["missing_rows"] == 1 and stats["decided"] == 3
+    assert stats.row_results[-1] == {"id": "m3", "decision": "keep", "reason": "missing"}
+
+
+def test_some_rows_missing_from_a_batch_stay_an_abstention_through_the_turn_counters():
+    cases = [{"id": "m%d" % n, "memory": "memory number %d about the billing service" % n, "date": ""} for n in range(20)]
+    stats = Counter()
+    policy.noise(_noise_llm(lambda cs: [_noise_row(c) for c in cs[:19]]), cases, None, None, stats)
+    counters = Counter({"noise_" + key: value for key, value in stats.items() if isinstance(value, int)})
+    assert reviewer._gaps(counters) == (0, 1)
+
+
+def test_a_batch_that_returns_no_usable_row_is_still_lost_coverage(run, caplog):
+    caplog.set_level("INFO")
+    llm = FakeLlm(decision="keep")
+    original = llm.complete_structured
+
+    def empty(*a, **k):
+        if k["purpose"] == "Hindsight noise review":
+            return types.SimpleNamespace(parsed={"items": []})
+        return original(*a, **k)
+    llm.complete_structured = empty
+    run(FakeBank(), llm)
+    finished = _audit_events(caplog, "finished")[0]
+    assert finished["status"] == "partial" and finished["lost"] == 1
+
+
+def test_a_decision_outside_the_enum_rejects_its_row_not_the_whole_batch():
+    cases = [{"id": "m%d" % n, "memory": "memory number %d about the billing service" % n, "date": ""} for n in range(3)]
+    rows = lambda cs: [_noise_row(cs[0], decision="fragment"), _noise_row(cs[1]), _noise_row(cs[2], decision="noise", reason="fragment")]
+    stats = Counter()
+    result = policy.noise(_noise_llm(rows), cases, None, None, stats)
+    assert [r["id"] for r in result] == ["m2"]
+    assert stats["rejected_rows"] == 1 and stats.row_results[0] == {"id": "m0", "decision": "keep", "reason": "invalid_verdict"}
+
+
+def test_a_null_field_rejects_its_row_not_the_whole_batch():
+    cases = [{"id": "m%d" % n, "memory": "memory number %d about the billing service" % n, "date": ""} for n in range(3)]
+    rows = lambda cs: [{**_noise_row(cs[0]), "duplicate_of": None}, {**_noise_row(cs[1]), "reason": None}, _noise_row(cs[2], "noise", "fragment")]
+    stats = Counter()
+    result = policy.noise(_noise_llm(rows), cases, None, None, stats)
+    assert [r["id"] for r in result] == ["m2"]
+    assert stats["rejected_rows"] == 1
+
+
+def test_the_noise_schema_accepts_any_string_so_one_bad_value_cannot_reject_a_batch():
+    jsonschema = pytest.importorskip("jsonschema")
+    bad = {"items": [{"id": "a", "decision": "fragment", "reason": "none", "duplicate_of": ""},
+                     {"id": "b", "decision": "noise", "reason": "bogus", "duplicate_of": ""}]}
+    jsonschema.validate(bad, policy.NOISE_SCHEMA)
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate({"items": [{"id": "a"}]}, policy.NOISE_SCHEMA)
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate({"items": [{"id": 1, "decision": "keep", "reason": "none", "duplicate_of": ""}]}, policy.NOISE_SCHEMA)
+
+
+def test_the_noise_schema_accepts_null_fields_so_a_null_cannot_reject_a_batch():
+    jsonschema = pytest.importorskip("jsonschema")
+    nulls = {"items": [{"id": "a", "decision": None, "reason": None, "duplicate_of": None}]}
+    jsonschema.validate(nulls, policy.NOISE_SCHEMA)
+    for field in ("id", "decision", "reason", "duplicate_of"):
+        row = {"id": "a", "decision": "keep", "reason": "none", "duplicate_of": "", field: None}
+        jsonschema.validate({"items": [row]}, policy.NOISE_SCHEMA)
+
+
+def test_a_non_string_duplicate_target_rejects_its_row():
+    cases = [{"id": "m%d" % n, "memory": "memory number %d about the billing service" % n, "date": ""} for n in range(2)]
+    rows = lambda cs: [_noise_row(cs[0], "noise", "fragment", 7), _noise_row(cs[1], "noise", "fragment")]
+    stats = Counter()
+    result = policy.noise(_noise_llm(rows), cases, None, None, stats)
+    assert [r["id"] for r in result] == ["m1"]
+    assert stats["rejected_rows"] == 1 and stats["missing_rows"] == 0
+
+
+def test_an_invalid_review_row_is_one_rejection_and_not_also_a_missing_row():
+    cases = [{"id": "a", "memory": "memory about the billing service", "date": "", "evidence": "x"},
+             {"id": "b", "memory": "memory about the auth service", "date": "", "evidence": "x"}]
+    llm = types.SimpleNamespace(complete_structured=lambda **k: _structured({"items": [
+        {"id": "a", "decision": "maybe", "category": "other", "evidence_quote": ""},
+        {"id": "b", "decision": "keep", "category": "other", "evidence_quote": ""}]}))
+    stats = Counter()
+    rows = policy.propose(llm, cases, None, None, stats)
+    assert stats["rejected_rows"] == 1 and stats["missing_rows"] == 0
+    assert [r["decision"] for r in rows] == ["uncertain", "keep"]
+    assert reviewer._gaps(Counter({"review_" + k: v for k, v in stats.items() if isinstance(v, int)}))[0] == 0
+
+
+def test_the_review_schema_accepts_any_string_so_one_bad_value_cannot_reject_a_batch():
+    jsonschema = pytest.importorskip("jsonschema")
+    jsonschema.validate({"items": [{"id": "a", "decision": "maybe", "category": "x", "evidence_quote": ""}]}, policy.SCHEMA)
 
 
 def test_a_failed_batch_is_partial_with_a_reason_and_no_memory_text(run, caplog, monkeypatch):

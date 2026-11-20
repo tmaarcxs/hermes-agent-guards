@@ -27,10 +27,10 @@ SCHEMA = {
     'properties':{'items':{'type':'array','items':{
         'type':'object',
         'properties':{
-            'id':{'type':'string'},
-            'decision':{'type':'string','enum':['keep','candidate','uncertain']},
-            'category':{'type':'string','enum':['protected','other','uncertain']},
-            'evidence_quote':{'type':'string'},
+            'id':{'type':['string','null']},
+            'decision':{'type':['string','null'],'description':'keep, candidate or uncertain'},
+            'category':{'type':['string','null'],'description':'protected, other or uncertain'},
+            'evidence_quote':{'type':['string','null']},
         },
         'required':['id','decision','category','evidence_quote'],
         'additionalProperties':False,
@@ -56,6 +56,8 @@ def _rows(response, cases, stats, limit=None):
     indexed = {row['id']: row for row in rows if isinstance(row, dict) and isinstance(row.get('id'), str)
                and row['id'] in ids and counts[row['id']] == 1}
     stats['rejected_rows'] += sum(count for sid, count in counts.items() if sid in ids and count > 1)
+    if ids and not indexed:
+        raise ValueError('Incomplete model output')
     stats['missing_rows'] += len(ids - indexed.keys())
     return indexed
 
@@ -93,7 +95,6 @@ def propose(llm, cases, route=None, context=None, stats=None):
         if (row.get('decision') not in {'keep','candidate','uncertain'}
                 or row.get('category') not in {'protected','other','uncertain'} or not isinstance(quote, str)):
             stats['rejected_rows'] += 1
-            stats['missing_rows'] += 1
             _row_result(stats, {'id': case['id'], 'decision': 'uncertain', 'reason': 'invalid_verdict'})
             output.append({'id': case['id'], 'decision': 'uncertain', 'category': 'uncertain', 'evidence_quote': ''})
             continue
@@ -168,10 +169,10 @@ NOISE_SCHEMA = {
     'properties':{'items':{'type':'array','items':{
         'type':'object',
         'properties':{
-            'id':{'type':'string'},
-            'decision':{'type':'string','enum':['keep','noise']},
-            'reason':{'type':'string','enum':['none','fragment','duplicate','transient','superseded']},
-            'duplicate_of':{'type':'string'},
+            'id':{'type':['string','null']},
+            'decision':{'type':['string','null'],'description':'keep or noise'},
+            'reason':{'type':['string','null'],'description':'none, fragment, duplicate, transient or superseded'},
+            'duplicate_of':{'type':['string','null']},
         },
         'required':['id','decision','reason','duplicate_of'],
         'additionalProperties':False,
