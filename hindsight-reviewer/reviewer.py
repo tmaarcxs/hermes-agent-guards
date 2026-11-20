@@ -488,7 +488,7 @@ def _gaps(outcomes):
 def _audit(job, **fields):
     """Only correlation ids, decisions and counters; never memory, evidence or exception text."""
     logger.info('Hindsight review audit: %s', json.dumps({
-        'version': '0.19.0', 'session_id': job.get('session_id', ''), 'turn_id': job.get('turn_id', ''),
+        'version': '0.20.0', 'session_id': job.get('session_id', ''), 'turn_id': job.get('turn_id', ''),
         **fields}, sort_keys=True))
 
 
@@ -613,7 +613,7 @@ def review(llm, job):
         route = cron_route(job['home'])
         aliases = ({f'm{i}': sid for i, sid in enumerate(sources, 1)} if len(sources) >= 20
                    else {sid: sid for sid in sources})
-        cases = [{'id': alias, 'memory': sources[sid]['text'], 'date': sources[sid].get('date', '')[:10]}
+        cases = [{'id': alias, 'memory': sources[sid]['text'], 'date': sources[sid].get('date', '')[:19]}
                  for alias, sid in aliases.items()]
         batches = [cases[offset:offset + 20] for offset in range(0, len(cases), 20)]
         decisions, noisy = [], []
