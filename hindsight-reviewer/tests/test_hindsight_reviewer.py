@@ -735,7 +735,8 @@ def test_same_day_newer_target_is_proven_by_the_time_of_day():
     "The agent should commit and push only after the tests pass.",
     "Freeze one signed commit authored by the repo identity with a conventional subject.",
     "The service account has permission scope read:all on the datagravity vertical.",
-    "OAuth consent for Microsoft Graph apps requires tenant-admin approval."])
+    "OAuth consent for Microsoft Graph apps requires tenant-admin approval.",
+    "The identity of the reporter is unknown."])
 def test_git_system_and_oauth_words_do_not_shield_a_memory(text):
     assert not policy._PROTECTED.search(text)
 
@@ -745,6 +746,8 @@ def test_git_system_and_oauth_words_do_not_shield_a_memory(text):
     "Marcos committed to reviewing the PR by Friday.", "Marcos made a commitment to the team.",
     "Marcos gave permission to merge with --admin.", "I never want tool progress shown.",
     "Marcos granted permission for DES testing.", "The legal name of the user is Marcos Sanchez Rudy.",
+    "Permission was granted for admin access.", "Consent was given for the processing.",
+    "Permission from the user was recorded on Nov 19.", "My identity is the Hermes maintainer.",
     "Los PR también en inglés, esa es mi preferencia.", "Le doy permiso para tocar la config."])
 def test_real_preferences_authorizations_and_commitments_still_shield(text):
     assert policy._PROTECTED.search(text)

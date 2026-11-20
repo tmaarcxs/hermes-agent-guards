@@ -4,7 +4,7 @@ Reviews injected and tool-recalled memories after an eligible gateway turn. The 
 
 ## Noise recall calibration
 
-Version 0.20.0 raises the share of real noise the reviewer removes, measured on 354 memories sampled from 3,318 reviewed over 34 hours of 0.19.0 turns. Ground truth is two blind labelers (249 items where both agree, plus 15 disputed items the user ruled noise). Each variant ran three times per item on the cron model; intervals are bootstrap 90%.
+Version 0.20.0 raises the share of real noise the reviewer removes, measured on 354 memories sampled from 3,318 reviewed over 34 hours of 0.19.0 turns. Ground truth covers 263 of the 354: 249 items where two blind labelers agree (the other 105 were disputed), plus 14 of the disputed items that the user ruled noise (the user ruled 15; one of them is also in the agreed set). Each variant ran three times per item on the cron model; intervals are bootstrap 90%.
 
 | variant | noise removed | useful wrongly removed |
 |---|---|---|
