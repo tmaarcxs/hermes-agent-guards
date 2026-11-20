@@ -2,11 +2,23 @@
 
 Reviews injected and tool-recalled memories after an eligible gateway turn. The proposal, independent confirmation, exact evidence, fresh primary-fact read, reversible invalidation and readback gates remain unchanged. A newer admitted message cancels unfinished writes.
 
-## Duplicates skip the second check
+## Noise recall calibration
 
-Version 0.19.0 stops asking the second-pass confirmer about duplicate flags. In 75 blind-labelled duplicate flags across two samples, the confirmer never saved a valid memory (0 wrong), yet it vetoed 84 of 423 duplicate flags in 34 hours, all of them real duplicates. A duplicate now goes from the first pass straight to the safety re-read, which still reads both the duplicate and its kept copy and aborts if either changed or stopped being valid. Fragment, transient and superseded flags still need the confirmer, because the first pass alone was wrong 12 to 26 percent of the time on those. The protected-word filter is unchanged.
+Version 0.20.0 raises the share of real noise the reviewer removes, measured on 354 memories sampled from 3,318 reviewed over 34 hours of 0.19.0 turns. Ground truth is two blind labelers (249 items where both agree, plus 15 disputed items the user ruled noise). Each variant ran three times per item on the cron model; intervals are bootstrap 90%.
 
-The audit gains a `confirmation_skipped` event with `reason: duplicate_trusted` and the kept id, and the finished line counts `confirmation_skipped`. A duplicate flag without a kept id still goes to the confirmer. The skip is the `TRUSTED_NOISE_REASONS` set in `policy.py`; removing `duplicate` from it restores the old behavior with no other change.
+| variant | noise removed | useful wrongly removed |
+|---|---|---|
+| 0.19.0 | 23% (18-28) | 1.9% (0.3-3.7) |
+| 0.20.0 | 38% (32-45) | 0.3% (0-0.9) |
+
+Four changes, each pinned by a test:
+
+- **Prompt.** The noise pass is told that most noise is restatement and must search the other memories for one that already says everything, with a same-date rule and a keep-only-if-you-can-name-the-fact rule.
+- **Full timestamps.** The reviewer sent dates cut to 10 characters, so a newer memory written the same day could never be proven newer and 37 of 41 correct superseded flags were rejected as `unproven_newer_target`. Dates now carry the time of day.
+- **Narrower protection regex.** Bare `commit`, `identity`, `permission` and `consent` shielded 20% of reviewed memories, almost all git commits, system identities and OAuth consent. Real preferences, authorizations, commitments and identity facts still shield (`commitment`, `committed to`, `permission to`, `gave permission`, `consent to`, `identity fact`, `prefer`, `authorized`).
+- **Duplicates go back to the second checker.** The 0.19.0 skip was calibrated against the old prompt. With the stronger first pass the checker is what stops a duplicate whose kept copy lacks a path, value or step: it cut wrongly removed useful memories from 2.8% to 0.3% on the same sample, measured by replaying the shipped plugin itself.
+
+The audit no longer emits `confirmation_skipped`; `TRUSTED_NOISE_REASONS` stays as an empty set so a reason can be trusted again by adding it back.
 
 ## Noise confirmer calibration
 

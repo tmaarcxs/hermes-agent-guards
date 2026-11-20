@@ -662,17 +662,24 @@ def _records():
     return [{"id": FACT, "text": "Staging DB runs on port 6543."}, {"id": KEEPER, "text": "The staging database listens on port 6543, host stg-db."}]
 
 
-def test_a_duplicate_flag_is_invalidated_without_asking_the_second_checker(run):
+def test_a_duplicate_flag_is_invalidated_only_after_the_second_checker_confirms(run):
     bank = _duplicate_bank()
-    llm = NoiseLlm({FACT: ("duplicate", KEEPER)}, verdict="keep")
+    llm = NoiseLlm({FACT: ("duplicate", KEEPER)}, verdict="noise")
     applied, sent = run(bank, llm, records=_records())
     assert applied == 1 and bank.rows[FACT]["state"] == "invalidated" and bank.rows[KEEPER]["state"] == "valid"
     assert bank.patches[0][1]["reason"].startswith("hindsight-noise:duplicate:")
-    assert "Hindsight noise confirmation" not in [call["purpose"] for call in llm.calls]
+    assert "Hindsight noise confirmation" in [call["purpose"] for call in llm.calls]
 
 
-@pytest.mark.parametrize("reason, target", [("fragment", ""), ("transient", ""), ("superseded", KEEPER)])
-def test_every_other_reason_still_needs_the_second_checker(run, reason, target):
+def test_a_duplicate_the_second_checker_vetoes_is_left_alone(run):
+    bank = _duplicate_bank()
+    llm = NoiseLlm({FACT: ("duplicate", KEEPER)}, verdict="keep")
+    applied, sent = run(bank, llm, records=_records())
+    assert applied == 0 and not bank.patches and bank.rows[FACT]["state"] == "valid"
+
+
+@pytest.mark.parametrize("reason, target", [("duplicate", KEEPER), ("fragment", ""), ("transient", ""), ("superseded", KEEPER)])
+def test_every_reason_needs_the_second_checker(run, reason, target):
     bank = _duplicate_bank()
     llm = NoiseLlm({FACT: (reason, target)}, verdict="keep")
     applied, sent = run(bank, llm, records=_records())
@@ -695,11 +702,57 @@ def test_a_duplicate_of_a_protected_memory_is_never_written(run):
     assert applied == 0 and bank.rows[FACT]["state"] == "valid"
 
 
-def test_skipped_confirmations_are_audited_and_counted_without_memory_text(run, caplog):
-    caplog.set_level("INFO")
-    run(_duplicate_bank(), NoiseLlm({FACT: ("duplicate", KEEPER)}, verdict="keep"), records=_records())
-    skipped = _audit_events(caplog, "confirmation_skipped")
-    assert skipped and skipped[0]["lane"] == "noise" and skipped[0]["reason"] == "duplicate_trusted" and skipped[0]["kept_id"] == KEEPER
-    finished = _audit_events(caplog, "finished")[0]
-    assert finished["counts"]["confirmation_skipped"] == 1 and finished["status"] == "complete"
-    assert "staging database" not in caplog.text
+def test_no_noise_reason_skips_the_second_checker():
+    assert policy.TRUSTED_NOISE_REASONS == frozenset()
+
+
+def test_noise_review_sees_full_timestamps_so_a_same_day_newer_memory_is_provable(run):
+    seen = []
+
+    class Spy(NoiseLlm):
+        def complete_structured(self, instructions, input, json_schema, **kwargs):
+            if kwargs["purpose"] == "Hindsight noise review":
+                seen.append(json.loads(input[0]["text"]))
+            return super().complete_structured(instructions, input, json_schema, **kwargs)
+    bank = _duplicate_bank()
+    bank.rows[FACT]["mentioned_at"] = bank.rows[FACT]["date"] = "2026-11-09T08:00:00+00:00"
+    bank.rows[KEEPER]["mentioned_at"] = bank.rows[KEEPER]["date"] = "2026-11-09T16:30:00+00:00"
+    run(bank, Spy({}), records=_records())
+    dates = {c["date"] for p in seen for c in p["MEMORIES"]}
+    assert dates and all(len(d) == 19 for d in dates)
+
+
+def test_same_day_newer_target_is_proven_by_the_time_of_day():
+    cases = [{"id": "old", "memory": "Curator runs every 168 hours.", "date": "2026-11-09T08:00:00"},
+             {"id": "new", "memory": "Curator runs every 24 hours.", "date": "2026-11-09T16:30:00"}]
+    llm = NoiseLlm({"old": ("superseded", "new")})
+    assert policy.noise(llm, cases) == [{"id": "old", "reason": "superseded", "duplicate_of": "new"}]
+    same = [{**cases[0], "date": "2026-11-09T16:30:00"}, cases[1]]
+    assert policy.noise(NoiseLlm({"old": ("superseded", "new")}), same) == []
+
+
+@pytest.mark.parametrize("text", [
+    "The agent should commit and push only after the tests pass.",
+    "Freeze one signed commit authored by the repo identity with a conventional subject.",
+    "The service account has permission scope read:all on the datagravity vertical.",
+    "OAuth consent for Microsoft Graph apps requires tenant-admin approval."])
+def test_git_system_and_oauth_words_do_not_shield_a_memory(text):
+    assert not policy._PROTECTED.search(text)
+
+
+@pytest.mark.parametrize("text", [
+    "Marcos prefers short answers.", "The user approved the install, an authorization given on Nov 19.",
+    "Marcos committed to reviewing the PR by Friday.", "Marcos made a commitment to the team.",
+    "Marcos gave permission to merge with --admin.", "I never want tool progress shown.",
+    "Marcos granted permission for DES testing.", "The legal name of the user is Marcos Sanchez Rudy.",
+    "Los PR también en inglés, esa es mi preferencia.", "Le doy permiso para tocar la config."])
+def test_real_preferences_authorizations_and_commitments_still_shield(text):
+    assert policy._PROTECTED.search(text)
+
+
+def test_noise_prompt_pins_the_calibrated_duplicate_hunt():
+    text = policy.NOISE_INSTRUCTIONS
+    assert "RESTATEMENT" in text and "actively search MEMORIES and OTHER_MEMORIES" in text
+    assert "If both memories have the same date, use duplicate, not superseded." in text
+    assert "Keep a memory only when you can name a specific fact, value, step or rule that no other memory carries." in text
+    assert "Never mark as noise: preferences, authorizations, commitments or identity facts." in text
