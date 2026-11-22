@@ -76,7 +76,9 @@ def run(monkeypatch, tmp_path):
     monkeypatch.setattr(reviewer, "notify", lambda origin, text: sent.append((origin, text)))
     monkeypatch.setitem(sys.modules, "hermes_yaml", types.SimpleNamespace(safe_load=lambda text: {"cron": {"model": "cron-model", "model_provider": "cron-provider"}}))
 
-    def go(bank, llm, user=USER, assistant="", records=None, deliver=None):
+    def go(bank, llm, user=USER, assistant="", records=None, deliver=None, notices="changes"):
+        if notices is not None:
+            monkeypatch.setattr(reviewer, "notices_mode", lambda home: notices)
         monkeypatch.setattr(reviewer, "_http", bank)
         transcript = "[USER]\n" + user + ("\n\n[ASSISTANT]\n" + assistant if assistant else "")
         job = {"home": str(tmp_path), "session_id": "s", "turn_id": "t", "transcript": transcript, "quotable": [user],
@@ -445,7 +447,7 @@ def test_notices_off_keeps_invalidating_but_sends_nothing(run, tmp_path, monkeyp
         "cron": {"model": "cron-model", "model_provider": "cron-provider"},
         "plugins": {"entries": {"hermes-agent-guards/hindsight-reviewer": {"notices": False}}}}))
     sent_by_review = []
-    applied, sent = run(FakeBank(), FakeLlm(), deliver=sent_by_review.append)
+    applied, sent = run(FakeBank(), FakeLlm(), deliver=sent_by_review.append, notices=None)
     assert applied == 1 and not sent and sent_by_review == []
 
 
@@ -453,6 +455,58 @@ def test_notices_default_on_when_setting_absent(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "hermes_yaml", types.SimpleNamespace(safe_load=lambda text: {}))
     (tmp_path / "config.yaml").write_text("")
     assert reviewer.notices_enabled(str(tmp_path)) is True
+
+
+@pytest.mark.parametrize("setting,mode", [(None, "always"), (True, "always"), ("always", "always"), ("changes", "changes"),
+                                          ("Changes", "changes"), (False, "off"), ("nonsense", "always")])
+def test_notices_mode_reads_the_plugin_setting(tmp_path, monkeypatch, setting, mode):
+    entry = {} if setting is None else {"notices": setting}
+    monkeypatch.setitem(sys.modules, "hermes_yaml", types.SimpleNamespace(safe_load=lambda text: {
+        "plugins": {"entries": {"hermes-agent-guards/hindsight-reviewer": entry}}}))
+    (tmp_path / "config.yaml").write_text("")
+    assert reviewer.notices_mode(str(tmp_path)) == mode
+
+
+def test_a_review_that_changed_nothing_still_reports_what_it_checked(run):
+    sent_by_review = []
+    applied, sent = run(FakeBank(), FakeLlm(verdict="not_refuted"), deliver=sent_by_review.append, notices="always")
+    assert applied == 0 and not sent and sent_by_review == ["🧠 Memory review: 1 checked · no changes"]
+
+
+def test_the_default_changes_only_mode_stays_quiet_when_nothing_changed(run):
+    sent_by_review = []
+    applied, sent = run(FakeBank(), FakeLlm(verdict="not_refuted"), deliver=sent_by_review.append, notices="changes")
+    assert applied == 0 and not sent and sent_by_review == []
+
+
+def test_a_review_with_changes_reports_them_in_always_mode_too(run):
+    sent_by_review = []
+    applied, sent = run(FakeBank(), FakeLlm(), deliver=sent_by_review.append, notices="always")
+    assert applied == 1 and sent_by_review == ["🧠 Memory review: 1 invalidated (1 outdated)"]
+
+
+def test_notices_off_sends_no_result_line_either(run):
+    sent_by_review = []
+    applied, sent = run(FakeBank(), FakeLlm(verdict="not_refuted"), deliver=sent_by_review.append, notices="off")
+    assert applied == 0 and not sent and sent_by_review == []
+
+
+def test_a_machine_written_turn_never_gets_a_result_line(run, monkeypatch):
+    sent_by_review = []
+    monkeypatch.setattr(reviewer, "notices_mode", lambda home: "always")
+    original = reviewer.review
+
+    def unattended(llm, job):
+        return original(llm, {**job, "attended": False})
+    monkeypatch.setattr(reviewer, "review", unattended)
+    applied, sent = run(FakeBank(), FakeLlm(verdict="not_refuted"), deliver=sent_by_review.append, notices="always")
+    assert sent_by_review == []
+
+
+def test_the_result_line_counts_checked_memories_and_never_claims_a_check_an_incomplete_review_did_not_make():
+    assert reviewer.result_notice(8, "complete") == "🧠 Memory review: 8 checked · no changes"
+    assert reviewer.result_notice(8, "partial") == "🧠 Memory review: review incomplete · no changes"
+    assert reviewer.result_notice(8, "failed") == "🧠 Memory review: review failed"
 
 
 def test_notices_on_when_config_unreadable(tmp_path):

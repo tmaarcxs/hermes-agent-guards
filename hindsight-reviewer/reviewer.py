@@ -65,6 +65,15 @@ def notice(items):
     return f'{NOTICE_PREFIX}{len(items)} invalidated ({breakdown})'
 
 
+def result_notice(checked, status):
+    """The line for a review that changed nothing: how many memories it checked, never their text."""
+    if status == 'failed':
+        return f'{NOTICE_PREFIX}review failed'
+    if status != 'complete':
+        return f'{NOTICE_PREFIX}review incomplete · no changes'
+    return f'{NOTICE_PREFIX}{checked} checked · no changes'
+
+
 def patch_provider():
     """Wrap every loaded Hindsight provider class so prefetch and the recall tool record ids per session.
 
@@ -439,15 +448,23 @@ def cron_route(home):
     return route
 
 
-def notices_enabled(home):
-    """plugins.entries.hermes-agent-guards/hindsight-reviewer.notices: false silences chat notices; reviews still run."""
+def notices_mode(home):
+    """plugins.entries.hermes-agent-guards/hindsight-reviewer.notices: false is off (reviews still run), changes adds a notice
+    only when a memory changed, anything else (default) also reports a review that changed nothing."""
     try:
         import hermes_yaml
         config = hermes_yaml.safe_load((Path(home) / 'config.yaml').read_text(encoding='utf-8')) or {}
         entry = ((config.get('plugins') or {}).get('entries') or {}).get('hermes-agent-guards/hindsight-reviewer') or {}
-        return entry.get('notices', True) is not False
+        value = entry.get('notices', True)
     except Exception:
-        return True
+        return 'always'
+    if value is False:
+        return 'off'
+    return 'changes' if isinstance(value, str) and value.strip().lower() == 'changes' else 'always'
+
+
+def notices_enabled(home):
+    return notices_mode(home) != 'off'
 
 
 _REASON_PREFIXES = (
@@ -488,7 +505,7 @@ def _gaps(outcomes):
 def _audit(job, **fields):
     """Only correlation ids, decisions and counters; never memory, evidence or exception text."""
     logger.info('Hindsight review audit: %s', json.dumps({
-        'version': '0.20.1', 'session_id': job.get('session_id', ''), 'turn_id': job.get('turn_id', ''),
+        'version': '0.21.0', 'session_id': job.get('session_id', ''), 'turn_id': job.get('turn_id', ''),
         **fields}, sort_keys=True))
 
 
@@ -600,7 +617,8 @@ def review(llm, job):
     status, notice_state = 'complete', 'not_needed'
     _audit(job, event='started', bank=job['recall']['bank'], captured=len(job['recall']['records']),
            injected=job.get('injected_count', 0), tool_recalled=job.get('tool_count', 0),
-           surface=job.get('surface', ''), attended=job.get('attended', True))
+           surface=job.get('surface', ''), attended=job.get('attended', True),
+           bound=job.get('deliver') is not None, origin=job['origin'].get('platform', ''))
     try:
         if _superseded(job):
             status = 'partial'
@@ -746,14 +764,19 @@ def review(llm, job):
         logger.info('Hindsight review outcome: reviewed=%d applied=%d noise=%d conflict=%d failed_batches=%d abstained=%d status=%s',
                     len(cases), outcomes['applied'], outcomes['noise'], outcomes['conflict'], outcomes['failed_batches'],
                     abstained, status)
+        mode = notices_mode(job['home'])
+        message = None
         if applied or outcomes['unverified_writes']:
             message = notice(applied) if applied else '🧠 Memory review: write outcome unknown; manual check needed'
             if outcomes['unverified_writes']:
                 message += f" · {outcomes['unverified_writes']} write outcome(s) unknown"
             if status != 'complete':
                 message += ' · review incomplete'
+        elif mode == 'always' and cases and job.get('attended', True):
+            message = result_notice(len(cases), status)
+        if message:
             try:
-                if not notices_enabled(job['home']):
+                if mode == 'off':
                     notice_state = 'suppressed_by_config'
                 elif _superseded(job):
                     notice_state = 'suppressed_superseded'
