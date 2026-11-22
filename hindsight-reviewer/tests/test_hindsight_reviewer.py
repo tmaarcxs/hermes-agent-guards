@@ -457,8 +457,8 @@ def test_notices_default_on_when_setting_absent(tmp_path, monkeypatch):
     assert reviewer.notices_enabled(str(tmp_path)) is True
 
 
-@pytest.mark.parametrize("setting,mode", [(None, "always"), (True, "always"), ("always", "always"), ("changes", "changes"),
-                                          ("Changes", "changes"), (False, "off"), ("nonsense", "always")])
+@pytest.mark.parametrize("setting,mode", [(None, "changes"), (True, "changes"), ("changes", "changes"), ("always", "always"),
+                                          ("Always", "always"), (False, "off"), ("nonsense", "changes")])
 def test_notices_mode_reads_the_plugin_setting(tmp_path, monkeypatch, setting, mode):
     entry = {} if setting is None else {"notices": setting}
     monkeypatch.setitem(sys.modules, "hermes_yaml", types.SimpleNamespace(safe_load=lambda text: {

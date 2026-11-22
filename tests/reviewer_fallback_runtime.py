@@ -255,11 +255,9 @@ try:
         markdown = after['markdown']
         assert ('✅' in markdown) == expected_write, (mode, markdown, calls)
         assert after['revision'] == (2 if expected_write else 1), after
-    result_line = plugin == 'hindsight-reviewer' and not expected_write
-    expected_notices = int(expected_write) + int(result_line)
-    assert len(notices) == expected_notices, notices
+    assert len(notices) == int(expected_write), notices
     if surface == 'desktop':
-        assert desktop_events == ['review.summary'] * expected_notices, desktop_events
+        assert desktop_events == ['review.summary'] * int(expected_write), desktop_events
     stages = 3 if plugin == 'hindsight-reviewer' else 2
     if mode in {'runtime_missing', 'collaboration_disabled'}:
         assert not calls, calls

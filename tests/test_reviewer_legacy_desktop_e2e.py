@@ -236,8 +236,7 @@ def test_legacy_desktop_at_serve_websocket(scenario, tmp_path):
                     types = [f.get("params", {}).get("type") for f in frames]
                     assert scenario == "reconnect" or types.index("message.complete") < types.index("review.summary"), types
                 else:
-                    assert not patches and facts["state"] == "valid", (patches, notices, audit[-9000:])
-                    assert [n["payload"]["text"] for n in notices] == (["🧠 Memory review: 1 checked · no changes"] if scenario == "new_input" else []), (notices, audit[-9000:])
+                    assert not patches and not notices and facts["state"] == "valid", (patches, notices, audit[-9000:])
                     if scenario == "baseline":
                         assert "no_origin" in audit, audit[-9000:]
                     if scenario in {"tool", "cron", "delegated"}:
