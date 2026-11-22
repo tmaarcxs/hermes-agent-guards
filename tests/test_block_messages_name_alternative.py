@@ -47,6 +47,7 @@ PLUGINS = (
     "shell-guards",
     "workspace-guards",
     "recall-guards",
+    "text-guards",
     "provider-guards",
 )
 

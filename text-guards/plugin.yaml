@@ -1,0 +1,15 @@
+name: text-guards
+version: "0.4.0"
+description: >-
+  Keep the em dash and the section sign out of the agent's reply. `transform_llm_output` rewrites
+  the final reply before delivery and before it is stored: a spaced em dash becomes a comma, a
+  line-leading one a hyphen bullet, one between digits a hyphen, and the section sign a single
+  space. Fenced blocks and inline code are left alone. It never touches tool arguments, never
+  blocks a call, and fails open on any error. Replaces the 0.3.0 plugin removed on 2026-11-18,
+  which also rewrote tool arguments and damaged patched files.
+author: "tmaarcxs"
+kind: standalone
+hooks:
+  - transform_llm_output
+provides_hooks:
+  - transform_llm_output
