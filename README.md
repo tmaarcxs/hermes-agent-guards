@@ -90,6 +90,14 @@ Answers: *is this path one the agent may write to?*
   `git worktree add` command, and `hermes -p <profile> plugins update <name>`
   for every installed copy.
 
+### `text-guards` — the em dash and the section sign in the reply
+
+Answers: *does the reply carry a character the operator forbids?*
+
+- `transform_llm_output` rewrites the final reply before delivery and before it is stored: a spaced em dash becomes a comma, a line-leading one a hyphen bullet, one between digits a hyphen, and the section sign a single space.
+- Fenced blocks and inline code are left alone, and tool arguments are never rewritten.
+- Returns `None` when there is nothing to clean; never blocks a call; fails open.
+
 ### `provider-guards` upstream provider failures
 
 Answers: *can narrowly identified upstream failures recover?*
@@ -112,6 +120,7 @@ Each folder's `README.md` documents its own rules in full.
 hermes plugins install tmaarcxs/hermes-agent-guards#shell-guards
 hermes plugins install tmaarcxs/hermes-agent-guards#workspace-guards
 hermes plugins install tmaarcxs/hermes-agent-guards#recall-guards
+hermes plugins install tmaarcxs/hermes-agent-guards#text-guards
 ```
 
 The `#<subdir>` fragment is the CLI's subdirectory syntax (see
@@ -131,6 +140,7 @@ then refuses to move it. Install without `--ref`, and `hermes plugins update
 shell-guards/       one self-contained plugin (modules + plugin.yaml + tests)
 workspace-guards/   one self-contained plugin
 recall-guards/      one self-contained plugin
+text-guards/        one self-contained plugin (the em dash and the section sign in the reply)
 provider-guards/    one self-contained plugin (upstream HTTP 424 retry / Copilot rejection fallback)
 tests/              cross-plugin checks (helper-copy divergence, transform winner)
 pytest.ini          runs all folders plus tests/ in one command
