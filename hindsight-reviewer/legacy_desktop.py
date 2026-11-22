@@ -6,6 +6,8 @@ import sys
 import time
 from pathlib import Path
 
+VIEWER_WAIT_S = 300
+
 
 def origin():
     """Fail closed unless the loaded legacy server owns this attended Desktop turn."""
@@ -41,7 +43,7 @@ def origin():
             if sum(r.get("agent") is agent for r in server._sessions.values()) != 1:
                 return None
             record_home = Path(record.get("profile_home") or server._launch_home()).resolve()
-            if record_home != home or not server._session_has_live_transport(record):
+            if record_home != home:
                 return None
             callback = getattr(agent, "background_review_callback", None)
             if not callable(callback):
@@ -74,26 +76,26 @@ def origin():
                             or Path(record.get("profile_home") or server._launch_home()).resolve() != home
                             or sum(r.get("agent") is agent for r in server._sessions.values()) != 1
                             or (record.get("inflight_turn") is not None
-                                and record["inflight_turn"].get("started_at") != started)
-                            or not server._session_has_live_transport(record)):
+                                and record["inflight_turn"].get("started_at") != started)):
                         return False
                 return latest_user() == user_row
             except Exception:
                 return False
 
         def deliver(message):
-            """Hand *message* over once the turn settles; message.complete is emitted before the legacy server releases running."""
-            deadline = time.monotonic() + 120
+            """Hand *message* over once the turn settled and a viewer is attached; a Desktop socket that dropped mid-turn gets it on reconnect."""
+            deadline = time.monotonic() + VIEWER_WAIT_S
             while current():
                 with record["history_lock"]:
                     settled = not record.get("running")
-                if settled:
+                viewer = settled and server._session_has_live_transport(record)
+                if viewer:
                     if current():
                         callback(message)
                     return
                 if time.monotonic() >= deadline:
-                    raise TimeoutError("Desktop response did not settle")
-                time.sleep(0.05)
+                    raise TimeoutError("Desktop viewer did not return" if settled else "Desktop response did not settle")
+                time.sleep(0.5 if settled else 0.05)
             raise RuntimeError("Desktop review superseded or detached")
 
         return {"platform": "local", "chat_id": ui, "chat_type": "dm", "thread_id": "",

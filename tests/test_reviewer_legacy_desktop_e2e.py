@@ -23,7 +23,7 @@ FACT_ID = "11111111-1111-4111-8111-111111111111"
 USER = "Synthetic Atlas database now runs on port 6543, not 5432. Reply only acknowledged."
 
 
-@pytest.mark.parametrize("scenario", ["desktop", "baseline", "tui", "tool", "cron", "delegated", "new_input"])
+@pytest.mark.parametrize("scenario", ["desktop", "baseline", "tui", "tool", "cron", "delegated", "new_input", "reconnect"])
 def test_legacy_desktop_at_serve_websocket(scenario, tmp_path):
     if not (CORE / "hermes_cli/main.py").exists() or not HINDSIGHT.exists():
         pytest.skip("Installed Hermes core and Hindsight plugin required")
@@ -36,6 +36,7 @@ def test_legacy_desktop_at_serve_websocket(scenario, tmp_path):
     proposals = [0]
     proposed = threading.Event()
     release = threading.Event()
+    hold = threading.Event()
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_):
@@ -101,11 +102,13 @@ def test_legacy_desktop_at_serve_websocket(scenario, tmp_path):
                     stages.append("proposal")
                     proposals[0] += 1
                     proposed.set()
-                    if scenario == "new_input" and proposals[0] == 1:
+                    if scenario in {"new_input", "reconnect"} and proposals[0] == 1:
                         assert release.wait(30), "New input not admitted"
                     answer = {"items": [{"id": row["id"], "decision": "keep" if scenario == "new_input" and proposals[0] > 1 else "candidate", "category": "other", "evidence_quote": USER} for row in payload["MEMORIES"]]}
                 content = json.dumps(answer)
             else:
+                if scenario == "reconnect" and not hold.is_set():
+                    assert hold.wait(30), "Desktop socket was not dropped"
                 content = "acknowledged"
             if body.get("stream"):
                 chunks = [{"id": "synthetic", "object": "chat.completion.chunk", "model": body["model"], "choices": [{"index": 0, "delta": {"role": "assistant", "content": content}, "finish_reason": None}]},
@@ -192,6 +195,19 @@ def test_legacy_desktop_at_serve_websocket(scenario, tmp_path):
                         await rpc("prompt.submit", session_id=sid, text="A newer input arrived. Reply only acknowledged.")
                         second = True
                         release.set()
+                    if scenario == "reconnect" and not hold.is_set():
+                        await ws.close()
+                        await asyncio.sleep(1)
+                        hold.set()
+                    if scenario == "reconnect" and proposed.is_set() and not second:
+                        ws = await connect("ws://127.0.0.1:" + str(port) + "/api/ws?token=synthetic-loopback-token", proxy=None, max_size=8388608)
+                        resumed = await rpc("session.resume", session_id=created["stored_session_id"])
+                        assert resumed["session_id"] == sid, resumed
+                        second = True
+                        release.set()
+                    if scenario == "reconnect" and ws.close_code is not None:
+                        await asyncio.sleep(0.2)
+                        continue
                     try:
                         frame = json.loads(await asyncio.wait_for(ws.recv(), 0.2))
                         frames.append(frame)
@@ -199,7 +215,7 @@ def test_legacy_desktop_at_serve_websocket(scenario, tmp_path):
                         pass
                     notices = [f for f in frames if f.get("params", {}).get("type") == "review.summary"]
                     audit = "\n".join(p.read_text() for p in (home / "logs").glob("*.log"))
-                    if scenario in {"desktop", "tui"} and notices:
+                    if scenario in {"desktop", "tui", "reconnect"} and notices:
                         break
                     if scenario == "baseline" and '"reason": "no_origin"' in audit:
                         break
@@ -212,15 +228,16 @@ def test_legacy_desktop_at_serve_websocket(scenario, tmp_path):
                 assert all(n["session_id"] == sid for n in notices), notices
                 assert all(n["session_id"] != other["session_id"] for n in notices)
                 assert any(path.endswith("/memories/recall") for _, path in calls), calls
-                if scenario in {"desktop", "tui"}:
+                if scenario in {"desktop", "tui", "reconnect"}:
                     assert facts["state"] == "invalidated" and len(patches) == 1, (facts, calls, audit[-9000:])
                     assert stages.count("proposal") == 1 and stages.count("confirmation") == 1, stages
                     assert reads[-1] == "invalidated" and reads.count("valid") >= 2, reads
                     assert len(notices) == 1 and "Memory review:" in notices[0]["payload"]["text"], (notices, audit[-9000:])
                     types = [f.get("params", {}).get("type") for f in frames]
-                    assert types.index("message.complete") < types.index("review.summary"), types
+                    assert scenario == "reconnect" or types.index("message.complete") < types.index("review.summary"), types
                 else:
-                    assert not patches and not notices and facts["state"] == "valid", (patches, notices, audit[-9000:])
+                    assert not patches and facts["state"] == "valid", (patches, notices, audit[-9000:])
+                    assert [n["payload"]["text"] for n in notices] == (["🧠 Memory review: 1 checked · no changes"] if scenario == "new_input" else []), (notices, audit[-9000:])
                     if scenario == "baseline":
                         assert "no_origin" in audit, audit[-9000:]
                     if scenario in {"tool", "cron", "delegated"}:

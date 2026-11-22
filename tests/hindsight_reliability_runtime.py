@@ -18,6 +18,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import socket
 import sys
 import threading
@@ -184,7 +185,7 @@ expected_applied = len(applied_labels)
 invalidated_ids = {IDS[text] for text, state in expected_state.items() if state == 'invalidated'}
 expected_notice_state = scenario.get('expected_notice_state') or (
     'suppressed_unbound_or_group' if applied_labels and not scenario['bound']
-    else 'handed_off' if applied_labels else 'not_needed')
+    else 'handed_off' if applied_labels or scenario['bound'] and scenario.get('cancel_after') is None and not scenario.get('superseded_before_admission') else 'not_needed')
 
 
 def expected_notice_text():
@@ -430,11 +431,17 @@ try:
     assert {patch['id'] for patch in patches} == invalidated_ids, (scenario_id, patches)
     for patch in patches:
         assert patch['reason'].startswith(INVALID_REASON[KINDS[patch['text']]]), (scenario_id, patch)
-    bound_notices = [expected_notice_text()] if expected_notice_text() and scenario['bound'] else []
-    assert notices == bound_notices, (scenario_id, notices, expected_notice_text())
+    if expected_notice_text() or not scenario['bound'] or scenario.get('cancel_after') is not None or scenario.get('superseded_before_admission'):
+        bound_notices = [expected_notice_text()] if expected_notice_text() and scenario['bound'] else []
+        assert notices == bound_notices, (scenario_id, notices, expected_notice_text())
+    else:
+        assert len(notices) == 1 and re.fullmatch(r'🧠 Memory review: (\d+ checked|review incomplete) · no changes', notices[0]), (scenario_id, notices)
+        assert ('review incomplete' in notices[0]) == (scenario['expected_status'] != 'complete'), (scenario_id, notices)
     finished = [json.loads(line) for line in audit_lines if '"event": "finished"' in line]
     assert len(finished) == 1, (scenario_id, audit_lines)
     finished = finished[0]
+    expected_notice = expected_notice_text() or (notices[0] if notices and not expected_applied and scenario['bound'] and re.fullmatch(
+        r'🧠 Memory review: %s · no changes' % (r'%d checked' % finished['reviewed'] if scenario['expected_status'] == 'complete' else 'review incomplete'), notices[0]) else '')
     for field in ('session_id', 'turn_id', 'status', 'counts', 'notice_state'):
         assert field in finished, finished
     assert finished['session_id'] == 'fixture-session' and finished['turn_id'] == 'fixture-turn', finished
@@ -455,7 +462,7 @@ try:
         'expected_applied': expected_applied, 'applied': len(patches),
         'write_verified': bool(expected_applied), 'status': finished['status'],
         'expected_status': scenario['expected_status'], 'notice': notices[0] if notices else '',
-        'expected_notice': expected_notice_text(), 'notice_state': finished['notice_state'],
+        'expected_notice': expected_notice, 'notice_state': finished['notice_state'],
         'expected_notice_state': expected_notice_state, 'audit_counts': counts,
         'boundary': 'registered real post_llm_call -> real reviewer thread -> loopback PluginLlm model '
                     '+ loopback Hindsight REST -> patched states verified against the declared oracle'}))
