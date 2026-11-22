@@ -26,6 +26,21 @@ Version 0.18.0 rewrites the second-pass noise confirmer after it was measured ag
 
 Replayed on 261 labelled cases with three repetitions each: noise recall 0.37 to 0.46, useful memories wrongly removed 4.3% to 1.4%, and none removed by majority vote. Expected removals rise about 14% (534 to roughly 610 over the same period). A candidate that also kept the unsure default only for fragments reached 0.52 recall but removed two useful memories, so it was rejected. The model and its labels are unchanged; this is a prompt-only change with no new retries.
 
+## What changed, one click away (0.22.0)
+
+A notice used to say `3 invalidated (2 duplicate · 1 outdated)` and nothing about which memories or why. On Desktop it now carries one extra line per change under that same first line, and Desktop shows them collapsed behind a chevron, so the row keeps its one-line height until you open it.
+
+```
+🧠 Memory review: 3 invalidated (2 duplicate · 1 outdated) ›
+  duplicate: "Obsidian rejected: not all-in-one" → kept: "Prefers Hindsight over Obsidian"
+  outdated: "Obsidian is canonical human KB" → evidence: "dropped Obsidian, Hindsight canonical"
+```
+
+- **Duplicate and superseded** lines show the old text and the memory that stayed (`kept:` or `newer:`). **Outdated** lines show the old text and the user message or tool result that refuted it (`evidence:`). A fragment or one-off has no counterpart and shows the old text only.
+- At most 5 lines, each memory cut to 80 characters with secret-looking spans replaced by `[redacted]` before the cut, then `+N more`. Only Desktop surfaces (`desktop`, `gui`) get the lines; Telegram and the TUI keep the single summary line.
+- Every applied change is also appended to `state/hindsight-reviewer/changes.jsonl` (mode 0600) with the memory id, kind, reason, kept id, text, kept text and evidence quote (500 characters each). The Desktop notice does not survive a reload; this file does, and a memory can be restored from its id with the hermes-memory-maintenance `hindsight_invalidate.py --restore`. A write failure there is logged and never blocks the review.
+- Older Desktop builds without the collapsible row show the extra lines as plain text under the summary.
+
 ## Result line and reconnecting Desktop (0.21.0, default reverted in 0.21.1)
 
 Two reasons a finished review showed nothing in Desktop or on mobile.

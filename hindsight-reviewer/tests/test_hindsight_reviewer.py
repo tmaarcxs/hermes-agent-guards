@@ -926,3 +926,82 @@ def test_noise_prompt_pins_the_calibrated_duplicate_hunt():
     assert "If both memories have the same date, use duplicate, not superseded." in text
     assert "Keep a memory only when you can name a specific fact, value, step or rule that no other memory carries." in text
     assert "Never mark as noise: preferences, authorizations, commitments or identity facts." in text
+
+
+DESKTOP_DETAIL = ("🧠 Memory review: 1 invalidated (1 outdated)\n"
+                  "outdated: \"The staging database runs on port 5432.\" → evidence: \"moved the staging database to port 6543\"")
+
+
+def _desktop_job(surface):
+    sent_by_review = []
+    original = reviewer.review
+
+    def with_surface(llm, job):
+        job["surface"] = surface
+        return original(llm, job)
+    return sent_by_review, with_surface
+
+
+def test_a_desktop_notice_lists_what_changed_under_the_summary_line(run, monkeypatch):
+    sent_by_review, with_surface = _desktop_job("desktop")
+    monkeypatch.setattr(reviewer, "review", with_surface)
+    applied, _ = run(FakeBank(), FakeLlm(), deliver=sent_by_review.append)
+    assert applied == 1 and sent_by_review == [DESKTOP_DETAIL]
+
+
+def test_a_gui_notice_lists_what_changed_too(run, monkeypatch):
+    sent_by_review, with_surface = _desktop_job("gui")
+    monkeypatch.setattr(reviewer, "review", with_surface)
+    run(FakeBank(), FakeLlm(), deliver=sent_by_review.append)
+    assert sent_by_review == [DESKTOP_DETAIL]
+
+
+@pytest.mark.parametrize("surface", ["telegram", "tui", "cli", ""])
+def test_other_surfaces_keep_the_one_line_notice(run, monkeypatch, surface):
+    sent_by_review, with_surface = _desktop_job(surface)
+    monkeypatch.setattr(reviewer, "review", with_surface)
+    run(FakeBank(), FakeLlm(), deliver=sent_by_review.append)
+    assert sent_by_review == ["🧠 Memory review: 1 invalidated (1 outdated)"]
+
+
+def test_a_duplicate_line_names_the_memory_that_was_kept(run, monkeypatch):
+    sent_by_review, with_surface = _desktop_job("desktop")
+    monkeypatch.setattr(reviewer, "review", with_surface)
+    bank = FakeBank()
+    many = [{"id": f"{i:08d}-0000-0000-0000-000000000000", "text": f"memory {i}"} for i in range(2)]
+    bank.rows[many[0]["id"]] = {"type": "world", "state": "valid", "text": "Curator runs every 168 hours.", "mentioned_at": "2026-10-01T00:00:00Z"}
+    bank.rows[many[1]["id"]] = {"type": "world", "state": "valid", "text": "Curator runs every 24 hours.", "mentioned_at": "2026-11-09T00:00:00Z"}
+    records = [{"id": many[0]["id"], "text": "Curator runs every 168 hours."}, {"id": many[1]["id"], "text": "Curator runs every 24 hours."}]
+    run(bank, NoiseLlm({many[0]["id"]: ("superseded", many[1]["id"])}), records=records, deliver=sent_by_review.append)
+    assert sent_by_review == ["🧠 Memory review: 1 invalidated (1 superseded)\n"
+                              "superseded: \"Curator runs every 168 hours.\" → newer: \"Curator runs every 24 hours.\""]
+
+
+def test_detail_lines_cap_at_five_clip_long_text_and_hide_secrets():
+    long_text = "x" * 200
+    changes = [{"kind": "duplicate", "text": long_text, "kept": "kept one", "id": str(i)} for i in range(7)]
+    lines = reviewer.detail_lines(changes)
+    assert len(lines) == 6 and lines[-1] == "+2 more"
+    assert lines[0] == 'duplicate: "' + "x" * 79 + '…" → kept: "kept one"'
+    secret = reviewer.detail_lines([{"kind": "fragment", "text": "token: sk-abcdefghijklmnopqrstuv in use", "id": "a"}])
+    assert "sk-abcdefghijklmnopqrstuv" not in secret[0] and "[redacted]" in secret[0]
+
+
+def test_every_applied_change_is_journaled_with_its_id_and_evidence(run, tmp_path):
+    bank = FakeBank()
+    run(bank, FakeLlm())
+    path = tmp_path / "state" / "hindsight-reviewer" / "changes.jsonl"
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    assert len(rows) == 1
+    assert rows[0]["memory_id"] == FACT and rows[0]["kind"] == "contradicted"
+    assert rows[0]["text"] == "The staging database runs on port 5432."
+    assert rows[0]["quote"] == "moved the staging database to port 6543"
+    assert rows[0]["reason"] == bank.rows[FACT]["invalidation_reason"] and rows[0]["version"] == reviewer.VERSION
+    assert oct(path.stat().st_mode & 0o777) == "0o600"
+
+
+def test_a_journal_failure_never_blocks_the_review(run, tmp_path):
+    (tmp_path / "state").write_text("a file where the directory must go", encoding="utf-8")
+    bank = FakeBank()
+    applied, _ = run(bank, FakeLlm())
+    assert applied == 1 and bank.rows[FACT]["state"] == "invalidated"

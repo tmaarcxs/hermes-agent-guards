@@ -25,6 +25,7 @@ hook.
 import asyncio
 import json
 import logging
+import os
 import re
 import sys
 import threading
@@ -56,6 +57,12 @@ UNATTENDED_FLAGS = ('HERMES_CRON_SESSION', 'HERMES_DELEGATED_CHILD_CONTEXT', 'HE
 _unattended_slots = _state.__dict__.setdefault('unattended_slots', threading.BoundedSemaphore(2))
 NOTICE_PREFIX = '🧠 Memory review: '
 NOTICE_LABELS = {'superseded': 'superseded', 'contradicted': 'outdated', 'duplicate': 'duplicate', 'fragment': 'no context', 'transient': 'one-off'}
+KEPT_LABELS = {'superseded': 'newer', 'duplicate': 'kept'}
+DETAIL_SURFACES = frozenset({'desktop', 'gui'})
+DETAIL_LIMIT = 5
+DETAIL_TEXT = 80
+JOURNAL_TEXT = 500
+VERSION = '0.22.0'
 
 
 def notice(items):
@@ -63,6 +70,44 @@ def notice(items):
     counts = Counter(NOTICE_LABELS[kind] for kind, _ in items)
     breakdown = ' · '.join(f'{n} {label}' for label, n in sorted(counts.items(), key=lambda pair: (-pair[1], pair[0])))
     return f'{NOTICE_PREFIX}{len(items)} invalidated ({breakdown})'
+
+
+def _clip(text, limit=DETAIL_TEXT):
+    """One line of at most *limit* characters with secret-looking spans removed before the cut."""
+    flat = _SECRET.sub('[redacted]', ' '.join(str(text).split()))
+    return flat if len(flat) <= limit else flat[:limit - 1].rstrip() + '…'
+
+
+def detail_lines(changes):
+    """What changed, one line per memory: the old text, then the memory that replaced it or the quote that refuted it."""
+    lines = []
+    for change in changes[:DETAIL_LIMIT]:
+        line = f'{NOTICE_LABELS[change["kind"]]}: "{_clip(change["text"])}"'
+        if change.get('quote'):
+            line += f' → evidence: "{_clip(change["quote"])}"'
+        elif change.get('kept'):
+            line += f' → {KEPT_LABELS[change["kind"]]}: "{_clip(change["kept"])}"'
+        lines.append(line)
+    if len(changes) > DETAIL_LIMIT:
+        lines.append(f'+{len(changes) - DETAIL_LIMIT} more')
+    return lines
+
+
+def journal(job, change):
+    """Append one permanent record per applied invalidation to state/hindsight-reviewer/changes.jsonl; never raises."""
+    try:
+        path = Path(job['home']) / 'state' / 'hindsight-reviewer' / 'changes.jsonl'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        record = {'at': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'session_id': job.get('session_id', ''),
+                  'turn_id': job.get('turn_id', ''), 'memory_id': change['id'], 'kind': change['kind'],
+                  'reason': change['reason'], 'kept_id': change.get('kept_id', ''),
+                  'text': _clip(change['text'], JOURNAL_TEXT), 'kept': _clip(change.get('kept', ''), JOURNAL_TEXT),
+                  'quote': _clip(change.get('quote', ''), JOURNAL_TEXT), 'version': VERSION}
+        descriptor = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+        with os.fdopen(descriptor, 'a', encoding='utf-8') as handle:
+            handle.write(json.dumps(record, ensure_ascii=False) + '\n')
+    except Exception as error:
+        logger.warning('Hindsight review journal write failed (%s)', type(error).__name__)
 
 
 def result_notice(checked, status):
@@ -505,7 +550,7 @@ def _gaps(outcomes):
 def _audit(job, **fields):
     """Only correlation ids, decisions and counters; never memory, evidence or exception text."""
     logger.info('Hindsight review audit: %s', json.dumps({
-        'version': '0.21.1', 'session_id': job.get('session_id', ''), 'turn_id': job.get('turn_id', ''),
+        'version': VERSION, 'session_id': job.get('session_id', ''), 'turn_id': job.get('turn_id', ''),
         **fields}, sort_keys=True))
 
 
@@ -613,7 +658,7 @@ def review(llm, job):
     """Finalize every admitted job, including changes confirmed before a later failure."""
     started = time.monotonic()
     outcomes, sources, route, failures = Counter(), {}, {}, Counter()
-    applied, cases = [], []
+    applied, changes, cases = [], [], []
     status, notice_state = 'complete', 'not_needed'
     _audit(job, event='started', bank=job['recall']['bank'], captured=len(job['recall']['records']),
            injected=job.get('injected_count', 0), tool_recalled=job.get('tool_count', 0),
@@ -704,6 +749,8 @@ def review(llm, job):
             outcomes['superseded_cases'] += outcome == 'superseded'
             if outcome == 'applied':
                 applied.append(('contradicted', text))
+                changes.append({'kind': 'contradicted', 'id': sid, 'text': text, 'quote': row['evidence_quote'], 'reason': reason})
+                journal(job, changes[-1])
             logger.info('Hindsight review %s memory %s (contradicted)', outcome, sid)
         refuted_ids = {row['id'] for row in decisions if row['decision'] == 'candidate'}
         survivors = policy.survivors(noisy)
@@ -748,6 +795,8 @@ def review(llm, job):
             outcomes['noise'] += outcome == 'applied'
             if outcome == 'applied':
                 applied.append((row['reason'], text))
+                changes.append({'kind': row['reason'], 'id': sid, 'text': text, 'kept': kept, 'kept_id': kept_id, 'reason': reason})
+                journal(job, changes[-1])
             logger.info('Hindsight review %s memory %s (noise: %s)', outcome, sid, row['reason'])
     except Exception as error:
         status = 'partial' if applied else 'failed'
@@ -772,6 +821,8 @@ def review(llm, job):
                 message += f" · {outcomes['unverified_writes']} write outcome(s) unknown"
             if status != 'complete':
                 message += ' · review incomplete'
+            if changes and job.get('surface') in DETAIL_SURFACES:
+                message += '\n' + '\n'.join(detail_lines(changes))
         elif mode == 'always' and cases and job.get('attended', True):
             message = result_notice(len(cases), status)
         if message:
