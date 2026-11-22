@@ -50,7 +50,7 @@ def test_reviewer_provider_failover_at_its_registered_event(plugin, scenario, su
     assert receipt['surface'] == surface
     assert receipt['lifecycle'] == lifecycle
     assert receipt['write_verified'] == (scenario in {'fallback', 'healthy', 'duplicates', 'noise'})
-    assert receipt['notice_count'] == int(receipt['write_verified']) + int(plugin == 'hindsight-reviewer' and not receipt['write_verified'])
+    assert receipt['notice_count'] == int(receipt['write_verified'])
 
 
 @pytest.mark.parametrize('plugin', ['hindsight-reviewer', 'jot-reviewer'])

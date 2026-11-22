@@ -26,14 +26,14 @@ Version 0.18.0 rewrites the second-pass noise confirmer after it was measured ag
 
 Replayed on 261 labelled cases with three repetitions each: noise recall 0.37 to 0.46, useful memories wrongly removed 4.3% to 1.4%, and none removed by majority vote. Expected removals rise about 14% (534 to roughly 610 over the same period). A candidate that also kept the unsure default only for fragments reached 0.52 recall but removed two useful memories, so it was rejected. The model and its labels are unchanged; this is a prompt-only change with no new retries.
 
-## Result line and reconnecting Desktop (0.21.0)
+## Result line and reconnecting Desktop (0.21.0, default reverted in 0.21.1)
 
 Two reasons a finished review showed nothing in Desktop or on mobile.
 
-- **No change meant no notice.** 59 of 99 reviews on the 0.20.1 Mac ended `not_needed` and posted nothing, so most turns never said the review had run. A review that checked memories and changed none now posts one line: `🧠 Memory review: 8 checked · no changes`. An incomplete review says `review incomplete · no changes` and never claims a count it did not check; a failed one says `review failed`. The line carries a count, never memory text. Machine-written turns (cron, tool, delegated) and turns with no sender stay silent as before.
+- **No change meant no notice.** 59 of 99 reviews on the 0.20.1 Mac ended `not_needed` and posted nothing, so most turns never said the review had run. With `notices: always`, a review that checked memories and changed none posts one line (off by default since 0.21.1, because a line on every quiet turn was noise): `🧠 Memory review: 8 checked · no changes`. An incomplete review says `review incomplete · no changes` and never claims a count it did not check; a failed one says `review failed`. The line carries a count, never memory text. Machine-written turns (cron, tool, delegated) and turns with no sender stay silent as before.
 - **A Desktop socket that dropped mid-turn lost the notice.** On the remote `hermes serve` route the resolver required a live socket at the instant the turn ended. 9 of 9 Claudia GUI turns whose socket closed mid-turn ended `suppressed_unbound_or_group`; 21 of 21 with a stable socket were handed off. The binding still requires the same session, route, profile and one running agent, but a detached viewer no longer unbinds the review. The notice waits up to 300 seconds for the viewer to reattach, which is longer than the 20 second grace the server gives an orphaned socket, and is dropped with a `notice_failed` audit line if nobody returns.
 
-`notices` now takes `true` (default, result line and change notices), `"changes"` (the previous behavior, a notice only when a memory changed) or `false` (silent). The audit `started` event also records `bound` and `origin` so a suppressed notice can be traced to its route without reading code.
+`notices` takes `true` or `"changes"` (default, a notice only when a memory changed), `"always"` (also the result line) or `false` (silent). The audit `started` event also records `bound` and `origin` so a suppressed notice can be traced to its route without reading code.
 
 ## Incomplete-review warning (0.20.1)
 
@@ -60,7 +60,7 @@ Turns whose user rows are machine-written (cron, subagent, curator, Kanban, one-
 
 ## Silent mode
 
-Version 0.15.0 adds `plugins.entries.hermes-agent-guards/hindsight-reviewer.notices`. Set it to `false` to keep every review and reversible invalidation running in the background without posting the chat notice; the audit log records `notice_state=suppressed_by_config`. Absent, unreadable or any other value keeps notices on; `"changes"` limits them to reviews that changed a memory (see 0.21.0).
+Version 0.15.0 adds `plugins.entries.hermes-agent-guards/hindsight-reviewer.notices`. Set it to `false` to keep every review and reversible invalidation running in the background without posting the chat notice; the audit log records `notice_state=suppressed_by_config`. Absent, unreadable or any other value keeps notices on; `"always"` also reports reviews that changed nothing (see 0.21.0).
 
 ## Remote Desktop delivery (serve/WebSocket)
 

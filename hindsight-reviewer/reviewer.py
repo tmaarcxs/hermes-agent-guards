@@ -449,18 +449,18 @@ def cron_route(home):
 
 
 def notices_mode(home):
-    """plugins.entries.hermes-agent-guards/hindsight-reviewer.notices: false is off (reviews still run), changes adds a notice
-    only when a memory changed, anything else (default) also reports a review that changed nothing."""
+    """plugins.entries.hermes-agent-guards/hindsight-reviewer.notices: false is off (reviews still run), "always" also reports a
+    review that changed nothing, anything else (default, true) notifies only when a memory changed."""
     try:
         import hermes_yaml
         config = hermes_yaml.safe_load((Path(home) / 'config.yaml').read_text(encoding='utf-8')) or {}
         entry = ((config.get('plugins') or {}).get('entries') or {}).get('hermes-agent-guards/hindsight-reviewer') or {}
         value = entry.get('notices', True)
     except Exception:
-        return 'always'
+        return 'changes'
     if value is False:
         return 'off'
-    return 'changes' if isinstance(value, str) and value.strip().lower() == 'changes' else 'always'
+    return 'always' if isinstance(value, str) and value.strip().lower() == 'always' else 'changes'
 
 
 def notices_enabled(home):
@@ -505,7 +505,7 @@ def _gaps(outcomes):
 def _audit(job, **fields):
     """Only correlation ids, decisions and counters; never memory, evidence or exception text."""
     logger.info('Hindsight review audit: %s', json.dumps({
-        'version': '0.21.0', 'session_id': job.get('session_id', ''), 'turn_id': job.get('turn_id', ''),
+        'version': '0.21.1', 'session_id': job.get('session_id', ''), 'turn_id': job.get('turn_id', ''),
         **fields}, sort_keys=True))
 
 
