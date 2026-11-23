@@ -71,6 +71,7 @@ try:
         git_stash_gate,
         hermes_home_gate,
         hermes_home_search_gate,
+        line_clipper,
         paas_promote_gate,
         plugin_source_gate,
         process_poll_gate,
@@ -122,21 +123,27 @@ def _transform_tool_result(**kwargs) -> Optional[str]:
 
 
 def _transform_terminal_output(**kwargs) -> Optional[str]:
-    """Annotate the tool's own-timeout death of a clamped ``terminal`` call.
+    """Annotate clamped timeouts (rc=124) and clip runaway single lines (rc=0).
 
-    The terminal tool runs this seam INSIDE the tool, so the rewritten 405 s call's
-    death gets the ``background=true`` note the later result hooks cannot deliver.
+    The terminal tool runs this seam INSIDE the tool before core head+tail truncation,
+    so the rewritten 405 s call's death gets its ``background=true`` note and a single
+    minified or ``ps`` line cannot push surrounding output past the capture cap.
     """
-    if kwargs.get("returncode") == 124:
+    returncode = kwargs.get("returncode")
+    command = kwargs.get("command") or ""
+    output = kwargs.get("output")
+    if returncode == 124:
         try:
-            note = terminal_policy.tool_note(
-                kwargs.get("output"), kwargs.get("command") or "",
-                kwargs.get("returncode"))
+            note = terminal_policy.tool_note(output, command, returncode)
             if note is not None:
                 return note
         except Exception:
             pass
-    return None
+        return None
+    try:
+        return line_clipper.clip(output, command=command, returncode=returncode)
+    except Exception:
+        return None
 
 
 def _pre_tool_call(tool_name: str = "", args: Optional[dict] = None, **kwargs) -> Optional[dict]:
