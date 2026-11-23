@@ -1,5 +1,5 @@
 name: shell-guards
-version: "0.15.0"
+version: "0.15.1"
 description: >
   Also block recursive find/grep -r/rg over the user home or / (with the Hermes home, installs and
   benchmarks), and keep a recursive grep out of node_modules, .git and .venv unless the command names

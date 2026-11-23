@@ -16,6 +16,12 @@
 The child shell can inherit the leak even when this process env is clean (Hermes builds
 the child env itself), so the rewrite keys on the command (python-like tools), not on
 ``os.environ``. Fails open; idempotent.
+
+The ``PYTHONPATH`` guard terminates with a newline rather than ``; `` so its
+``case ...)`` syntax stays off the user command's first line; otherwise the
+literal ``)`` prevents core ``tools.shell_heredoc`` from masking a quoted
+heredoc on that line, causing the lifecycle guard to scan data paths inside
+Python heredoc bodies as executed scripts.
 """
 
 import re
@@ -25,7 +31,7 @@ from typing import Optional
 from . import terminal_policy
 
 _MARK = "case \":$PYTHONPATH:\" in *\"/.hermes/installs/\"*)"
-_UNSET = _MARK + " unset PYTHONPATH;; esac; "
+_UNSET = _MARK + " unset PYTHONPATH;; esac\n"
 _RUNNER = re.compile(r"\b(?:pytest|unittest|ruff|mypy)\b")
 _PIPE_TO_VIEWER = re.compile(r"(?<!\|)\|(?!\|)\s*(?:tail|head)\b[^|]*$")
 _GREP = re.compile(terminal_policy._START + r"(?P<tool>grep|egrep|fgrep)(?=\s)(?P<rest>[^;|&\n]*)")

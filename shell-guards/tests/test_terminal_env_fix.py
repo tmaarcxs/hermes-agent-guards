@@ -67,3 +67,20 @@ def test_grep_rewrite_is_scoped_and_idempotent():
         "ls -r",
     ):
         assert fix("terminal", {"command": untouched}) is None, untouched
+
+
+def test_unset_prefix_ends_with_newline_keeping_heredoc_opener_clean():
+    """The case-closing paren must stay off the heredoc opener line so core
+    shell_heredoc masking still recognizes quoted python/cat heredocs."""
+    for cmd in (
+        "cd /tmp; python3 - <<'EOF'\nprint(open('/tmp/big.json'))\nEOF",
+        "cd /tmp; cat > a.py <<'EOF'\nprint(1)\nEOF\npython3 a.py",
+    ):
+        rewritten = fix("terminal", {"command": cmd})["command"]
+        lines = rewritten.splitlines()
+        assert lines[0].endswith("esac")
+        assert ")" not in lines[1]
+        assert fix("terminal", {"command": rewritten}) is None
+    res = run("python3 - <<'EOF'\nimport os\nprint('[' + os.environ.get('PYTHONPATH', '') + ']', end='')\nEOF", PYTHONPATH=POLLUTED)
+    assert res.returncode == 0
+    assert res.stdout == "[]"
