@@ -18,7 +18,6 @@ from unittest.mock import patch
 plugin, mode, home_arg, root_arg = sys.argv[1:]
 home, root = Path(home_arg), Path(root_arg)
 core = Path(os.environ['HERMES_REVIEWER_E2E_CORE'])
-jot = Path(os.environ['HERMES_REVIEWER_E2E_JOT'])
 sys.path.insert(0, str(core))
 
 os.environ.update(HERMES_HOME=str(home), HERMES_DATA_DIR=str(home), HOME=str(home),
@@ -85,12 +84,6 @@ class Handler(BaseHTTPRequestHandler):
         schema = body['response_format']['json_schema']['schema']
         if mode in {'malformed', 'malformed_primary'}:
             answer = {'wrong': True}
-        elif plugin == 'jot-reviewer':
-            if 'verdict' in schema['properties']:
-                answer = {'verdict': 'skip' if mode == 'rejected' else 'apply'}
-            else:
-                answer = {'changes': [{'op': 'set', 'day': today, 'task': 'Nebula: deploy PR #4242',
-                                       'state': '✅', 'next': 'Nada', 'evidence_quote': user}]}
         elif 'verdict' in schema['properties']:
             answer = {'verdict': 'noise' if mode == 'noise' else 'not_refuted' if mode == 'rejected' else 'refutes'}
         elif 'NOISE' in instruction:
@@ -114,8 +107,6 @@ key = 'hermes-agent-guards/' + plugin
 category = home / 'plugins/hermes-agent-guards'
 category.mkdir(parents=True, exist_ok=True)
 (category / plugin).symlink_to(root / plugin, target_is_directory=True)
-if plugin == 'jot-reviewer':
-    (home / 'plugins/jot').symlink_to(jot, target_is_directory=True)
 providers = {name + '-fixture': {'base_url': base + '/' + name + '/v1', 'api_key': 'synthetic',
                                 'transport': 'chat_completions', 'default_model': name + '-fixture'}
              for name in ('primary', 'backup')}
@@ -125,7 +116,7 @@ chain = [backup] if mode != 'duplicates' else [primary, backup, backup]
 config = {'model': {'default': 'primary-fixture', 'provider': primary['provider']},
           'cron': {'model': primary['model'], 'model_provider': primary['provider']},
           'providers': providers, 'fallback_providers': chain,
-          'plugins': {'enabled': [key] + (['jot'] if plugin == 'jot-reviewer' else []),
+          'plugins': {'enabled': [key],
                       'entries': {key: {'llm': {'allow_provider_override': True, 'allow_model_override': True,
                                                 'allowed_models': ['primary-fixture'] if mode == 'trust_denied' else '*'}}}}}
 (home / 'config.yaml').write_text(hermes_yaml.safe_dump(config), encoding='utf-8')
@@ -204,69 +195,32 @@ class FixtureDate(datetime.date):
 
 clock = patch('datetime.date', FixtureDate)
 clock.start()
-note_id = None
-backend = None
-if plugin == 'hindsight-reviewer':
-    reviewer._tool_recalls[current_sid] = {'bank': 'synthetic', 'records': [{'id': fact_id, 'text': fact_text}]}
-    today = ''
-else:
-    jot_module = manager._plugins['jot'].module
-    assert jot_module is not None
-    backend = sys.modules[jot_module.__name__ + '.backend']
-    switched = backend.handle_command('ai on')
-    assert 'on' in str(switched).lower(), switched
-    date = datetime.date.today()
-    assert date.weekday() < 5, 'Jot scenario requires a weekday'
-    today = reviewer.today_heading(date)
-    monday = date - datetime.timedelta(days=date.weekday())
-    note = '\n\n'.join('## ' + reviewer.DAYS[i] + ' ' + str((monday + datetime.timedelta(days=i)).day)
-                       + '\n\n| Estado | Tarea | Siguiente paso |\n| --- | --- | --- |\n'
-                       + ('| 🔄 | Nebula: deploy PR #4242 | Deploy |' if i == date.weekday() else '| ⚪ |  |  |')
-                       for i in range(5))
-    created = tool('jot_create', {'title': 'Semana synthetic', 'text': note})
-    note_id = created['id']
-    user = 'Nebula: deploy PR #4242 is complete and verified.'
-    if mode == 'collaboration_disabled':
-        backend.handle_command('ai off')
+reviewer._tool_recalls[current_sid] = {'bank': 'synthetic', 'records': [{'id': fact_id, 'text': fact_text}]}
 
 try:
-    if plugin == 'jot-reviewer':
-        print('REVIEWER_RUNTIME=' + json.dumps({'node': shutil.which('node'), 'source': str(root / plugin), 'probe_present': (root / plugin / 'scripts/probe-runtime.mts').is_file()}))
     plugins.invoke_hook('post_llm_call', session_id=current_sid, turn_id='fixture-turn',
                         user_message=user, assistant_response='Synthetic acknowledgement.',
                         conversation_history=[{'role': 'user', 'content': user},
                                               {'role': 'assistant', 'content': 'Synthetic acknowledgement.'}])
     workers = [t for t in threading.enumerate() if t.name == plugin]
-    assert workers or mode == 'collaboration_disabled', 'Real post-turn hook did not admit its reviewer'
+    assert workers, 'Real post-turn hook did not admit its reviewer'
     for worker in workers:
         worker.join(timeout=45)
         assert not worker.is_alive(), 'Reviewer did not finish in its budget'
     expected_write = mode in {'fallback', 'healthy', 'duplicates', 'noise'}
-    if plugin == 'hindsight-reviewer':
-        assert fact['state'] == ('invalidated' if expected_write else 'valid'), (mode, fact, calls)
-        assert len(patches) == int(expected_write), patches
-        assert (reads[-1] == 'invalidated') == expected_write, reads
-    else:
-        assert isinstance(note_id, str)
-        if mode == 'collaboration_disabled':
-            assert backend is not None
-            backend.handle_command('ai on')
-        after = tool('jot_read', {'id': note_id})
-        markdown = after['markdown']
-        assert ('✅' in markdown) == expected_write, (mode, markdown, calls)
-        assert after['revision'] == (2 if expected_write else 1), after
+    assert fact['state'] == ('invalidated' if expected_write else 'valid'), (mode, fact, calls)
+    assert len(patches) == int(expected_write), patches
+    assert (reads[-1] == 'invalidated') == expected_write, reads
     assert len(notices) == int(expected_write), notices
     if surface == 'desktop':
         assert desktop_events == ['review.summary'] * int(expected_write), desktop_events
-    stages = 3 if plugin == 'hindsight-reviewer' else 2
-    if mode in {'runtime_missing', 'collaboration_disabled'}:
-        assert not calls, calls
-    elif mode == 'healthy':
+    stages = 3
+    if mode == 'healthy':
         assert calls == {'primary': stages}, calls
     elif mode == 'malformed_primary':
-        assert calls == {'primary': 2 if plugin == 'hindsight-reviewer' else 1}, calls
+        assert calls == {'primary': 2}, calls
     elif mode in {'exhausted', 'malformed', 'trust_denied'}:
-        initial = 2 if plugin == 'hindsight-reviewer' else 1
+        initial = 2
         assert calls['primary'] == initial, calls
         assert calls['backup'] == (0 if mode == 'trust_denied' else initial), calls
     else:
@@ -274,7 +228,7 @@ try:
     print('REVIEWER_E2E_RESULT=' + json.dumps({'plugin': plugin, 'scenario': mode, 'surface': surface, 'lifecycle': lifecycle, 'http_calls': calls,
                       'write_verified': expected_write, 'notice_count': len(notices),
                       'boundary': 'registered real post_llm_call event -> native PluginLlm -> real auxiliary/HTTP -> real reviewer writes/readback',
-                      'external_dependencies': 'loopback model and Hindsight REST; real isolated Jot store/CLI; seeded recalled-source fixture'}))
+                      'external_dependencies': 'loopback model and Hindsight REST; seeded recalled-source fixture'}))
 finally:
     clock.stop()
     server.shutdown()

@@ -12,7 +12,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
-@pytest.fixture(params=["hindsight-reviewer", "jot-reviewer"])
+@pytest.fixture(params=["hindsight-reviewer"])
 def desktop(request, monkeypatch):
     name = "desktop_test_" + request.param.replace("-", "_")
     spec = importlib.util.spec_from_file_location(name, ROOT / request.param / "__init__.py", submodule_search_locations=[str(ROOT / request.param)])
@@ -111,9 +111,6 @@ def test_desktop_report_reaches_real_session_events_without_another_turn(desktop
     assert sent[0][1]["text"] == "Desktop reviewer fixture: 1 verified synthetic change"
 
 
-def test_desktop_helper_copies_stay_identical():
-    assert (ROOT / "hindsight-reviewer/desktop.py").read_bytes() == (ROOT / "jot-reviewer/desktop.py").read_bytes()
-
 
 def test_ambiguous_desktop_agent_does_not_admit(desktop):
     reviewer, _env, runner, _live, sender, *_ = desktop
@@ -171,11 +168,8 @@ def test_local_job_captures_the_validated_sender_once(desktop, monkeypatch):
         def start(self):
             self.target()
     monkeypatch.setattr(reviewer.threading, "Thread", InlineThread)
-    if hasattr(reviewer, "_jot_available"):
-        monkeypatch.setattr(reviewer, "_jot_available", lambda: True)
-    else:
-        reviewer._tool_recalls[env["HERMES_SESSION_ID"]] = {"bank": "synthetic", "records": [
-            {"id": "11111111-1111-1111-1111-111111111111", "text": "Synthetic port is 5432."}]}
+    reviewer._tool_recalls[env["HERMES_SESSION_ID"]] = {"bank": "synthetic", "records": [
+        {"id": "11111111-1111-1111-1111-111111111111", "text": "Synthetic port is 5432."}]}
     reviewer.on_post_llm_call(session_id=env["HERMES_SESSION_ID"], turn_id="synthetic-turn",
         user_message="Synthetic port is 6543.", assistant_response="Acknowledged.",
         conversation_history=[{"role": "user", "content": "Synthetic port is 6543."}])

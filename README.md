@@ -106,12 +106,6 @@ Answers: *can narrowly identified upstream failures recover?*
 - Copilot HTTP 400 with both `upstream_request_rejected` and the exact message `The model provider rejected the request.` permits configured fallback without retrying the rejected primary.
 - Other errors, including explicit content-policy and parameter failures, stay with the core. Fails open; no Hermes core or model-configuration changes.
 
-### `jot-reviewer` — capability-gated board review
-
-- Preserves proposal, confirmation, deterministic policy, revision and readback gates.
-- Owns its locked TypeScript runtime; imports the actual Jot writer modules before paying for model proposals. Missing capability skips the job visibly.
-- Install dependencies with `python3 install-runtime.py` in the plugin directory. Runtime packages stay in its private `.venv`; no Hermes core or global package edits.
-
 Each folder's `README.md` documents its own rules in full.
 
 ## Install
@@ -153,7 +147,7 @@ re-introduce a load-order dependency across otherwise independent plugins.
 
 ## Reviewer model failover
 
-The Hindsight and Jot reviewers use the cron model first. If the host's structured
+The Hindsight reviewer uses the cron model first. If the host's structured
 call still raises a provider error (including HTTP 424), every proposal and skeptical
 confirmation can try the configured `fallback_providers` chain in order. Each distinct
 provider/model pair is attempted once per stage by plugin code; host-normalized
@@ -174,9 +168,8 @@ folder, following this repository's self-contained-plugin convention.
 
 ## Tests
 
-Reviewer event E2E coverage requires an installed Hermes core, the Jot plugin runtime,
-Node.js and the core's `node_modules/.bin/tsx`. Set `HERMES_REVIEWER_E2E_CORE` and
-`HERMES_REVIEWER_E2E_JOT` when they are not in the usual `~/.hermes` locations:
+Reviewer event E2E coverage requires an installed Hermes core. Set
+`HERMES_REVIEWER_E2E_CORE` when it is not in the usual `~/.hermes` location:
 
 ```sh
 python -m pytest -q tests/test_reviewer_fallback_e2e.py
@@ -184,9 +177,8 @@ python -m pytest -q tests/test_reviewer_fallback_e2e.py
 
 The fixture enters registered `pre_gateway_dispatch`/`post_llm_call` events, uses native
 `PluginContext.llm`, trust and auxiliary routing, and drives actual reviewer threads.
-It seeds the consumed recall metadata, serves synthetic model/Hindsight HTTP responses
-on loopback, and uses the real Jot tools, store and weekly-board CLI on isolated notes.
-The clock is fixed to a weekday. No real chat, provider, bank or note is contacted;
+It seeds the consumed recall metadata and serves synthetic model/Hindsight HTTP responses
+on loopback. No real chat, provider or bank is contacted;
 non-loopback socket connections fail. Scenarios cover healthy primary, provider failover,
 exhaustion, malformed output, rejected confirmation, denied fallback trust, duplicate
 routes, and Hindsight noise confirmation. Set `HERMES_REVIEWER_E2E_ROOT` to a baseline
@@ -228,7 +220,7 @@ idle. Native delivery and all memory confirmation/readback gates are unchanged.
 
 ## Native Desktop reviewer support
 
-`hindsight-reviewer` 0.13.1 and `jot-reviewer` 0.9.1 bind native Desktop turns to the active profile authority and its exact unfinished agent. Reports use the agents existing `review.summary` sender after reply completion, without another agent turn or Telegram redirection. Unsupported/unbound local surfaces and unattended runs stay idle; Telegram private delivery and group suppression remain unchanged. Existing memory and board write gates are not relaxed. Both standalone plugins carry a byte-identical Desktop resolver. Registered-event E2E covers both Desktop and Telegram with isolated persistence.
+`hindsight-reviewer` 0.13.1 binds native Desktop turns to the active profile authority and its exact unfinished agent. Reports use the agents existing `review.summary` sender after reply completion, without another agent turn or Telegram redirection. Unsupported/unbound local surfaces and unattended runs stay idle; Telegram private delivery and group suppression remain unchanged. Existing memory write gates are not relaxed. Registered-event E2E covers both Desktop and Telegram with isolated persistence.
 
 The Desktop owner is looked up by its stable chat id, so transcript-id rotation does not disable review. Repeated unfinished worker holders for the same cached agent are deduplicated; distinct matching agents remain ambiguous and fail closed. The validated sender is captured once when the local turn is admitted, then removed from the origin metadata before job construction.
 
