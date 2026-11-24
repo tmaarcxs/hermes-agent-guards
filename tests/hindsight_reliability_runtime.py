@@ -7,6 +7,11 @@ OpenAI-compatible model backend and the Hindsight REST service). Recall metadata
 same way the existing harness does (the reviewer's shared tool-recall registry), and the test
 waits on the bounded join of the real worker thread.
 
+Since reviewer 0.20.1 (commit bcf9457), a rejected or missing proposal row is an abstention,
+not lost coverage: only a batch that returns no usable row marks the review partial, so the
+malformed_rows scenario keeps expected_status 'complete' while its successful invalidation
+still counts in the notice.
+
 The oracle is declared from the scenario table before any model output is consumed: expected
 final states, invalidation reasons, notice text and audit status are derived from the record
 kinds and fault rules alone. The loopback model answers from the same declared kinds and may
@@ -134,7 +139,7 @@ SCENARIOS = {
                        'evil_propose': True, 'evil_noise': True,
                        'expect_counts': {'review_rejected_rows': 3, 'review_missing_rows': 1,
                                          'noise_rejected_rows': 1},
-                       'bound': True, 'expected_status': 'partial'},
+                       'bound': True, 'expected_status': 'complete'},
     'protected': {'recall': [entry('protected'), plain(13)], 'bound': True, 'expected_status': 'complete'},
     'duplicate_survivor_gone': {'recall': [entry('dup_first'), entry('dup_later'), plain(14)],
                                 'get404_after': {T['dup_first']: 1},

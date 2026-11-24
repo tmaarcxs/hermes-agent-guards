@@ -113,14 +113,54 @@ from agent.title_generator import apply_instant_title, auto_title_session
 plugins.discover_plugins(force=True)
 assert plugins.get_plugin_manager()._plugins[key].module is not None
 notices, failures = [], []
-db = SessionDB(home / 'state.db')
 session_id = 'provider-rejection-fixture'
 user = 'Should raw world and experience memories be recalled for cleanup?'
+
+def read_title(db, session_id):
+    row = db.get_session(session_id) or {}
+    return row.get('title'), row.get('title_source')
+
+
+class _TitleReads(SessionDB):
+    """SessionDB plus the session-title read surface the core title path consumes.
+
+    The deprecation shim only lists plugin-guide methods, so ``get_session_title`` /
+    ``get_session_title_source`` raise and the core falls back to "already upgraded",
+    skipping the whole title flow. Host code no longer drives this through the shim
+    either (persistence is passed); exposing the documented row fields keeps this
+    regression scenario exercising the native flow on current cores.
+    """
+
+    def get_session_title(self, session_id='__unset__'):
+        return (self.get_session(session_id) or {}).get('title')
+
+    def get_session_title_source(self, session_id='__unset__'):
+        return (self.get_session(session_id) or {}).get('title_source')
+
+    def get_conversation_root(self, session_id='__unset__'):
+        return session_id
+
+    def set_auto_title(self, session_id='__unset__', title='', source='derived'):
+        """The store contract ``_persist_session_title`` relies on: a single call that
+        records title AND provenance. The bare shim's ``set_session_title`` always
+        records 'user', which would make every placeholder look user-authoritative."""
+        store = self._store
+        ok = False
+        if source == 'user':
+            ok = store.sessions.set_title(session_id, title)
+        else:
+            from persistence.conversation.sessions import TitleSource
+            ok = store.sessions.set_auto_title(session_id, title, source=TitleSource(source))
+        return ok
+
+
+db = _TitleReads(home / 'state.db')
+
 try:
     db.create_session(session_id, source='cli')
     apply_instant_title(db, session_id, user)
-    placeholder = db.get_session_title(session_id)
-    assert db.get_session_title_source(session_id) == 'derived'
+    placeholder, placeholder_source = read_title(db, session_id)
+    assert placeholder_source == 'derived', placeholder_source
     auto_title_session(db, session_id, user, title_callback=lambda *args: notices.append(args),
                        failure_callback=lambda *args: failures.append(str(args[1])))
     success = scenario in {'recovery', 'healthy'}
@@ -128,15 +168,17 @@ try:
     if scenario in {'recovery', 'exhausted'}:
         expected_calls['backup'] = 1
     assert dict(calls) == expected_calls, (scenario, calls, requests, failures)
-    assert db.get_session_title(session_id) == (expected_title if success else placeholder), (scenario, failures)
-    assert db.get_session_title_source(session_id) == ('llm' if success else 'derived')
+    final_title, final_source = read_title(db, session_id)
+    assert final_title == (expected_title if success else placeholder), (scenario, failures)
+    assert final_source == ('llm' if success else 'derived'), (scenario, final_source)
     assert notices == ([(expected_title, 'llm')] if success else []), notices
     assert len(failures) == int(not success), failures
     db.close()
     db = SessionDB(home / 'state.db')
-    assert db.get_session_title_source(session_id) == ('llm' if success else 'derived')
+    _, persisted_source = read_title(db, session_id)
+    assert persisted_source == ('llm' if success else 'derived'), (scenario, persisted_source)
     print('PROVIDER_E2E_RESULT=' + json.dumps({'scenario': scenario, 'calls': calls,
-          'title_source': db.get_session_title_source(session_id), 'callback_count': len(notices),
+          'title_source': persisted_source, 'callback_count': len(notices),
           'boundary': 'native auto_title_session -> registered plugin -> auxiliary HTTP fallback -> SessionDB readback',
           'external_dependency': 'loopback OpenAI-compatible provider'}))
 finally:

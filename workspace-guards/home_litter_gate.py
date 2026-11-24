@@ -29,9 +29,9 @@ The lead is never affected; only worker processes (``HERMES_KANBAN_TASK`` set)
 are checked. A creating head counts only in command position — ``grep -rn
 mkdir src`` reads, it does not create. The command word is the first token that
 is not a leading wrapper, a ``VAR=value`` word, or a wrapper's own option (and
-that option's argument, where it takes one), so ``sudo -u root mkdir x``,
-``nice -n 5 mkdir x``, ``env -i mkdir x`` and ``timeout 5 mkdir x`` are all
-recognised. A python ``-c``/heredoc creating call contributes only its write
+that option's argument, where it takes one), so a privilege wrapper carrying
+a user flag, a niceness prefix, a cleared environment or a timeout prefix are
+all recognised. A python ``-c``/heredoc creating call contributes only its write
 target — never a copy source — resolved against the command's own cwd, so
 ``python3 -c "os.makedirs('brandnew')"`` with the cwd at ``~`` is caught.
 Unknown command shapes fail open.
@@ -80,9 +80,9 @@ children so the same create/allow decision applies.
 _WRAPPERS = frozenset({"sudo", "command", "nohup", "time", "exec", "env", "nice", "ionice", "stdbuf", "timeout"})
 """Words that may precede the real command word without being it.
 
-``sudo mkdir x`` still creates ``~/x``; a create head is only recognised in
-command position, so these wrappers — and the options each may carry — are
-skipped when locating it.
+a privilege-wrapped create still creates its target; a create head is only
+recognised in command position, so these wrappers — and the options each may
+carry — are skipped when locating it.
 """
 
 _ARG_OPTIONS = {
@@ -103,11 +103,11 @@ _ARG_OPTIONS = {
 }
 """Wrapper options that consume the *next* token as their argument, per wrapper.
 
-``sudo -u root mkdir x`` names ``root`` as ``-u``'s argument, so the head is the
-token after it; without this ``-u`` reads as the command word and the create
-head behind it is missed. The sets are per wrapper because the same letter
-differs: ``sudo -n`` takes no argument while ``nice -n 5`` does. An attached
-form (``-c2``, ``--user=root``) consumes nothing extra.
+with an option that consumes the next token, that token is the option's
+value, not the command word: the create head behind it would otherwise be
+missed. The sets are per wrapper because the same letter can differ between
+wrappers — one may take no argument while another does. An attached form (a
+bundled value, ``--opt=value``) consumes nothing extra.
 """
 
 _WRAPPER_OPERANDS = {"timeout": 1}
