@@ -45,7 +45,11 @@ CTX = None
 _state = sys.modules.setdefault('hermes_hindsight_reviewer_state', types.ModuleType('hermes_hindsight_reviewer_state'))
 _recalls = _state.__dict__.setdefault('recalls', {})
 _tool_recalls = _state.__dict__.setdefault('tool_recalls', {})
-MEMORY_TOOLS = frozenset({'hindsight_recall', 'hindsight_reflect', 'hindsight_retain', 'memory', 'session_search'})
+MEMORY_TOOLS = frozenset({
+    'hindsight_recall', 'hindsight_reflect', 'hindsight_retain',
+    'hindsight_search_pages', 'hindsight_read_page', 'hindsight_list_pages', 'hindsight_create_page',
+    'memory', 'session_search',
+})
 _lock = _state.__dict__.setdefault('lock', threading.Lock())
 _write_lock = _state.__dict__.setdefault('write_lock', threading.Lock())
 _gateway = _state.__dict__.setdefault('gateway', {})
@@ -62,7 +66,7 @@ DETAIL_SURFACES = frozenset({'desktop', 'gui'})
 DETAIL_LIMIT = 5
 DETAIL_TEXT = 80
 JOURNAL_TEXT = 500
-VERSION = '0.22.0'
+VERSION = '0.22.1'
 
 
 def notice(items):
@@ -221,7 +225,8 @@ def _patch(cls):
     prefetch._hindsight_reviewer = True
     cls.prefetch = prefetch
     cls._tool_recall = tool_recall
-    cls._TOOL_HANDLERS = {**cls._TOOL_HANDLERS, 'hindsight_recall': ('query', tool_recall, cls._TOOL_HANDLERS['hindsight_recall'][2])}
+    req_arg, _, fail_msg = cls._TOOL_HANDLERS['hindsight_recall']
+    cls._TOOL_HANDLERS = {**cls._TOOL_HANDLERS, 'hindsight_recall': (req_arg, tool_recall, fail_msg)}
 
 
 def _route_key(source):

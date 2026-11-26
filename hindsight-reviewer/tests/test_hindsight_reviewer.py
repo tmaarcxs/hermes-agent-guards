@@ -1005,3 +1005,56 @@ def test_a_journal_failure_never_blocks_the_review(run, tmp_path):
     bank = FakeBank()
     applied, _ = run(bank, FakeLlm())
     assert applied == 1 and bank.rows[FACT]["state"] == "invalidated"
+
+
+def test_patch_preserves_v2_tuple_required_args_in_tool_handlers():
+    class V2Provider:
+        _bank_id = "work"
+        _session_id = "sess-v2"
+        _recall_sync = True
+        _prefetch_method = "recall"
+
+        def _build_recall_bank_ids(self):
+            return [self._bank_id]
+
+        def _recall(self, query):
+            return [types.SimpleNamespace(id=FACT, text="fact")]
+
+        def prefetch(self, query, *, session_id=""):
+            return "block"
+
+        def _tool_recall(self, args):
+            self._recall(args["query"])
+            return "ok"
+
+        _TOOL_HANDLERS = {"hindsight_recall": (("query",), _tool_recall, "Failed to search memory")}
+
+    reviewer._patch(V2Provider)
+    req_arg, handler, fail_msg = V2Provider._TOOL_HANDLERS["hindsight_recall"]
+    assert req_arg == ("query",)
+    assert fail_msg == "Failed to search memory"
+    prov = V2Provider()
+    assert handler(prov, {"query": "ports"}) == "ok"
+    assert reviewer._tool_recalls.pop("sess-v2")["records"][0]["id"] == FACT
+
+
+@pytest.mark.parametrize("tool_name", [
+    "hindsight_search_pages",
+    "hindsight_read_page",
+    "hindsight_list_pages",
+    "hindsight_create_page",
+])
+def test_hindsight_v2_page_tools_are_never_quotable_evidence(tool_name):
+    assert tool_name in reviewer.MEMORY_TOOLS
+    pytest.importorskip("agent.background_review")
+    rows = [
+        {"role": "user", "content": "check docs"},
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "p1", "function": {"name": tool_name}},
+            {"id": "t1", "function": {"name": "terminal"}},
+        ]},
+        {"role": "tool", "tool_call_id": "p1", "name": tool_name, "content": "page memory text"},
+        {"role": "tool", "tool_call_id": "t1", "name": "terminal", "content": "real command output"},
+    ]
+    _, quotable = reviewer.conversation_context(rows)
+    assert quotable == ["check docs", "real command output"]
